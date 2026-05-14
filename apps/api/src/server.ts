@@ -1,6 +1,5 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
-import jwt from '@fastify/jwt'
 import sensible from '@fastify/sensible'
 
 import { scheduleRoutes } from './routes/schedule.js'
@@ -14,12 +13,8 @@ import { setupJobs } from './jobs/index.js'
 const app = Fastify({ logger: true })
 
 await app.register(cors, {
-  origin: process.env.CORS_ORIGIN ?? 'http://localhost:3000',
+  origin: (process.env.CORS_ORIGIN ?? 'http://localhost:3000').split(','),
   credentials: true,
-})
-
-await app.register(jwt, {
-  secret: process.env.SUPABASE_JWT_SECRET!,
 })
 
 await app.register(sensible)
