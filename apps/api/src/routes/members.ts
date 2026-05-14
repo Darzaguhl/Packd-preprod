@@ -1,0 +1,64 @@
+import type { FastifyInstance } from 'fastify'
+import { prisma } from '@packd/db'
+import { requireAuth, getUser } from '../lib/auth.js'
+
+export async function memberRoutes(app: FastifyInstance) {
+  // GET /members/me
+  app.get('/me', { preHandler: requireAuth }, async (request, reply) => {
+    const user = getUser(request)
+
+    const member = await prisma.member.findUniqueOrThrow({
+      where: { userId: user.id },
+      include: {
+        user: true,
+        creditBalance: true,
+        memberships: {
+          where: { status: 'ACTIVE' },
+          include: { plan: true },
+          take: 1,
+          orderBy: { startDate: 'desc' },
+        },
+      },
+    })
+
+    return {
+      id: member.id,
+      firstName: member.user.firstName,
+      lastName: member.user.lastName,
+      email: member.user.email,
+      creditBalance: member.creditBalance?.balance ?? 0,
+      activeSubscription: member.memberships[0]
+        ? {
+            planName: member.memberships[0].plan.name,
+            status: member.memberships[0].status,
+            endDate: member.memberships[0].endDate?.toISOString(),
+          }
+        : undefined,
+    }
+  })
+
+  // GET /members/me/bookings
+  app.get('/me/bookings', { preHandler: requireAuth }, async (request, reply) => {
+    const user = getUser(request)
+
+    const bookings = await prisma.booking.findMany({
+      where: {
+        member: { userId: user.id },
+        status: 'CONFIRMED',
+        session: { startsAt: { gte: new Date() } },
+      },
+      include: {
+        session: {
+          include: {
+            template: true,
+            instructor: { include: { user: true } },
+            room: { include: { location: true } },
+          },
+        },
+      },
+      orderBy: { session: { startsAt: 'asc' } },
+    })
+
+    return bookings
+  })
+}

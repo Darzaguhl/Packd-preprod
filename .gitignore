@@ -1,0 +1,12 @@
+node_modules
+.turbo
+dist
+.next
+.env
+.env.local
+.env.*.local
+*.env
+prisma/migrations/
+build
+.expo
+*.tsbuildinfo
