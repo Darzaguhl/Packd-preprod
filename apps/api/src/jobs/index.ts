@@ -7,6 +7,17 @@ export async function setupJobs() {
   boss = new PgBoss(process.env.DATABASE_URL!)
   await boss.start()
 
+  // Create all queues first (required in pg-boss v10 — sequential to avoid DDL deadlocks)
+  for (const name of [
+    'waitlist.expire',
+    'booking.late-cancel-fee',
+    'session.no-show',
+    'nightly.maintenance',
+    'membership.renewal-reminder',
+  ]) {
+    await boss.createQueue(name)
+  }
+
   // Waitlist expiry — runs when a notified member doesn't confirm in time
   await boss.work('waitlist.expire', async ([job]) => {
     const { waitlistEntryId } = job.data as { waitlistEntryId: string }

@@ -53,4 +53,23 @@ export const api = {
   members: {
     me: (token: string) => apiFetch<MemberProfile>('/members/me', { token }),
   },
+  studios: {
+    create: (
+      body: {
+        name: string
+        slug: string
+        timezone: string
+        currency: string
+        policy: { lateCancelWindowHours: number; lateCancelFeeCredits: number; noShowFeeCredits: number }
+        location: { name: string; address: string; city: string; country: string }
+        rooms: { name: string; capacity: number; sport: string }[]
+      },
+      token: string,
+    ) =>
+      apiFetch<ApiResponse<{ id: string }>>('/studios/onboard', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        token,
+      }),
+  },
 }

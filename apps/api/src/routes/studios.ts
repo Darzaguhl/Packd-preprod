@@ -31,6 +31,57 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
+  // POST /studios/onboard — full studio setup in one transaction
+  app.post<{
+    Body: {
+      name: string
+      slug: string
+      timezone: string
+      currency: string
+      policy: { lateCancelWindowHours: number; lateCancelFeeCredits: number; noShowFeeCredits: number }
+      location: { name: string; address: string; city: string; country: string }
+      rooms: { name: string; capacity: number; sport: string }[]
+    }
+  }>(
+    '/onboard',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { name, slug, timezone, currency, policy, location, rooms } = request.body
+
+      const studio = await prisma.$transaction(async (tx) => {
+        const s = await tx.studio.create({
+          data: {
+            name, slug, timezone, currency,
+            cancellationPolicy: { create: policy },
+          },
+        })
+
+        const loc = await tx.location.create({
+          data: {
+            studioId: s.id,
+            name: location.name,
+            address: location.address,
+            city: location.city,
+            country: location.country,
+            timezone,
+          },
+        })
+
+        await Promise.all(
+          rooms.map((room) =>
+            tx.room.create({
+              data: { locationId: loc.id, name: room.name, capacity: room.capacity },
+            }),
+          ),
+        )
+
+        return s
+      })
+
+      return reply.code(201).send({ success: true, data: { id: studio.id } })
+    },
+  )
+
   // GET /studios/:studioId/membership-plans
   app.get<{ Params: { studioId: string } }>(
     '/:studioId/membership-plans',
