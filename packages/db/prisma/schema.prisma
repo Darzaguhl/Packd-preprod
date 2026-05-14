@@ -1,0 +1,316 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Studio (tenant) ────────────────────────────────────────────────────────
+
+model Studio {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  logoUrl     String?
+  primaryColor String  @default("#000000")
+  timezone    String   @default("UTC")
+  currency    String   @default("USD")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  locations     Location[]
+  instructors   Instructor[]
+  members       Member[]
+  classTemplates ClassTemplate[]
+  classSessions  ClassSession[]
+  memberships    MembershipPlan[]
+  products       Product[]
+  cancellationPolicy CancellationPolicy?
+}
+
+// ─── Auth & Users ────────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id // matches Supabase Auth user id
+  email     String   @unique
+  firstName String
+  lastName  String
+  avatarUrl String?
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  member     Member?
+  instructor Instructor?
+}
+
+// ─── Location & Rooms ────────────────────────────────────────────────────────
+
+model Location {
+  id        String  @id @default(cuid())
+  studioId  String
+  name      String
+  address   String
+  city      String
+  country   String
+  timezone  String
+
+  studio   Studio @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  rooms    Room[]
+}
+
+model Room {
+  id         String  @id @default(cuid())
+  locationId String
+  name       String
+  capacity   Int
+  layout     Json?   // spot map: [{id, row, col, label}]
+
+  location      Location       @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  classSessions ClassSession[]
+}
+
+// ─── Instructors ─────────────────────────────────────────────────────────────
+
+model Instructor {
+  id        String  @id @default(cuid())
+  userId    String  @unique
+  studioId  String
+  bio       String?
+  photoUrl  String?
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  studio        Studio         @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  classSessions ClassSession[]
+}
+
+// ─── Class Templates & Sessions ──────────────────────────────────────────────
+
+model ClassTemplate {
+  id          String   @id @default(cuid())
+  studioId    String
+  name        String
+  description String?
+  durationMin Int
+  sport       SportType
+  color       String   @default("#6366f1")
+  imageUrl    String?
+
+  studio        Studio         @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  classSessions ClassSession[]
+}
+
+enum SportType {
+  CYCLING
+  HIIT
+  YOGA
+  PILATES
+  BARRE
+  ROWING
+  RUNNING
+  STRENGTH
+  OTHER
+}
+
+model ClassSession {
+  id           String        @id @default(cuid())
+  studioId     String
+  templateId   String
+  instructorId String
+  roomId       String
+  startsAt     DateTime
+  endsAt       DateTime
+  capacity     Int
+  status       SessionStatus @default(SCHEDULED)
+  creditsRequired Int        @default(1)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  studio       Studio        @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  template     ClassTemplate @relation(fields: [templateId], references: [id])
+  instructor   Instructor    @relation(fields: [instructorId], references: [id])
+  room         Room          @relation(fields: [roomId], references: [id])
+  bookings     Booking[]
+  waitlist     WaitlistEntry[]
+
+  @@index([studioId, startsAt])
+}
+
+enum SessionStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// ─── Members ─────────────────────────────────────────────────────────────────
+
+model Member {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  studioId  String
+  joinedAt  DateTime @default(now())
+  notes     String?
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  studio          Studio           @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  bookings        Booking[]
+  waitlistEntries WaitlistEntry[]
+  creditBalance   CreditBalance?
+  memberships     MembershipSubscription[]
+  transactions    CreditTransaction[]
+}
+
+// ─── Bookings ─────────────────────────────────────────────────────────────────
+
+model Booking {
+  id        String        @id @default(cuid())
+  sessionId String
+  memberId  String
+  spotLabel String?       // e.g. "B3", "Bike 12"
+  status    BookingStatus @default(CONFIRMED)
+  bookedAt  DateTime      @default(now())
+  checkedIn Boolean       @default(false)
+  checkedInAt DateTime?
+
+  session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  member  Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, memberId])
+  @@unique([sessionId, spotLabel])
+  @@index([memberId])
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+  LATE_CANCELLED
+  NO_SHOW
+}
+
+// ─── Waitlist ─────────────────────────────────────────────────────────────────
+
+model WaitlistEntry {
+  id        String              @id @default(cuid())
+  sessionId String
+  memberId  String
+  position  Int
+  status    WaitlistEntryStatus @default(WAITING)
+  joinedAt  DateTime            @default(now())
+  notifiedAt DateTime?
+  expiresAt  DateTime?
+
+  session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  member  Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, memberId])
+  @@index([sessionId, position])
+}
+
+enum WaitlistEntryStatus {
+  WAITING
+  NOTIFIED
+  CONFIRMED
+  EXPIRED
+  REMOVED
+}
+
+// ─── Credits & Memberships ────────────────────────────────────────────────────
+
+model CreditBalance {
+  id        String @id @default(cuid())
+  memberId  String @unique
+  balance   Int    @default(0)
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+}
+
+model CreditTransaction {
+  id        String          @id @default(cuid())
+  memberId  String
+  amount    Int             // positive = credit, negative = debit
+  type      TransactionType
+  note      String?
+  createdAt DateTime        @default(now())
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+}
+
+enum TransactionType {
+  PURCHASE
+  CLASS_DEBIT
+  REFUND
+  LATE_CANCEL_FEE
+  NO_SHOW_FEE
+  MANUAL_ADJUSTMENT
+  EXPIRY
+}
+
+model MembershipPlan {
+  id             String  @id @default(cuid())
+  studioId       String
+  name           String
+  description    String?
+  priceInCents   Int
+  intervalMonths Int     @default(1)
+  creditsPerCycle Int?   // null = unlimited
+  stripePriceId  String?
+
+  studio        Studio                   @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  subscriptions MembershipSubscription[]
+}
+
+model MembershipSubscription {
+  id          String             @id @default(cuid())
+  memberId    String
+  planId      String
+  status      SubscriptionStatus @default(ACTIVE)
+  startDate   DateTime
+  endDate     DateTime?
+  stripeSubId String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  member Member         @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  plan   MembershipPlan @relation(fields: [planId], references: [id])
+
+  @@index([memberId])
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+  EXPIRED
+}
+
+// ─── Cancellation Policy ─────────────────────────────────────────────────────
+
+model CancellationPolicy {
+  id                   String @id @default(cuid())
+  studioId             String @unique
+  lateCancelWindowHours Int   @default(12)
+  lateCancelFeeCredits  Int   @default(1)
+  noShowFeeCredits      Int   @default(1)
+  waitlistWindowMinutes Int   @default(15)
+
+  studio Studio @relation(fields: [studioId], references: [id], onDelete: Cascade)
+}
+
+// ─── Products (retail) ───────────────────────────────────────────────────────
+
+model Product {
+  id           String  @id @default(cuid())
+  studioId     String
+  name         String
+  priceInCents Int
+  imageUrl     String?
+  inStock      Boolean @default(true)
+
+  studio Studio @relation(fields: [studioId], references: [id], onDelete: Cascade)
+}
