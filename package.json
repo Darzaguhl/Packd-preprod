@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
+    "@rollup/rollup-darwin-x64": "^4.60.4",
     "@types/node": "^22.10.2",
     "@vitest/coverage-v8": "^4.1.6",
     "prettier": "^3.4.2",

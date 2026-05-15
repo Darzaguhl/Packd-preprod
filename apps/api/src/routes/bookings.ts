@@ -35,17 +35,17 @@ export async function bookingRoutes(app: FastifyInstance) {
         })
 
         if (session.status !== 'SCHEDULED') {
-          throw Object.assign(new Error('Class is not available for booking'), { code: 'BAD_REQUEST' })
+          throw Object.assign(new Error('Class is not available for booking'), { statusCode: 400 })
         }
 
         // Fix #8: count only CONFIRMED bookings for capacity check
         if (session._count.bookings >= session.capacity) {
-          throw Object.assign(new Error('Class is full — join the waitlist instead'), { code: 'CONFLICT' })
+          throw Object.assign(new Error('Class is full — join the waitlist instead'), { statusCode: 409 })
         }
 
         const balance = member.creditBalance?.balance ?? 0
         if (balance < session.creditsRequired) {
-          throw Object.assign(new Error('Insufficient credits'), { code: 'PAYMENT_REQUIRED' })
+          throw Object.assign(new Error('Insufficient credits'), { statusCode: 402 })
         }
 
         const newBooking = await tx.booking.create({

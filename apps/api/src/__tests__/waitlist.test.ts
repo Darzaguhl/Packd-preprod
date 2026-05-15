@@ -1,38 +1,51 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-vi.mock('@packd/db', () => ({
-  prisma: {
-    member: { findUniqueOrThrow: vi.fn() },
-    waitlistEntry: {
-      findFirst: vi.fn(),
-      findUnique: vi.fn(),
-      findUniqueOrThrow: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
+vi.mock('@packd/db', () => {
+  const member = { findUniqueOrThrow: vi.fn() }
+  const classSession = { findUniqueOrThrow: vi.fn() }
+  const waitlistEntry = {
+    findFirst: vi.fn(),
+    findUnique: vi.fn(),
+    findUniqueOrThrow: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+  }
+  const booking = { create: vi.fn() }
+  const creditBalance = { update: vi.fn(), findUniqueOrThrow: vi.fn() }
+  const creditTransaction = { create: vi.fn() }
+
+  return {
+    prisma: {
+      member,
+      classSession,
+      waitlistEntry,
+      booking,
+      creditBalance,
+      creditTransaction,
+      $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+        fn({ member, classSession, waitlistEntry, booking, creditBalance, creditTransaction }),
+      ),
     },
-    booking: { create: vi.fn() },
-    creditBalance: { update: vi.fn() },
-    creditTransaction: { create: vi.fn() },
-    $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
-      fn({
-        booking: { create: vi.fn() },
-        creditBalance: { update: vi.fn() },
-        creditTransaction: { create: vi.fn() },
-        waitlistEntry: { update: vi.fn() },
-      }),
-    ),
-  },
-}))
+  }
+})
 
 vi.mock('../lib/auth.js', () => ({
   requireAuth: vi.fn().mockResolvedValue(undefined),
-  getUser: vi.fn(() => ({ id: 'user-1', email: 'test@test.com', role: 'client' })),
+  getUser: vi.fn(() => ({ id: 'user-1', email: 'test@test.com', role: 'member' })),
 }))
 
 import Fastify from 'fastify'
 import sensible from '@fastify/sensible'
 import { waitlistRoutes } from '../routes/waitlist.js'
 import { prisma } from '@packd/db'
+
+const mockConfirmSession = (overrides = {}) => ({
+  id: 'session-1',
+  capacity: 20,
+  creditsRequired: 1,
+  _count: { bookings: 5 },
+  ...overrides,
+})
 
 async function buildApp() {
   const app = Fastify()
@@ -44,7 +57,7 @@ async function buildApp() {
 describe('POST /waitlist', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('joins waitlist at position 1 when empty', async () => {
+  it('joins waitlist at position 1 when queue is empty', async () => {
     vi.mocked(prisma.member.findUniqueOrThrow).mockResolvedValue({ id: 'member-1' } as never)
     vi.mocked(prisma.waitlistEntry.findFirst).mockResolvedValue(null)
     vi.mocked(prisma.waitlistEntry.create).mockResolvedValue({
@@ -52,11 +65,7 @@ describe('POST /waitlist', () => {
     } as never)
 
     const app = await buildApp()
-    const res = await app.inject({
-      method: 'POST',
-      url: '/waitlist',
-      body: { sessionId: 'session-1' },
-    })
+    const res = await app.inject({ method: 'POST', url: '/waitlist', body: { sessionId: 'session-1' } })
 
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body).data.position).toBe(1)
@@ -70,14 +79,16 @@ describe('POST /waitlist', () => {
     } as never)
 
     const app = await buildApp()
-    const res = await app.inject({
-      method: 'POST',
-      url: '/waitlist',
-      body: { sessionId: 'session-1' },
-    })
+    const res = await app.inject({ method: 'POST', url: '/waitlist', body: { sessionId: 'session-1' } })
 
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body).data.position).toBe(4)
+  })
+
+  it('rejects missing sessionId', async () => {
+    const app = await buildApp()
+    const res = await app.inject({ method: 'POST', url: '/waitlist', body: {} })
+    expect(res.statusCode).toBe(400)
   })
 })
 
@@ -90,10 +101,12 @@ describe('POST /waitlist/:id/confirm', () => {
       sessionId: 'session-1',
       memberId: 'member-1',
       status: 'NOTIFIED',
-      expiresAt: new Date(Date.now() + 600000),
+      expiresAt: new Date(Date.now() + 600_000),
       member: { userId: 'user-1', creditBalance: { balance: 5 } },
-      session: { creditsRequired: 1 },
+      session: { creditsRequired: 1, capacity: 20 },
     } as never)
+    vi.mocked(prisma.classSession.findUniqueOrThrow).mockResolvedValue(mockConfirmSession() as never)
+    vi.mocked(prisma.creditBalance.findUniqueOrThrow).mockResolvedValue({ balance: 5 } as never)
 
     const app = await buildApp()
     const res = await app.inject({ method: 'POST', url: '/waitlist/wl-1/confirm' })
@@ -106,7 +119,7 @@ describe('POST /waitlist/:id/confirm', () => {
     vi.mocked(prisma.waitlistEntry.findUniqueOrThrow).mockResolvedValue({
       id: 'wl-1',
       status: 'NOTIFIED',
-      expiresAt: new Date(Date.now() - 1000), // already expired
+      expiresAt: new Date(Date.now() - 1_000),
       member: { userId: 'user-1', creditBalance: { balance: 5 } },
       session: { creditsRequired: 1 },
     } as never)
@@ -115,5 +128,20 @@ describe('POST /waitlist/:id/confirm', () => {
     const res = await app.inject({ method: 'POST', url: '/waitlist/wl-1/confirm' })
 
     expect(res.statusCode).toBe(410)
+  })
+
+  it('rejects confirmation by wrong user', async () => {
+    vi.mocked(prisma.waitlistEntry.findUniqueOrThrow).mockResolvedValue({
+      id: 'wl-1',
+      status: 'NOTIFIED',
+      expiresAt: new Date(Date.now() + 600_000),
+      member: { userId: 'other-user', creditBalance: { balance: 5 } },
+      session: { creditsRequired: 1 },
+    } as never)
+
+    const app = await buildApp()
+    const res = await app.inject({ method: 'POST', url: '/waitlist/wl-1/confirm' })
+
+    expect(res.statusCode).toBe(403)
   })
 })
