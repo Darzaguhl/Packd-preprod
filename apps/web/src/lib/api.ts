@@ -25,7 +25,7 @@ export interface InstructorPermissions {
 }
 
 export const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
-  canCheckInMembers: true,
+  canCheckInMembers: false,
   canManageBookings: false,
   canViewMemberContact: false,
   canManageWaitlist: true,
@@ -300,6 +300,14 @@ export const api = {
       apiFetch<{ success: boolean; status: string }>(`/admin/sessions/${sessionId}`, {
         method: 'PATCH', body: JSON.stringify({ status }), token,
       }),
+    adjustCredits: (memberId: string, amount: number, note: string, token: string) =>
+      apiFetch<{ success: boolean; newBalance: number }>(`/admin/members/${memberId}/credits`, {
+        method: 'POST', body: JSON.stringify({ amount, note }), token,
+      }),
+    searchMembers: (studioId: string, q: string, token: string) =>
+      apiFetch<{ id: string; name: string; email: string; creditBalance: number; membershipStatus: string | null }[]>(
+        `/admin/members/search?studioId=${studioId}&q=${encodeURIComponent(q)}`, { token },
+      ),
   },
   franchise: {
     studios: (token: string) =>

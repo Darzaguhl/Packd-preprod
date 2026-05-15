@@ -168,7 +168,7 @@ export async function roomRoutes(app: FastifyInstance) {
     Body: { bookingId: string; stationId: string | null }
   }>(
     '/:roomId/sessions/:sessionId/spots',
-    { preHandler: requireRole('studio_admin') },
+    { preHandler: requireRole('instructor') },
     async (request, reply) => {
       const { sessionId } = request.params
       const { bookingId, stationId } = request.body

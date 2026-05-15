@@ -6,7 +6,7 @@ export type ApiResponse<T> =
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
-export type UserRole = 'admin' | 'franchise_admin' | 'studio_admin' | 'instructor' | 'member'
+export type UserRole = 'admin' | 'franchise_admin' | 'studio_admin' | 'instructor' | 'fronthost' | 'member'
 
 /** Numeric rank — higher = more privilege. Used for requireRole() checks. */
 export const ROLE_RANK: Record<UserRole, number> = {
@@ -14,6 +14,7 @@ export const ROLE_RANK: Record<UserRole, number> = {
   franchise_admin: 4,
   studio_admin: 3,
   instructor: 2,
+  fronthost: 2,
   member: 1,
 }
 

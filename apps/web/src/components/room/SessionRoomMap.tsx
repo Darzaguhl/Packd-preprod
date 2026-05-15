@@ -44,13 +44,14 @@ function MembershipBadge({ status }: { status: SpotAssignment['membershipStatus'
   )
 }
 
+// Tile shown in the unassigned roster and as the DragOverlay
 function MemberTile({ assignment, isDragging = false }: { assignment: SpotAssignment; isDragging?: boolean }) {
   return (
     <div className={`flex items-center gap-2 px-3 py-2 rounded-xl bg-white border transition-all ${
       isDragging ? 'shadow-lg opacity-80 border-gray-300' : 'border-gray-100'
     }`}>
       <div className={`w-1 h-10 rounded-full shrink-0 ${assignment.checkedIn ? 'bg-emerald-400' : 'bg-gray-200'}`} />
-      <div className="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-bold shrink-0">
+      <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-bold shrink-0">
         {initials(assignment.memberName)}
       </div>
       <div className="flex-1 min-w-0">
@@ -59,16 +60,23 @@ function MemberTile({ assignment, isDragging = false }: { assignment: SpotAssign
           <MembershipBadge status={assignment.membershipStatus} />
           <span className="text-[9px] text-gray-400">{assignment.creditBalance} cr</span>
         </div>
-        <p className="text-[9px] text-gray-400 mt-0.5">{assignment.checkedIn ? '✓ Checked in' : 'Not checked in'}</p>
       </div>
     </div>
   )
 }
 
 function DraggableMember({ assignment }: { assignment: SpotAssignment }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: assignment.bookingId })
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: assignment.bookingId,
+    disabled: assignment.checkedIn, // locked once checked in
+  })
   return (
-    <div ref={setNodeRef} {...listeners} {...attributes} className={`cursor-grab ${isDragging ? 'opacity-30' : ''}`}>
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={`${assignment.checkedIn ? 'cursor-default' : 'cursor-grab'} ${isDragging ? 'opacity-30' : ''}`}
+    >
       <MemberTile assignment={assignment} />
     </div>
   )
@@ -92,15 +100,16 @@ function DroppableStation({
 
   const w = Math.max(meta.w * SCALE, STATION_MIN_W)
   const h = Math.max(meta.h * SCALE, STATION_MIN_H)
+  const isLocked = assignment?.checkedIn ?? false
 
   return (
     <div
       ref={setNodeRef}
       className={`absolute rounded-xl border-2 transition-all overflow-hidden ${
-        isOver
+        isOver && !isLocked
           ? 'border-gray-900 bg-gray-100 scale-105 z-20'
           : assignment
-            ? `${meta.color} border-opacity-100 z-10`
+            ? `${meta.color} ${isLocked ? 'ring-2 ring-emerald-400' : ''} z-10`
             : 'border-dashed border-gray-300 bg-white/60 hover:border-gray-400'
       }`}
       style={{
@@ -119,11 +128,10 @@ function DroppableStation({
               <span className="text-[10px] font-semibold truncate text-gray-700">{station.label}</span>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              {/* Check-in toggle */}
               <button
                 onPointerDown={e => e.stopPropagation()}
                 onClick={e => { e.stopPropagation(); onCheckin?.(assignment.bookingId) }}
-                title={assignment.checkedIn ? 'Mark as not checked in' : 'Check in'}
+                title={assignment.checkedIn ? 'Undo check-in' : 'Check in'}
                 className={`w-5 h-5 rounded-full flex items-center justify-center transition-colors shrink-0 ${
                   assignment.checkedIn
                     ? 'bg-emerald-500 text-white'
@@ -134,19 +142,19 @@ function DroppableStation({
                   <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </button>
-              {/* Unassign */}
-              <button
-                onPointerDown={e => e.stopPropagation()}
-                onClick={e => { e.stopPropagation(); onUnassign?.(assignment.bookingId) }}
-                title="Remove from station"
-                className="w-5 h-5 rounded-full bg-white/80 text-gray-400 hover:text-red-500 hover:bg-red-50 flex items-center justify-center text-[11px] font-bold transition-colors"
-              >
-                ×
-              </button>
+              {!isLocked && (
+                <button
+                  onPointerDown={e => e.stopPropagation()}
+                  onClick={e => { e.stopPropagation(); onUnassign?.(assignment.bookingId) }}
+                  title="Remove from station"
+                  className="w-5 h-5 rounded-full bg-white/80 text-gray-400 hover:text-red-500 hover:bg-red-50 flex items-center justify-center text-[11px] font-bold transition-colors"
+                >
+                  ×
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Divider */}
           <div className="h-px bg-black/10" />
 
           {/* Member info */}
@@ -169,11 +177,7 @@ function DroppableStation({
         <div className="flex flex-col items-center justify-center h-full gap-1 pointer-events-none">
           <span className="text-xl leading-none opacity-60">{meta.icon}</span>
           <span className="text-[10px] font-semibold text-gray-500 truncate px-1 max-w-full">{station.label}</span>
-          {isOver ? (
-            <span className="text-[9px] text-gray-700 font-medium">Drop here</span>
-          ) : (
-            <span className="text-[9px] text-gray-400">Empty</span>
-          )}
+          <span className="text-[9px] text-gray-400">{isOver ? 'Drop here' : 'Empty'}</span>
         </div>
       )}
     </div>
@@ -202,8 +206,14 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
     setActiveId(null)
     const { active, over } = event
     if (!over) return
+    // Don't overwrite a checked-in member
+    const targetAssignment = assignmentByStation(over.id as string)
+    if (targetAssignment?.checkedIn) return
     await onAssign(active.id as string, over.id as string)
   }
+
+  // Sorted stations for the list panel
+  const sortedStations = [...layout.stations].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))
 
   const canvasW = layout.widthM * SCALE
   const canvasH = layout.lengthM * SCALE
@@ -216,47 +226,75 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveId(null)}
     >
-      <div className="flex gap-4">
-        {/* Roster sidebar */}
-        <div className="w-56 shrink-0 flex flex-col gap-2">
-          <div className="flex items-center justify-between px-1">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-              Members ({assignments.length})
-            </p>
-            <span className="text-xs text-emerald-600 font-medium">
-              {checkedInCount}/{assignments.length} in
-            </span>
+      <div className="flex gap-3 min-h-0">
+
+        {/* ── Left panel: station list ── */}
+        <div className="w-52 shrink-0 flex flex-col gap-1 overflow-y-auto max-h-[680px]">
+          {/* Header */}
+          <div className="flex items-center justify-between px-1 mb-1">
+            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Stations</p>
+            <span className="text-[11px] font-semibold text-emerald-600">{checkedInCount}/{assignments.length} in</span>
           </div>
 
-          <div className="overflow-y-auto max-h-[600px] space-y-1.5 pr-1">
-            {assignments.map(a => (
-              <div key={a.bookingId} className="relative">
-                <DraggableMember assignment={a} />
-                {a.stationId && (
-                  <button
-                    onClick={() => onAssign(a.bookingId, null)}
-                    className="absolute top-1.5 right-1.5 w-4 h-4 text-[9px] text-gray-400 hover:text-red-500 transition-colors flex items-center justify-center font-bold"
-                    title="Remove from station"
-                  >
-                    ×
-                  </button>
-                )}
+          {/* Station rows */}
+          {sortedStations.map(station => {
+            const meta = STATION_META[station.type]
+            const a = assignmentByStation(station.id)
+            return (
+              <div
+                key={station.id}
+                className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left ${
+                  a?.checkedIn ? 'bg-emerald-50' : a ? 'bg-gray-50' : 'bg-white'
+                }`}
+              >
+                <span className="text-sm leading-none shrink-0">{meta.icon}</span>
+                <span className="text-[10px] font-semibold text-gray-500 w-12 truncate shrink-0">{station.label}</span>
+                <div className="flex-1 min-w-0">
+                  {a ? (
+                    <p className="text-[11px] font-medium text-gray-900 truncate leading-tight">{a.memberName}</p>
+                  ) : (
+                    <p className="text-[11px] text-gray-300 italic">empty</p>
+                  )}
+                </div>
+                {/* Quick check-in button */}
+                <button
+                  onClick={() => a && onCheckin?.(a.bookingId)}
+                  disabled={!a}
+                  title={a?.checkedIn ? 'Undo check-in' : 'Check in'}
+                  className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                    a?.checkedIn
+                      ? 'bg-emerald-500 text-white'
+                      : a
+                        ? 'border-2 border-gray-300 text-transparent hover:border-emerald-400 bg-white'
+                        : 'border border-dashed border-gray-200 text-transparent cursor-default'
+                  }`}
+                >
+                  <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
               </div>
-            ))}
+            )
+          })}
 
-            {assignments.length === 0 && (
-              <p className="text-xs text-gray-400 px-1">No bookings yet</p>
-            )}
-          </div>
-
+          {/* Unassigned section */}
           {unassigned.length > 0 && (
-            <p className="text-[10px] text-amber-500 font-medium px-1">
-              {unassigned.length} unassigned
-            </p>
+            <>
+              <div className="mt-2 mb-1 px-1">
+                <p className="text-[11px] font-semibold text-amber-600 uppercase tracking-wide">
+                  Unassigned ({unassigned.length})
+                </p>
+              </div>
+              {unassigned.map(a => (
+                <div key={a.bookingId}>
+                  <DraggableMember assignment={a} />
+                </div>
+              ))}
+            </>
           )}
         </div>
 
-        {/* Map canvas — fixed pixel scale, scrollable */}
+        {/* ── Map canvas ── */}
         <div className="flex-1 min-w-0 overflow-auto rounded-2xl border border-gray-200 bg-gray-50">
           <div
             className="relative select-none"
@@ -272,14 +310,14 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
                 style={{ top: i * 0.5 * SCALE }} />
             ))}
 
-            {/* Metre labels along edges */}
+            {/* Metre labels */}
             {Array.from({ length: Math.floor(layout.widthM) + 1 }, (_, i) => (
-              <span key={`lx${i}`} className="absolute text-[8px] text-gray-300 font-medium"
+              <span key={`lx${i}`} className="absolute text-[8px] text-gray-300 font-medium pointer-events-none"
                 style={{ left: i * SCALE + 2, top: 2 }}>{i}m</span>
             ))}
-            {Array.from({ length: Math.floor(layout.lengthM) + 1 }, (_, i) => (
-              <span key={`ly${i}`} className="absolute text-[8px] text-gray-300 font-medium"
-                style={{ left: 2, top: i * SCALE + 2 }}>{i > 0 ? `${i}m` : ''}</span>
+            {Array.from({ length: Math.floor(layout.lengthM) + 1 }, (_, i) => i > 0 && (
+              <span key={`ly${i}`} className="absolute text-[8px] text-gray-300 font-medium pointer-events-none"
+                style={{ left: 2, top: i * SCALE + 2 }}>{i}m</span>
             ))}
 
             {layout.stations.map(station => (
@@ -297,7 +335,7 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
       </div>
 
       <p className="text-xs text-gray-400 mt-2">
-        Drag members onto stations · Click ✓ to toggle check-in
+        Drag unassigned members onto stations · Click ✓ to check in · Checked-in spots are locked
       </p>
 
       <DragOverlay>

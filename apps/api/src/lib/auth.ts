@@ -7,7 +7,7 @@ const JWKS = createRemoteJWKSet(
   new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`),
 )
 
-const ELEVATED_ROLES = new Set<string>(['admin', 'franchise_admin', 'studio_admin', 'instructor'])
+const ELEVATED_ROLES = new Set<string>(['admin', 'franchise_admin', 'studio_admin', 'instructor', 'fronthost'])
 
 export async function requireAuth(request: FastifyRequest, reply: FastifyReply) {
   const authHeader = request.headers.authorization
