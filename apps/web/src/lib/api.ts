@@ -1,5 +1,30 @@
 import type { ApiResponse, SessionSlot, MemberProfile } from '@packd/types'
 
+export interface AdminSession {
+  id: string
+  templateName: string
+  sport: string
+  instructorName: string
+  roomName: string
+  capacity: number
+  bookedCount: number
+  startsAt: string
+  endsAt: string
+  status: string
+  creditsRequired: number
+}
+
+export interface AdminBooking {
+  id: string
+  memberId: string
+  memberName: string
+  memberEmail: string
+  checkedIn: boolean
+  checkedInAt: string | null
+  creditBalance: number
+  bookedAt: string
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'
 
 async function apiFetch<T>(
@@ -52,6 +77,23 @@ export const api = {
   },
   members: {
     me: (token: string) => apiFetch<MemberProfile>('/members/me', { token }),
+  },
+  admin: {
+    stats: (studioId: string, token: string) =>
+      apiFetch<{ todaySessions: number; totalMembers: number; totalBookingsToday: number; waitlistToday: number }>(
+        `/admin/stats?studioId=${studioId}`, { token }),
+    sessions: (studioId: string, date: string, token: string) =>
+      apiFetch<AdminSession[]>(`/admin/sessions?studioId=${studioId}&date=${date}`, { token }),
+    bookings: (sessionId: string, token: string) =>
+      apiFetch<AdminBooking[]>(`/admin/sessions/${sessionId}/bookings`, { token }),
+    checkin: (sessionId: string, bookingId: string, token: string) =>
+      apiFetch<{ success: boolean; checkedIn: boolean }>(`/admin/sessions/${sessionId}/checkin/${bookingId}`, {
+        method: 'POST', token,
+      }),
+    updateSession: (sessionId: string, status: string, token: string) =>
+      apiFetch<{ success: boolean; status: string }>(`/admin/sessions/${sessionId}`, {
+        method: 'PATCH', body: JSON.stringify({ status }), token,
+      }),
   },
   studios: {
     create: (
