@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { api, type AdminSession } from '@/lib/api'
 import { SPORT_CONFIG } from '@/components/schedule/constants'
 import SessionPanel from './SessionPanel'
+import NavBar from '@/components/NavBar'
 
 function toIsoDate(d: Date) {
   return d.toISOString().split('T')[0]
@@ -59,22 +60,12 @@ export default function AdminDashboard({ studioId }: { studioId: string }) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <NavBar title="Dashboard" subtitle="Studio operations" />
+      {/* Body */}
+      <div className="flex flex-1 min-h-0">
       {/* Left panel */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <div className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Dashboard</h1>
-            <p className="text-sm text-gray-400">Studio operations</p>
-          </div>
-          <a
-            href="/schedule"
-            className="text-sm text-gray-500 hover:text-gray-900 transition-colors"
-          >
-            ← Member view
-          </a>
-        </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* Stat cards */}
@@ -195,6 +186,7 @@ export default function AdminDashboard({ studioId }: { studioId: string }) {
             }}
           />
         )}
+      </div>
       </div>
     </div>
   )

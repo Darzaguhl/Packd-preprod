@@ -17,11 +17,18 @@ import ClassCard from './schedule/ClassCard'
 import DayTabs, { type DayTab } from './schedule/DayTabs'
 import FilterBar from './schedule/FilterBar'
 import MiniCalendar from './schedule/MiniCalendar'
+import NavBar from './NavBar'
+import SpotPicker from './room/SpotPicker'
+import { type RoomLayout, type SessionSpots } from '@/lib/api'
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
-function toIsoDate(d: Date) {
-  return d.toISOString().split('T')[0]
+/** Local-time ISO date — avoids UTC offset shifting midnight to the previous day. */
+function toIsoDate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 /** ISO week number (Mon-based) */
@@ -51,6 +58,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   const [selectedDay, setSelectedDay] = useState<string>(toIsoDate(new Date()))
   const [selectedSport, setSelectedSport] = useState('ALL')
   const [weekOffset, setWeekOffset] = useState(0)
+  const [spotModal, setSpotModal] = useState<{ session: SessionSlot; spots: SessionSpots } | null>(null)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
@@ -132,15 +140,45 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
     setActionLoading(sessionId)
     try {
       const res = await api.bookings.create(sessionId, token)
+      const session = sessions.find((s) => s.id === sessionId)!
       mutateSession(sessionId, {
-        bookedCount: sessions.find((s) => s.id === sessionId)!.bookedCount + 1,
+        bookedCount: session.bookedCount + 1,
         userBookingId: res.success ? res.data.id : 'booked',
       })
       showToast('Class booked!')
+      // Offer spot selection if the room has a layout
+      try {
+        const spots = await api.rooms.spots(session.roomId, sessionId, token)
+        if (spots.layout && spots.layout.stations.length > 0) {
+          setSpotModal({ session: { ...session, userBookingId: res.success ? res.data.id : 'booked' }, spots })
+        }
+      } catch {
+        // no layout — skip spot picker
+      }
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Failed to book', false)
     } finally {
       setActionLoading(null)
+    }
+  }
+
+  async function handlePickSpot(stationId: string | null) {
+    if (!spotModal || !token) return
+    const { session } = spotModal
+    try {
+      await api.rooms.pickMySpot(session.roomId, session.id, stationId, token)
+      mutateSession(session.id, { userStationId: stationId })
+      setSpotModal(prev => prev ? {
+        ...prev,
+        spots: {
+          ...prev.spots,
+          assignments: prev.spots.assignments.map(a =>
+            a.memberId === a.memberId ? { ...a, stationId } : a
+          ),
+        },
+      } : null)
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Failed to pick spot', false)
     }
   }
 
@@ -193,51 +231,30 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Sticky header */}
-      <div className="bg-white border-b border-gray-100 sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-4">
-          <div className="flex gap-5 items-start">
-            {/* Main column — title + tabs + filters */}
-            <div className="flex-1 min-w-0">
-              {/* Title row */}
-              <div className="py-4 flex items-start justify-between">
-                <div>
-                  <h1 className="text-xl font-bold text-gray-900">Schedule</h1>
-                  <p className="text-sm text-gray-400">{subtitle}</p>
-                </div>
-                <a
-                  href="/dashboard"
-                  className="text-xs text-gray-400 hover:text-gray-700 transition-colors mt-1"
-                >
-                  Admin →
-                </a>
-              </div>
-
-              {/* Day tabs with integrated arrows (constrained to this column) */}
-              <DayTabs
-                days={days}
-                selected={selectedDay}
-                onSelect={setSelectedDay}
-                weekOffset={weekOffset}
-                onPrev={() => setWeekOffset((w) => w - 1)}
-                onNext={() => setWeekOffset((w) => w + 1)}
+      <NavBar title="Schedule" subtitle={subtitle}>
+        <div className="flex gap-5 items-start">
+          {/* Day tabs + filters constrained to main column width */}
+          <div className="flex-1 min-w-0">
+            <DayTabs
+              days={days}
+              selected={selectedDay}
+              onSelect={setSelectedDay}
+              weekOffset={weekOffset}
+              onPrev={() => setWeekOffset((w) => w - 1)}
+              onNext={() => setWeekOffset((w) => w + 1)}
+            />
+            <div className="py-3">
+              <FilterBar
+                available={availableSports}
+                selected={selectedSport}
+                onSelect={setSelectedSport}
               />
-
-              {/* Sport filters */}
-              <div className="py-3">
-                <FilterBar
-                  available={availableSports}
-                  selected={selectedSport}
-                  onSelect={setSelectedSport}
-                />
-              </div>
             </div>
-
-            {/* Sidebar spacer — keeps header aligned with body columns */}
-            <div className="hidden md:block w-56 shrink-0" />
           </div>
+          {/* Sidebar spacer — keeps header aligned with body columns */}
+          <div className="hidden md:block w-56 shrink-0" />
         </div>
-      </div>
+      </NavBar>
 
       {/* Content: two-column on md+ */}
       <div className="max-w-6xl mx-auto px-4 py-4 flex gap-5 items-start">
@@ -301,6 +318,50 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
           }`}
         >
           {toast.msg}
+        </div>
+      )}
+
+      {/* Spot picker modal */}
+      {spotModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl flex flex-col gap-4 p-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Pick your spot</h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {spotModal.session.templateName} · {spotModal.session.roomName}
+                </p>
+              </div>
+              <button
+                onClick={() => setSpotModal(null)}
+                className="text-gray-400 hover:text-gray-700 text-lg leading-none"
+              >
+                ×
+              </button>
+            </div>
+
+            <SpotPicker
+              layout={spotModal.spots.layout!}
+              assignments={spotModal.spots.assignments}
+              myStationId={spotModal.session.userStationId ?? null}
+              onPick={handlePickSpot}
+            />
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setSpotModal(null)}
+                className="text-xs text-gray-500 hover:text-gray-800 underline underline-offset-2"
+              >
+                Skip for now
+              </button>
+              <button
+                onClick={() => setSpotModal(null)}
+                className="text-xs font-medium bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

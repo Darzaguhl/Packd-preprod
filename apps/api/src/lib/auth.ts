@@ -1,11 +1,13 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import type { FastifyRequest, FastifyReply } from 'fastify'
-import type { AuthUser } from '@packd/types'
+import { ROLE_RANK, type AuthUser, type UserRole } from '@packd/types'
 
 const SUPABASE_URL = process.env.SUPABASE_URL!
 const JWKS = createRemoteJWKSet(
   new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`),
 )
+
+const ELEVATED_ROLES = new Set<string>(['admin', 'franchise_admin', 'studio_admin', 'instructor'])
 
 export async function requireAuth(request: FastifyRequest, reply: FastifyReply) {
   const authHeader = request.headers.authorization
@@ -17,12 +19,10 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
   try {
     const { payload } = await jwtVerify(token, JWKS)
 
-    // Fix #3: role MUST come from app_metadata (server-controlled) only.
+    // Role MUST come from app_metadata (server-controlled).
     // user_metadata is writable by the client and must never grant elevated access.
     const rawRole = (payload.app_metadata as { role?: string } | undefined)?.role
-    const role: AuthUser['role'] = rawRole === 'admin' || rawRole === 'studio_admin' || rawRole === 'instructor'
-      ? rawRole
-      : 'client'
+    const role: UserRole = ELEVATED_ROLES.has(rawRole ?? '') ? (rawRole as UserRole) : 'member'
 
     request.user = {
       id: payload.sub!,
@@ -31,6 +31,18 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
     } satisfies AuthUser
   } catch {
     return reply.code(401).send({ error: 'Invalid token' })
+  }
+}
+
+/** Returns a Fastify preHandler that requires the user's role to be >= minRole in the hierarchy. */
+export function requireRole(minRole: UserRole) {
+  return async (request: FastifyRequest, reply: FastifyReply) => {
+    await requireAuth(request, reply)
+    if (reply.sent) return
+    const user = getUser(request)
+    if (ROLE_RANK[user.role] < ROLE_RANK[minRole]) {
+      return reply.forbidden(`Requires ${minRole} role or higher`)
+    }
   }
 }
 

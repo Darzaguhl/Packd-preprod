@@ -26,6 +26,7 @@ model Studio {
   members       Member[]
   classTemplates ClassTemplate[]
   classSessions  ClassSession[]
+  classSchedules ClassSchedule[]
   memberships    MembershipPlan[]
   products       Product[]
   cancellationPolicy CancellationPolicy?
@@ -67,24 +68,67 @@ model Room {
   locationId String
   name       String
   capacity   Int
-  layout     Json?   // spot map: [{id, row, col, label}]
 
   location      Location       @relation(fields: [locationId], references: [id], onDelete: Cascade)
   classSessions ClassSession[]
+  layouts       RoomLayout[]
+  schedules     ClassSchedule[]
+}
+
+model RoomLayout {
+  id        String   @id @default(cuid())
+  roomId    String
+  name      String   @default("Default")
+  widthM    Float    @default(10)
+  lengthM   Float    @default(15)
+  isActive  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  room     Room          @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  stations Station[]
+  sessions ClassSession[]
+}
+
+enum StationType {
+  BIKE
+  TREADMILL
+  BENCH
+  ROWER
+  MAT
+  REFORMER
+  BARRE
+  OTHER
+}
+
+model Station {
+  id       String      @id @default(cuid())
+  layoutId String
+  type     StationType
+  label    String
+  xM       Float
+  yM       Float
+  rotation Int         @default(0)
+
+  layout   RoomLayout @relation(fields: [layoutId], references: [id], onDelete: Cascade)
+  bookings Booking[]
 }
 
 // ─── Instructors ─────────────────────────────────────────────────────────────
 
 model Instructor {
-  id        String  @id @default(cuid())
-  userId    String  @unique
-  studioId  String
-  bio       String?
-  photoUrl  String?
+  id          String  @id @default(cuid())
+  userId      String  @unique
+  studioId    String
+  bio         String?
+  photoUrl    String?
+  permissions Json    @default("{}")
 
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   studio        Studio         @relation(fields: [studioId], references: [id], onDelete: Cascade)
   classSessions ClassSession[]
+  schedules     ClassSchedule[]
+  substituteFor ClassSession[] @relation("SubstituteInstructor")
 }
 
 // ─── Class Templates & Sessions ──────────────────────────────────────────────
@@ -101,6 +145,7 @@ model ClassTemplate {
 
   studio        Studio         @relation(fields: [studioId], references: [id], onDelete: Cascade)
   classSessions ClassSession[]
+  schedules     ClassSchedule[]
 }
 
 enum SportType {
@@ -115,24 +160,57 @@ enum SportType {
   OTHER
 }
 
-model ClassSession {
-  id           String        @id @default(cuid())
-  studioId     String
-  templateId   String
-  instructorId String
-  roomId       String
-  startsAt     DateTime
-  endsAt       DateTime
-  capacity     Int
-  status       SessionStatus @default(SCHEDULED)
-  creditsRequired Int        @default(1)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+model ClassSchedule {
+  id              String    @id @default(cuid())
+  studioId        String
+  templateId      String
+  instructorId    String
+  roomId          String
+  capacity        Int
+  creditsRequired Int       @default(1)
+  daysOfWeek      Int[]     // 0=Sun … 6=Sat
+  startTime       String    // "HH:MM" 24h in studio timezone
+  durationMin     Int
+  intervalWeeks   Int       @default(1) // 1=every week, 2=every 2nd week, etc.
+  validFrom       DateTime
+  validUntil      DateTime?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  studio       Studio        @relation(fields: [studioId], references: [id], onDelete: Cascade)
-  template     ClassTemplate @relation(fields: [templateId], references: [id])
-  instructor   Instructor    @relation(fields: [instructorId], references: [id])
-  room         Room          @relation(fields: [roomId], references: [id])
+  studio     Studio        @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  template   ClassTemplate @relation(fields: [templateId], references: [id])
+  instructor Instructor    @relation(fields: [instructorId], references: [id])
+  room       Room          @relation(fields: [roomId], references: [id])
+  sessions   ClassSession[]
+
+  @@index([studioId])
+}
+
+model ClassSession {
+  id                     String        @id @default(cuid())
+  studioId               String
+  templateId             String
+  instructorId           String
+  roomId                 String
+  layoutId               String?
+  scheduleId             String?
+  substituteInstructorId String?
+  startsAt               DateTime
+  endsAt                 DateTime
+  capacity               Int
+  status                 SessionStatus @default(SCHEDULED)
+  creditsRequired        Int           @default(1)
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+
+  studio       Studio         @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  template     ClassTemplate  @relation(fields: [templateId], references: [id])
+  instructor   Instructor     @relation(fields: [instructorId], references: [id])
+  room         Room           @relation(fields: [roomId], references: [id])
+  layout       RoomLayout?    @relation(fields: [layoutId], references: [id])
+  schedule     ClassSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  substitute   Instructor?    @relation("SubstituteInstructor", fields: [substituteInstructorId], references: [id])
   bookings     Booking[]
   waitlist     WaitlistEntry[]
 
@@ -167,20 +245,21 @@ model Member {
 // ─── Bookings ─────────────────────────────────────────────────────────────────
 
 model Booking {
-  id        String        @id @default(cuid())
-  sessionId String
-  memberId  String
-  spotLabel String?       // e.g. "B3", "Bike 12"
-  status    BookingStatus @default(CONFIRMED)
-  bookedAt  DateTime      @default(now())
-  checkedIn Boolean       @default(false)
+  id          String        @id @default(cuid())
+  sessionId   String
+  memberId    String
+  stationId   String?
+  status      BookingStatus @default(CONFIRMED)
+  bookedAt    DateTime      @default(now())
+  checkedIn   Boolean       @default(false)
   checkedInAt DateTime?
 
   session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   member  Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  station Station?     @relation(fields: [stationId], references: [id])
 
   @@unique([sessionId, memberId])
-  @@unique([sessionId, spotLabel])
+  @@unique([sessionId, stationId])
   @@index([memberId])
 }
 

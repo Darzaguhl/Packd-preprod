@@ -4,6 +4,19 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 
+function roleHomePath(role: string | undefined): string {
+  switch (role) {
+    case 'admin':
+    case 'franchise_admin':
+    case 'studio_admin':
+      return '/dashboard'
+    case 'instructor':
+      return '/dashboard'   // instructor dashboard coming soon — uses same shell for now
+    default:
+      return '/schedule'
+  }
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -26,7 +39,9 @@ export default function LoginPage() {
     if (error) {
       setError(error.message)
     } else {
-      router.push('/schedule')
+      const { data: { session } } = await supabase.auth.getSession()
+      const role = (session?.user?.app_metadata as { role?: string } | undefined)?.role
+      router.push(roleHomePath(role))
       router.refresh()
     }
     setLoading(false)
