@@ -11,10 +11,10 @@ const VALID_SESSION_STATUSES = ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCEL
 type SessionStatus = typeof VALID_SESSION_STATUSES[number]
 
 export async function adminRoutes(app: FastifyInstance) {
-  // GET /admin/sessions?studioId=&date=
+  // GET /admin/sessions?studioId=&date= — instructor/fronthost or higher
   app.get<{ Querystring: { studioId: string; date?: string } }>(
     '/sessions',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireInstructor },
     async (request, reply) => {
       const { studioId, date } = request.query
 
@@ -141,10 +141,10 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /admin/stats?studioId= — studio_admin or higher
+  // GET /admin/stats?studioId= — instructor/fronthost or higher
   app.get<{ Querystring: { studioId: string } }>(
     '/stats',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireInstructor },
     async (request, reply) => {
       const { studioId } = request.query
 
@@ -170,6 +170,93 @@ export async function adminRoutes(app: FastifyInstance) {
       ])
 
       return { todaySessions, totalMembers, totalBookingsToday, waitlistToday }
+    },
+  )
+
+  // GET /admin/members/search?studioId=&q= — search members by name or email
+  app.get<{ Querystring: { studioId: string; q: string } }>(
+    '/members/search',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const { studioId, q } = request.query
+      if (!q || q.trim().length < 2) return reply.badRequest('q must be at least 2 characters')
+
+      const user = getUser(request)
+      await assertStudioAccess(user.id, user.role, studioId, reply)
+      if (reply.sent) return
+
+      const term = q.trim().toLowerCase()
+      const members = await prisma.member.findMany({
+        where: {
+          studioId,
+          OR: [
+            { user: { firstName: { contains: term, mode: 'insensitive' } } },
+            { user: { lastName: { contains: term, mode: 'insensitive' } } },
+            { user: { email: { contains: term, mode: 'insensitive' } } },
+          ],
+        },
+        include: {
+          user: { select: { firstName: true, lastName: true, email: true } },
+          creditBalance: { select: { balance: true } },
+          memberships: {
+            where: { status: { in: ['ACTIVE', 'PAUSED'] } },
+            orderBy: { startDate: 'desc' },
+            take: 1,
+            select: { status: true },
+          },
+        },
+        take: 10,
+      })
+
+      return members.map(m => ({
+        id: m.id,
+        name: `${m.user.firstName} ${m.user.lastName}`,
+        email: m.user.email,
+        creditBalance: m.creditBalance?.balance ?? 0,
+        membershipStatus: m.memberships[0]?.status ?? null,
+      }))
+    },
+  )
+
+  // POST /admin/members/:memberId/credits — manual credit adjustment (fronthost or higher)
+  app.post<{ Params: { memberId: string }; Body: { amount: number; note?: string } }>(
+    '/members/:memberId/credits',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const { memberId } = request.params
+      const { amount, note } = request.body
+
+      if (!Number.isInteger(amount) || amount === 0) {
+        return reply.badRequest('amount must be a non-zero integer')
+      }
+
+      const member = await prisma.member.findUnique({
+        where: { id: memberId },
+        include: { creditBalance: true },
+      })
+      if (!member) return reply.notFound('Member not found')
+
+      const user = getUser(request)
+      await assertStudioAccess(user.id, user.role, member.studioId, reply)
+      if (reply.sent) return
+
+      const [balance] = await prisma.$transaction([
+        prisma.creditBalance.upsert({
+          where: { memberId },
+          create: { memberId, balance: Math.max(0, amount) },
+          update: { balance: { increment: amount } },
+        }),
+        prisma.creditTransaction.create({
+          data: {
+            memberId,
+            amount,
+            type: 'MANUAL_ADJUSTMENT',
+            note: note ?? 'Manual adjustment by staff',
+          },
+        }),
+      ])
+
+      return { success: true, newBalance: balance.balance }
     },
   )
 }
