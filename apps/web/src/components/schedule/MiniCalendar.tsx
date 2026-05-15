@@ -4,12 +4,25 @@ import { useState } from 'react'
 import type { SessionSlot } from '@packd/types'
 import { SPORT_CONFIG } from './constants'
 
-function isoDate(d: Date) {
-  return d.toISOString().split('T')[0]
+/** Local-time ISO date — avoids UTC offset shifting midnight to the previous day. */
+function isoDate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 function dayOfWeekMon(d: Date) {
   return (d.getDay() + 6) % 7  // Mon=0 … Sun=6
+}
+
+/** Monday of the week containing d (local time). */
+function localWeekStart(d: Date): Date {
+  const result = new Date(d)
+  result.setHours(0, 0, 0, 0)
+  const dow = result.getDay() || 7  // Mon=1…Sun=7
+  result.setDate(result.getDate() - (dow - 1))
+  return result
 }
 
 function daysInMonth(year: number, month: number) {
@@ -79,10 +92,13 @@ export default function MiniCalendar({ sessions, selectedDay, onSelectDay, curre
 
   function handleDayClick(day: number) {
     const clicked = new Date(viewYear, viewMonth, day)
-    clicked.setHours(0, 0, 0, 0)
-    const base = new Date(currentWeekStart)
-    base.setHours(0, 0, 0, 0)
-    const diffWeeks = Math.round((clicked.getTime() - base.getTime()) / (7 * 86400000))
+    // Compare week-starts so the diff is always an exact multiple of 7 days.
+    // Using Math.round on individual days causes Sat/Sun to round up to the next week.
+    const clickedWeekMonday = localWeekStart(clicked)
+    const currentWeekMonday = localWeekStart(currentWeekStart)
+    const diffWeeks = Math.round(
+      (clickedWeekMonday.getTime() - currentWeekMonday.getTime()) / (7 * 86400000),
+    )
     onSelectDay(isoDate(clicked), diffWeeks)
   }
 

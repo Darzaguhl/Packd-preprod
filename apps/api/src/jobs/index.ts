@@ -4,7 +4,7 @@ import { prisma } from '@packd/db'
 let boss: PgBoss
 
 export async function setupJobs() {
-  boss = new PgBoss(process.env.DATABASE_URL!)
+  boss = new PgBoss(process.env.PGBOSS_DATABASE_URL ?? process.env.DATABASE_URL!)
   await boss.start()
 
   // Create all queues first (required in pg-boss v10 — sequential to avoid DDL deadlocks)

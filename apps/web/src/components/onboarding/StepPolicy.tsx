@@ -25,7 +25,7 @@ export default function StepPolicy({
     setError(null)
 
     try {
-      const res = await api.studios.create(
+      const res = await api.studios.onboard(
         { ...data.studio, policy: form, location: data.location, rooms: data.rooms },
         token,
       )

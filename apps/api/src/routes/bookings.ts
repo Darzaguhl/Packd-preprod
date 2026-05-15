@@ -5,11 +5,11 @@ import { enqueueLateCancelCheck } from '../jobs/index.js'
 
 export async function bookingRoutes(app: FastifyInstance) {
   // POST /bookings — create booking
-  app.post<{ Body: { sessionId: string; spotLabel?: string } }>(
+  app.post<{ Body: { sessionId: string } }>(
     '/',
     { preHandler: requireAuth },
     async (request, reply) => {
-      const { sessionId, spotLabel } = request.body
+      const { sessionId } = request.body
 
       // Fix #12: validate required body fields
       if (!sessionId || typeof sessionId !== 'string') {
@@ -49,7 +49,7 @@ export async function bookingRoutes(app: FastifyInstance) {
         }
 
         const newBooking = await tx.booking.create({
-          data: { sessionId, memberId: member.id, spotLabel, status: 'CONFIRMED' },
+          data: { sessionId, memberId: member.id, status: 'CONFIRMED' },
         })
 
         await tx.creditBalance.update({

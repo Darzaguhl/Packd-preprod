@@ -1,18 +1,12 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply } from 'fastify'
 import { prisma } from '@packd/db'
-import { requireAuth, getUser } from '../lib/auth.js'
+import { requireRole, getUser } from '../lib/auth.js'
+import { ROLE_RANK, type UserRole } from '@packd/types'
 
-// Fix #3: role must come from app_metadata only (set server-side, not user-editable)
-async function requireAdmin(
-  request: Parameters<typeof requireAuth>[0],
-  reply: Parameters<typeof requireAuth>[1],
-) {
-  await requireAuth(request, reply)
-  const user = getUser(request)
-  if (user.role !== 'admin') return reply.forbidden('Admin access required')
-}
+const requireStudioAdmin = requireRole('studio_admin')
+const requireInstructor = requireRole('instructor')
 
-// Fix #4: allowlist of valid session statuses
+// Allowlist of valid session statuses
 const VALID_SESSION_STATUSES = ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const
 type SessionStatus = typeof VALID_SESSION_STATUSES[number]
 
@@ -20,16 +14,14 @@ export async function adminRoutes(app: FastifyInstance) {
   // GET /admin/sessions?studioId=&date=
   app.get<{ Querystring: { studioId: string; date?: string } }>(
     '/sessions',
-    { preHandler: requireAdmin },
+    { preHandler: requireStudioAdmin },
     async (request, reply) => {
       const { studioId, date } = request.query
 
-      // Fix #14: require studioId to avoid full-table scans
       if (!studioId) return reply.badRequest('studioId is required')
 
-      // Fix #9: verify the admin belongs to this studio
       const user = getUser(request)
-      await assertStudioAccess(user.id, studioId, reply)
+      await assertStudioAccess(user.id, user.role, studioId, reply)
 
       const day = date ? new Date(date) : new Date()
       const from = new Date(day)
@@ -53,6 +45,7 @@ export async function adminRoutes(app: FastifyInstance) {
         templateName: s.template.name,
         sport: s.template.sport,
         instructorName: `${s.instructor.user.firstName} ${s.instructor.user.lastName}`,
+        roomId: s.roomId,
         roomName: s.room.name,
         capacity: s.capacity,
         bookedCount: s._count.bookings,
@@ -64,17 +57,16 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /admin/sessions/:id/bookings
+  // GET /admin/sessions/:id/bookings — instructor or higher
   app.get<{ Params: { id: string } }>(
     '/sessions/:id/bookings',
-    { preHandler: requireAdmin },
+    { preHandler: requireInstructor },
     async (request, reply) => {
-      // Fix #9: verify the session belongs to a studio this admin can access
       const user = getUser(request)
       const session = await prisma.classSession.findUniqueOrThrow({
         where: { id: request.params.id },
       })
-      await assertStudioAccess(user.id, session.studioId, reply)
+      await assertStudioAccess(user.id, user.role, session.studioId, reply)
 
       const bookings = await prisma.booking.findMany({
         where: { sessionId: request.params.id, status: 'CONFIRMED' },
@@ -97,23 +89,21 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   )
 
-  // POST /admin/sessions/:id/checkin/:bookingId — toggle check-in
+  // POST /admin/sessions/:id/checkin/:bookingId — instructor or higher
   app.post<{ Params: { id: string; bookingId: string } }>(
     '/sessions/:id/checkin/:bookingId',
-    { preHandler: requireAdmin },
+    { preHandler: requireInstructor },
     async (request, reply) => {
-      // Fix #9: verify session belongs to admin's studio
       const user = getUser(request)
       const session = await prisma.classSession.findUniqueOrThrow({
         where: { id: request.params.id },
       })
-      await assertStudioAccess(user.id, session.studioId, reply)
+      await assertStudioAccess(user.id, user.role, session.studioId, reply)
 
       const booking = await prisma.booking.findUniqueOrThrow({
         where: { id: request.params.bookingId },
       })
 
-      // Ensure booking belongs to this session
       if (booking.sessionId !== request.params.id) return reply.notFound()
 
       const updated = await prisma.booking.update({
@@ -127,23 +117,21 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   )
 
-  // PATCH /admin/sessions/:id — update status
+  // PATCH /admin/sessions/:id — studio_admin or higher
   app.patch<{ Params: { id: string }; Body: { status: string } }>(
     '/sessions/:id',
-    { preHandler: requireAdmin },
+    { preHandler: requireStudioAdmin },
     async (request, reply) => {
-      // Fix #4: validate status against enum allowlist
       const { status } = request.body
       if (!VALID_SESSION_STATUSES.includes(status as SessionStatus)) {
         return reply.badRequest(`Invalid status. Must be one of: ${VALID_SESSION_STATUSES.join(', ')}`)
       }
 
-      // Fix #9: verify studio access
       const user = getUser(request)
       const existing = await prisma.classSession.findUniqueOrThrow({
         where: { id: request.params.id },
       })
-      await assertStudioAccess(user.id, existing.studioId, reply)
+      await assertStudioAccess(user.id, user.role, existing.studioId, reply)
 
       const session = await prisma.classSession.update({
         where: { id: request.params.id },
@@ -153,19 +141,17 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /admin/stats?studioId=
+  // GET /admin/stats?studioId= — studio_admin or higher
   app.get<{ Querystring: { studioId: string } }>(
     '/stats',
-    { preHandler: requireAdmin },
+    { preHandler: requireStudioAdmin },
     async (request, reply) => {
       const { studioId } = request.query
 
-      // Fix #14: require studioId
       if (!studioId) return reply.badRequest('studioId is required')
 
-      // Fix #9: verify studio access
       const user = getUser(request)
-      await assertStudioAccess(user.id, studioId, reply)
+      await assertStudioAccess(user.id, user.role, studioId, reply)
 
       const today = new Date()
       today.setHours(0, 0, 0, 0)
@@ -188,13 +174,17 @@ export async function adminRoutes(app: FastifyInstance) {
   )
 }
 
-// Fix #9: shared studio access guard — checks that the user's Member record
-// belongs to the requested studio. Throws forbidden if not.
+/**
+ * admin/franchise_admin: unrestricted.
+ * studio_admin/instructor: must have a Member record for this studio.
+ */
 async function assertStudioAccess(
   userId: string,
+  role: UserRole,
   studioId: string,
-  reply: Parameters<typeof requireAdmin>[1],
+  reply: FastifyReply,
 ) {
+  if (ROLE_RANK[role] >= ROLE_RANK['franchise_admin']) return
   const member = await prisma.member.findUnique({ where: { userId } })
   if (!member || member.studioId !== studioId) {
     return reply.forbidden('Access denied to this studio')

@@ -6,7 +6,16 @@ export type ApiResponse<T> =
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
-export type UserRole = 'admin' | 'studio_admin' | 'instructor' | 'client'
+export type UserRole = 'admin' | 'franchise_admin' | 'studio_admin' | 'instructor' | 'member'
+
+/** Numeric rank — higher = more privilege. Used for requireRole() checks. */
+export const ROLE_RANK: Record<UserRole, number> = {
+  admin: 5,
+  franchise_admin: 4,
+  studio_admin: 3,
+  instructor: 2,
+  member: 1,
+}
 
 export interface AuthUser {
   id: string
@@ -22,6 +31,7 @@ export interface SessionSlot {
   templateName: string
   sport: string
   instructorName: string
+  roomId: string
   roomName: string
   startsAt: string
   endsAt: string
@@ -31,6 +41,7 @@ export interface SessionSlot {
   status: string
   creditsRequired: number
   userBookingId?: string
+  userStationId?: string | null
   userWaitlistPosition?: number
 }
 

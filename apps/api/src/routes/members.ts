@@ -7,7 +7,7 @@ export async function memberRoutes(app: FastifyInstance) {
   app.get('/me', { preHandler: requireAuth }, async (request, reply) => {
     const user = getUser(request)
 
-    const member = await prisma.member.findUniqueOrThrow({
+    const member = await prisma.member.findUnique({
       where: { userId: user.id },
       include: {
         user: true,
@@ -20,6 +20,8 @@ export async function memberRoutes(app: FastifyInstance) {
         },
       },
     })
+
+    if (!member) return reply.notFound('No member profile found for this user')
 
     return {
       id: member.id,
@@ -41,9 +43,12 @@ export async function memberRoutes(app: FastifyInstance) {
   app.get('/me/bookings', { preHandler: requireAuth }, async (request, reply) => {
     const user = getUser(request)
 
+    const member = await prisma.member.findUnique({ where: { userId: user.id } })
+    if (!member) return reply.notFound('No member profile found for this user')
+
     const bookings = await prisma.booking.findMany({
       where: {
-        member: { userId: user.id },
+        memberId: member.id,
         status: 'CONFIRMED',
         session: { startsAt: { gte: new Date() } },
       },
@@ -59,6 +64,19 @@ export async function memberRoutes(app: FastifyInstance) {
       orderBy: { session: { startsAt: 'asc' } },
     })
 
-    return bookings
+    return bookings.map((b) => ({
+      id: b.id,
+      sessionId: b.session.id,
+      startsAt: b.session.startsAt.toISOString(),
+      endsAt: b.session.endsAt.toISOString(),
+      templateName: b.session.template.name,
+      sport: b.session.template.sport,
+      instructorName: `${b.session.instructor.user.firstName} ${b.session.instructor.user.lastName}`,
+      roomName: b.session.room.name,
+      locationCity: b.session.room.location.city,
+      creditsRequired: b.session.creditsRequired,
+      sessionStatus: b.session.status,
+      bookedAt: b.bookedAt.toISOString(),
+    }))
   })
 }

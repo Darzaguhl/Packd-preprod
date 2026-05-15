@@ -87,17 +87,26 @@ NEXT_PUBLIC_STUDIO_ID=<seeded-studio-id>
 - `vi.fn()` as a Fastify preHandler causes requests to hang — always use `vi.fn().mockResolvedValue(undefined)` for preHandler mocks
 - This is because Fastify 5 awaits the preHandler return value; synchronous `undefined` stalls the lifecycle
 
-## Database schema (16 models)
+## Database schema (17 models)
 
 ```
-Studio → Location → Room
+Studio → Location → Room → RoomLayout → Station
 Studio → Instructor
 Studio → ClassTemplate → ClassSession → Booking → Member
+                      ↗ ClassSchedule (recurring)
                                      ↘ WaitlistEntry
 Member → CreditBalance + CreditTransaction
 Member → MembershipSubscription → MembershipPlan
 Studio → CancellationPolicy
 ```
+
+Key additions:
+- `ClassSchedule` — recurring schedule master (`daysOfWeek Int[]`, `startTime`, `durationMin`, `intervalWeeks @default(1)`, `validFrom/validUntil`, `isActive`)
+- `ClassSession.scheduleId` — links back to `ClassSchedule` (nullable, onDelete: SetNull)
+- `ClassSession.substituteInstructorId` — per-session override, preserved when schedule is edited
+- `RoomLayout` — named layout with `widthM`, `lengthM`, `isActive`; linked to `Room`
+- `Station` — positioned equipment (`type: StationType`, `xM`, `yM`, `rotation`, `label`); linked to `RoomLayout`
+- `Booking.stationId` — links a confirmed booking to a specific station for spot assignment
 
 Seed data lives in `packages/db/src/seed.ts`:
 - 1 studio: Packd Demo Studio
@@ -108,6 +117,15 @@ Seed data lives in `packages/db/src/seed.ts`:
 - 3 membership plans
 - ~26 sessions spread over 7 days
 
+## Security model
+
+- **Role source**: Role is read exclusively from `app_metadata` in the Supabase JWT (server-controlled). `user_metadata` is never trusted for access control.
+- **Role allowlist**: Only `'admin' | 'studio_admin' | 'instructor'` get elevated roles — anything else defaults to `'client'`.
+- **Tenant isolation**: All admin routes call `assertStudioAccess(userId, studioId)` which checks `Member.studioId === studioId`. An admin from studio A cannot access studio B's data.
+- **Race conditions**: Booking creation, cancellation+waitlist-promote, and waitlist-join all run inside `prisma.$transaction()`. DB-level `@@unique([sessionId, memberId])` is the final guard.
+- **Status validation**: Session status updates validated against explicit allowlist `['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']`.
+- **Setting admin role**: Use Supabase Admin API — `PUT /auth/v1/admin/users/:userId` with body `{"app_metadata": {"role": "admin"}}` and service role key. No script needed; curl works fine.
+
 ## What's been built
 
 ### API (`apps/api/src/routes/`)
@@ -115,13 +133,40 @@ Seed data lives in `packages/db/src/seed.ts`:
 - `bookings.ts` — `POST /bookings`, `DELETE /bookings/:id`, `POST /bookings/:id/checkin`
 - `waitlist.ts` — `POST /waitlist`, `DELETE /waitlist/:id`, `POST /waitlist/:id/confirm`
 - `members.ts` — `GET /members/me`
-- `studios.ts` — `POST /studios/onboard`
+- `studios.ts` — `GET/POST /studios`, `PATCH/DELETE /studios/:id`, `GET /studios/:id/rooms`, `POST /studios/:id/rooms`, `DELETE /studios/:id/rooms/:roomId`, `POST /studios/onboard`
+- `admin.ts` — admin-only routes behind `requireAdmin` (role from `app_metadata`)
+  - `GET /admin/sessions?studioId=&date=` — daily session list with booked counts
+  - `GET /admin/sessions/:id/bookings` — attendee list with check-in status
+  - `POST /admin/sessions/:id/checkin/:bookingId` — toggle check-in
+  - `PATCH /admin/sessions/:id` — update session status
+  - `GET /admin/stats?studioId=` — today's headline stats
+- `rooms.ts` — room layout and spot assignment
+  - `GET /rooms/:id/layout` — active layout with stations
+  - `POST /rooms/:id/layout` — save/replace layout
+  - `GET /rooms/:id/sessions/:sessionId/spots` — stations + assignments (includes `creditBalance`, `membershipStatus`)
+  - `POST /rooms/:id/sessions/:sessionId/spots` — assign booking to station
+  - `POST /rooms/:id/sessions/:sessionId/my-spot` — member picks own spot
+- `schedules.ts` — recurring class schedule management
+  - `GET /schedules?studioId=&weekStart=` — sessions + resources for a Mon–Sun week
+  - `GET /schedules/all?studioId=` — all active ClassSchedule records
+  - `POST /schedules` — create recurring schedule + generate N weeks of sessions
+  - `PATCH /schedules/:id` — update schedule (deletes future unbooked/unsubstituted sessions, regenerates)
+  - `DELETE /schedules/:id` — deactivate + remove future unbooked sessions
+  - `PATCH /schedules/sessions/:sessionId/substitute` — set/clear substitute instructor
+  - `GET /schedules/month?studioId=&year=&month=` — session counts per day for month grid
+  - `GET /schedules/orphaned?studioId=` — unique session patterns with no schedule link
+  - `DELETE /schedules/orphaned` — delete future unbooked orphaned sessions by pattern
+- `franchise.ts` — multi-studio management
+  - `GET /franchise/studios` — all studios summary
+  - `GET /franchise/studios/:id/instructors` — instructors with permissions
+  - `PATCH /franchise/studios/:id/instructors/:instructorId/permissions` — update instructor permissions
 - `stripe.ts` — Stripe webhook handler stub
 
 ### Web (`apps/web/src/`)
 - `/login` — sign in / sign up with Supabase Auth
 - `/onboarding` — multi-step studio setup wizard (5 steps)
 - `/schedule` — main member-facing schedule view (fully working)
+- `/dashboard` — admin dashboard (admin role required)
 
 ### Schedule UI components
 - `ScheduleView.tsx` — main shell, two-column layout (schedule + calendar sidebar)
@@ -131,6 +176,30 @@ Seed data lives in `packages/db/src/seed.ts`:
 - `schedule/CapacityBar.tsx` — green/amber/red fill bar
 - `schedule/MiniCalendar.tsx` — monthly grid with ISO week numbers per row, sport-colored booking dots
 - `schedule/constants.ts` — SPORT_CONFIG color map
+
+### Admin UI components
+- `admin/AdminDashboard.tsx` — stat cards (today's classes, bookings, waitlist, members), date picker, session list with fill bars, slide-in panel
+- `admin/SessionPanel.tsx` — attendee list with avatar initials + credit balance, check-in toggle (circle → filled tick), cancel session with confirm dialog
+
+### Franchise / studio management components
+- `franchise/FranchiseDashboard.tsx` — multi-studio overview cards, drill into per-studio management; `onStudioUpdate` callback keeps cards in sync after settings save without reload
+- `studio/StudioManagerDashboard.tsx` — tabbed per-studio view (Today · Calendar · Rooms · Permissions · Settings)
+- `studio/RoomsTab.tsx` — room list + layout editor (editor-only, no session features)
+- `studio/PermissionsTab.tsx` — per-instructor permission toggles with accordion UI; toggle fix: explicit `left-1 translate-x-0/translate-x-4` anchoring required
+- `studio/SettingsTab.tsx` — studio name, timezone (grouped optgroup, ~80 zones), currency (34 options); calls `onStudioUpdate` on save
+
+### Calendar components (`components/calendar/`)
+- `CalendarView.tsx` — three views: `week` (time grid with overlap layout), `month` (sport-dot grid), `schedules` (master recurring + orphaned sessions)
+  - Critical: `isoDate()` uses `getFullYear()/getMonth()/getDate()` not `.toISOString()` to avoid UTC offset shifting the week
+  - Overlap layout: sessions sorted by start, grouped by overlap, rendered side-by-side with `leftFrac`/`widthFrac`
+- `ScheduleModal.tsx` — create/edit recurring schedule; day-of-week pills; frequency: 1/2/3/4 weeks; pre-fills from orphaned session patterns
+- `SubstituteModal.tsx` — per-session substitute instructor assignment
+
+### Room map components (`components/room/`)
+- `RoomMapView.tsx` — orchestrator with `variant` prop: `'editor'` (layout only) or `'checkin'` (session spots only); also handles check-in toggles via `api.admin.checkin`
+- `RoomMapEditor.tsx` — drag-to-place floor plan editor; palette drag + canvas move + double-click rename + hover delete
+- `SessionRoomMap.tsx` — pixel-scale check-in map (90px/m, 130×100px min per station); shows member name, membership badge, credit balance, check-in toggle per station; DnD assignment; scrollable canvas
+- `constants.ts` — `STATION_META` (icon, color, physical size in metres per type), `GRID_STEP`, `snapToGrid`
 
 ### Tests
 - `apps/api/src/__tests__/booking.test.ts` — 6 unit tests (create, full class, insufficient credits, cancelled session, on-time cancel, late cancel)
@@ -144,7 +213,6 @@ Seed data lives in `packages/db/src/seed.ts`:
 
 ### High priority
 - [ ] Member account page — credit balance, upcoming bookings, cancel from there
-- [ ] Studio admin dashboard — manage sessions, view bookings, check-in screen
 - [ ] Booking confirmation flow — post-book state, credit deduction visible to user
 - [ ] Push/email notifications when promoted from waitlist
 
@@ -152,7 +220,7 @@ Seed data lives in `packages/db/src/seed.ts`:
 - [ ] Stripe credit purchase flow — buy credit packs, webhook updates CreditBalance
 - [ ] Membership subscription management — upgrade/downgrade/cancel
 - [ ] Admin drag-to-reschedule — wire up the DnD stub in ScheduleView (`handleDragEnd`)
-- [ ] Spot selection UI — `SpotLayout` type exists in `@packd/types`, needs a floor-plan picker component
+- [ ] Member spot self-selection — member-facing spot picker using `api.rooms.pickMySpot`
 
 ### Lower priority
 - [ ] Expo mobile app — auth, schedule view, booking (Expo Router)
@@ -179,6 +247,11 @@ apps/
       components/
         ScheduleView.tsx  # Main schedule shell
         schedule/         # Schedule sub-components
+        admin/            # Admin dashboard components
+        calendar/         # CalendarView, ScheduleModal, SubstituteModal
+        franchise/        # FranchiseDashboard
+        studio/           # StudioManagerDashboard, RoomsTab, PermissionsTab, SettingsTab
+        room/             # RoomMapView, RoomMapEditor, SessionRoomMap, constants
         onboarding/       # Onboarding wizard steps
       lib/
         api.ts            # Typed API client

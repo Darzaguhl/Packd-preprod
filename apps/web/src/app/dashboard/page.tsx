@@ -1,11 +1,25 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import AdminDashboard from '@/components/admin/AdminDashboard'
+import FranchiseDashboard from '@/components/franchise/FranchiseDashboard'
+import StudioManagerDashboard from '@/components/studio/StudioManagerDashboard'
+
+const STUDIO_ID = process.env.NEXT_PUBLIC_STUDIO_ID!
 
 export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  return <AdminDashboard studioId={process.env.NEXT_PUBLIC_STUDIO_ID!} />
+  const role = (user.app_metadata as { role?: string } | undefined)?.role
+
+  if (role === 'admin' || role === 'franchise_admin') {
+    return <FranchiseDashboard />
+  }
+
+  if (role === 'studio_admin') {
+    return <StudioManagerDashboard studioId={STUDIO_ID} />
+  }
+
+  // instructor and member land on schedule
+  redirect('/schedule')
 }
