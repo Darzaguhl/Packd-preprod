@@ -8,6 +8,7 @@ import { waitlistRoutes } from './routes/waitlist.js'
 import { memberRoutes } from './routes/members.js'
 import { studioRoutes } from './routes/studios.js'
 import { stripeRoutes } from './routes/stripe.js'
+import { adminRoutes } from './routes/admin.js'
 import { setupJobs } from './jobs/index.js'
 
 const app = Fastify({ logger: true })
@@ -26,6 +27,7 @@ await app.register(bookingRoutes, { prefix: '/bookings' })
 await app.register(waitlistRoutes, { prefix: '/waitlist' })
 await app.register(memberRoutes, { prefix: '/members' })
 await app.register(stripeRoutes, { prefix: '/stripe' })
+await app.register(adminRoutes, { prefix: '/admin' })
 
 app.get('/health', async () => ({ ok: true }))
 

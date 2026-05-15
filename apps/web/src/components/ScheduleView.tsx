@@ -200,9 +200,17 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
             {/* Main column — title + tabs + filters */}
             <div className="flex-1 min-w-0">
               {/* Title row */}
-              <div className="py-4">
-                <h1 className="text-xl font-bold text-gray-900">Schedule</h1>
-                <p className="text-sm text-gray-400">{subtitle}</p>
+              <div className="py-4 flex items-start justify-between">
+                <div>
+                  <h1 className="text-xl font-bold text-gray-900">Schedule</h1>
+                  <p className="text-sm text-gray-400">{subtitle}</p>
+                </div>
+                <a
+                  href="/dashboard"
+                  className="text-xs text-gray-400 hover:text-gray-700 transition-colors mt-1"
+                >
+                  Admin →
+                </a>
               </div>
 
               {/* Day tabs with integrated arrows (constrained to this column) */}
