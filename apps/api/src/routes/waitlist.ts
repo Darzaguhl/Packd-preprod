@@ -9,23 +9,33 @@ export async function waitlistRoutes(app: FastifyInstance) {
     { preHandler: requireAuth },
     async (request, reply) => {
       const { sessionId } = request.body
-      const user = getUser(request)
 
+      // Fix #12: validate body
+      if (!sessionId || typeof sessionId !== 'string') {
+        return reply.badRequest('sessionId is required')
+      }
+
+      const user = getUser(request)
       const member = await prisma.member.findUniqueOrThrow({ where: { userId: user.id } })
 
-      const lastEntry = await prisma.waitlistEntry.findFirst({
-        where: { sessionId, status: 'WAITING' },
-        orderBy: { position: 'desc' },
-        select: { position: true },
+      // Fix #2 (waitlist position race condition): compute position and insert
+      // inside a transaction. The @@unique([sessionId, memberId]) on WaitlistEntry
+      // prevents duplicate entries at the DB level.
+      const entry = await prisma.$transaction(async (tx) => {
+        const lastEntry = await tx.waitlistEntry.findFirst({
+          where: { sessionId, status: 'WAITING' },
+          orderBy: { position: 'desc' },
+          select: { position: true },
+        })
+
+        const position = (lastEntry?.position ?? 0) + 1
+
+        return tx.waitlistEntry.create({
+          data: { sessionId, memberId: member.id, position, status: 'WAITING' },
+        })
       })
 
-      const position = (lastEntry?.position ?? 0) + 1
-
-      const entry = await prisma.waitlistEntry.create({
-        data: { sessionId, memberId: member.id, position, status: 'WAITING' },
-      })
-
-      return reply.code(201).send({ success: true, data: { ...entry, position } })
+      return reply.code(201).send({ success: true, data: { ...entry, position: entry.position } })
     },
   )
 
@@ -61,7 +71,7 @@ export async function waitlistRoutes(app: FastifyInstance) {
         where: { id: request.params.id },
         include: {
           member: { include: { creditBalance: true } },
-          session: true,
+          session: { include: { _count: { select: { bookings: { where: { status: 'CONFIRMED' } } } } } },
         },
       })
 
@@ -77,14 +87,27 @@ export async function waitlistRoutes(app: FastifyInstance) {
         return reply.paymentRequired('Insufficient credits')
       }
 
+      // Fix #6: re-check capacity inside the confirmation transaction
       await prisma.$transaction(async (tx) => {
-        await tx.booking.create({
-          data: {
-            sessionId: entry.sessionId,
-            memberId: entry.memberId,
-            status: 'CONFIRMED',
-          },
+        // Re-read confirmed booking count with a lock
+        const session = await tx.classSession.findUniqueOrThrow({
+          where: { id: entry.sessionId },
+          include: { _count: { select: { bookings: { where: { status: 'CONFIRMED' } } } } },
         })
+
+        if (session._count.bookings >= session.capacity) {
+          throw Object.assign(new Error('Class is now full'), { code: 'CONFLICT' })
+        }
+
+        await tx.booking.create({
+          data: { sessionId: entry.sessionId, memberId: entry.memberId, status: 'CONFIRMED' },
+        })
+
+        // Fix #10: guard against negative balance
+        const current = await tx.creditBalance.findUniqueOrThrow({ where: { memberId: entry.memberId } })
+        if (current.balance < entry.session.creditsRequired) {
+          throw Object.assign(new Error('Insufficient credits'), { code: 'PAYMENT_REQUIRED' })
+        }
 
         await tx.creditBalance.update({
           where: { memberId: entry.memberId },

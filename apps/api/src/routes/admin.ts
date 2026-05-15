@@ -2,19 +2,35 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
 
-async function requireAdmin(request: Parameters<typeof requireAuth>[0], reply: Parameters<typeof requireAuth>[1]) {
+// Fix #3: role must come from app_metadata only (set server-side, not user-editable)
+async function requireAdmin(
+  request: Parameters<typeof requireAuth>[0],
+  reply: Parameters<typeof requireAuth>[1],
+) {
   await requireAuth(request, reply)
   const user = getUser(request)
   if (user.role !== 'admin') return reply.forbidden('Admin access required')
 }
+
+// Fix #4: allowlist of valid session statuses
+const VALID_SESSION_STATUSES = ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const
+type SessionStatus = typeof VALID_SESSION_STATUSES[number]
 
 export async function adminRoutes(app: FastifyInstance) {
   // GET /admin/sessions?studioId=&date=
   app.get<{ Querystring: { studioId: string; date?: string } }>(
     '/sessions',
     { preHandler: requireAdmin },
-    async (request) => {
+    async (request, reply) => {
       const { studioId, date } = request.query
+
+      // Fix #14: require studioId to avoid full-table scans
+      if (!studioId) return reply.badRequest('studioId is required')
+
+      // Fix #9: verify the admin belongs to this studio
+      const user = getUser(request)
+      await assertStudioAccess(user.id, studioId, reply)
+
       const day = date ? new Date(date) : new Date()
       const from = new Date(day)
       from.setHours(0, 0, 0, 0)
@@ -52,18 +68,20 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>(
     '/sessions/:id/bookings',
     { preHandler: requireAdmin },
-    async (request) => {
+    async (request, reply) => {
+      // Fix #9: verify the session belongs to a studio this admin can access
+      const user = getUser(request)
+      const session = await prisma.classSession.findUniqueOrThrow({
+        where: { id: request.params.id },
+      })
+      await assertStudioAccess(user.id, session.studioId, reply)
+
       const bookings = await prisma.booking.findMany({
         where: { sessionId: request.params.id, status: 'CONFIRMED' },
         include: {
-          member: {
-            include: {
-              user: true,
-              creditBalance: true,
-            },
-          },
+          member: { include: { user: true, creditBalance: true } },
         },
-        orderBy: { createdAt: 'asc' },
+        orderBy: { bookedAt: 'asc' },
       })
 
       return bookings.map((b) => ({
@@ -74,7 +92,7 @@ export async function adminRoutes(app: FastifyInstance) {
         checkedIn: b.checkedIn,
         checkedInAt: b.checkedInAt?.toISOString() ?? null,
         creditBalance: b.member.creditBalance?.balance ?? 0,
-        bookedAt: b.createdAt.toISOString(),
+        bookedAt: b.bookedAt.toISOString(),
       }))
     },
   )
@@ -83,10 +101,21 @@ export async function adminRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string; bookingId: string } }>(
     '/sessions/:id/checkin/:bookingId',
     { preHandler: requireAdmin },
-    async (request) => {
+    async (request, reply) => {
+      // Fix #9: verify session belongs to admin's studio
+      const user = getUser(request)
+      const session = await prisma.classSession.findUniqueOrThrow({
+        where: { id: request.params.id },
+      })
+      await assertStudioAccess(user.id, session.studioId, reply)
+
       const booking = await prisma.booking.findUniqueOrThrow({
         where: { id: request.params.bookingId },
       })
+
+      // Ensure booking belongs to this session
+      if (booking.sessionId !== request.params.id) return reply.notFound()
+
       const updated = await prisma.booking.update({
         where: { id: request.params.bookingId },
         data: {
@@ -98,14 +127,27 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   )
 
-  // PATCH /admin/sessions/:id — update status (cancel, complete, etc.)
+  // PATCH /admin/sessions/:id — update status
   app.patch<{ Params: { id: string }; Body: { status: string } }>(
     '/sessions/:id',
     { preHandler: requireAdmin },
-    async (request) => {
+    async (request, reply) => {
+      // Fix #4: validate status against enum allowlist
+      const { status } = request.body
+      if (!VALID_SESSION_STATUSES.includes(status as SessionStatus)) {
+        return reply.badRequest(`Invalid status. Must be one of: ${VALID_SESSION_STATUSES.join(', ')}`)
+      }
+
+      // Fix #9: verify studio access
+      const user = getUser(request)
+      const existing = await prisma.classSession.findUniqueOrThrow({
+        where: { id: request.params.id },
+      })
+      await assertStudioAccess(user.id, existing.studioId, reply)
+
       const session = await prisma.classSession.update({
         where: { id: request.params.id },
-        data: { status: request.body.status as never },
+        data: { status: status as SessionStatus },
       })
       return { success: true, status: session.status }
     },
@@ -115,8 +157,16 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { studioId: string } }>(
     '/stats',
     { preHandler: requireAdmin },
-    async (request) => {
+    async (request, reply) => {
       const { studioId } = request.query
+
+      // Fix #14: require studioId
+      if (!studioId) return reply.badRequest('studioId is required')
+
+      // Fix #9: verify studio access
+      const user = getUser(request)
+      await assertStudioAccess(user.id, studioId, reply)
+
       const today = new Date()
       today.setHours(0, 0, 0, 0)
       const tomorrow = new Date(today)
@@ -126,14 +176,27 @@ export async function adminRoutes(app: FastifyInstance) {
         prisma.classSession.count({ where: { studioId, startsAt: { gte: today, lt: tomorrow } } }),
         prisma.member.count({ where: { studioId } }),
         prisma.booking.count({
-          where: { session: { studioId }, createdAt: { gte: today }, status: 'CONFIRMED' },
+          where: { session: { studioId }, bookedAt: { gte: today }, status: 'CONFIRMED' },
         }),
         prisma.waitlistEntry.count({
-          where: { session: { studioId }, createdAt: { gte: today }, status: 'WAITING' },
+          where: { session: { studioId }, joinedAt: { gte: today }, status: 'WAITING' },
         }),
       ])
 
       return { todaySessions, totalMembers, totalBookingsToday, waitlistToday }
     },
   )
+}
+
+// Fix #9: shared studio access guard — checks that the user's Member record
+// belongs to the requested studio. Throws forbidden if not.
+async function assertStudioAccess(
+  userId: string,
+  studioId: string,
+  reply: Parameters<typeof requireAdmin>[1],
+) {
+  const member = await prisma.member.findUnique({ where: { userId } })
+  if (!member || member.studioId !== studioId) {
+    return reply.forbidden('Access denied to this studio')
+  }
 }

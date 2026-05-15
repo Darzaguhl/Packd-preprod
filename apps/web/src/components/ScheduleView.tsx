@@ -131,10 +131,10 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
     if (!token) return
     setActionLoading(sessionId)
     try {
-      await api.bookings.create(sessionId, token)
+      const res = await api.bookings.create(sessionId, token)
       mutateSession(sessionId, {
         bookedCount: sessions.find((s) => s.id === sessionId)!.bookedCount + 1,
-        userBookingId: 'booked',
+        userBookingId: res.success ? res.data.id : 'booked',
       })
       showToast('Class booked!')
     } catch (e: unknown) {
