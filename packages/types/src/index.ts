@@ -6,7 +6,7 @@ export type ApiResponse<T> =
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
-export type UserRole = 'studio_admin' | 'instructor' | 'client'
+export type UserRole = 'admin' | 'studio_admin' | 'instructor' | 'client'
 
 export interface AuthUser {
   id: string

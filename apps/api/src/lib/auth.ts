@@ -16,10 +16,18 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
   const token = authHeader.slice(7)
   try {
     const { payload } = await jwtVerify(token, JWKS)
+
+    // Fix #3: role MUST come from app_metadata (server-controlled) only.
+    // user_metadata is writable by the client and must never grant elevated access.
+    const rawRole = (payload.app_metadata as { role?: string } | undefined)?.role
+    const role: AuthUser['role'] = rawRole === 'admin' || rawRole === 'studio_admin' || rawRole === 'instructor'
+      ? rawRole
+      : 'client'
+
     request.user = {
       id: payload.sub!,
       email: payload.email as string,
-      role: (payload.user_metadata as { role?: string })?.role ?? 'client',
+      role,
     } satisfies AuthUser
   } catch {
     return reply.code(401).send({ error: 'Invalid token' })

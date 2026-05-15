@@ -41,6 +41,8 @@ export default function AdminDashboard({ studioId }: { studioId: string }) {
       ])
       setSessions(s)
       setStats(st)
+    } catch {
+      // stats/sessions failed — likely auth or network; leave existing data
     } finally {
       setLoading(false)
     }
@@ -182,10 +184,10 @@ export default function AdminDashboard({ studioId }: { studioId: string }) {
 
       {/* Right panel — attendee list */}
       <div className={`border-l border-gray-100 bg-white transition-all duration-200 ${selectedSession ? 'w-96' : 'w-0 overflow-hidden'}`}>
-        {selectedSession && (
+        {selectedSession && token && (
           <SessionPanel
             session={selectedSession}
-            token={token!}
+            token={token}
             onClose={() => setSelectedSession(null)}
             onSessionUpdate={(updated) => {
               setSessions(prev => prev.map(s => s.id === updated.id ? updated : s))
