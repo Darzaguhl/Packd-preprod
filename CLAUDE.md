@@ -35,7 +35,7 @@ cd apps/api && npm run dev    # API on :4000
 cd apps/web && npm run dev    # Web on :3001 (or :3000)
 
 # Tests
-npm test                      # Vitest unit tests (10 tests, all passing)
+npm test                      # Vitest unit tests (22 tests, all passing)
 npm run test:coverage         # with coverage report
 npm run test:e2e              # Playwright E2E (needs web + API running)
 ```
@@ -86,6 +86,9 @@ NEXT_PUBLIC_STUDIO_ID=<seeded-studio-id>
 ### Vitest + Fastify 5
 - `vi.fn()` as a Fastify preHandler causes requests to hang — always use `vi.fn().mockResolvedValue(undefined)` for preHandler mocks
 - This is because Fastify 5 awaits the preHandler return value; synchronous `undefined` stalls the lifecycle
+- Prisma `$transaction` mock: define all model objects as named `vi.fn()` instances at factory scope, then share the same references in BOTH the `prisma` export AND the `$transaction` proxy — this ensures `vi.mocked(prisma.x.y).mockResolvedValue(...)` works for calls inside transactions
+- `$transaction` callback form: `vi.fn(async (fn) => fn(tx))` where `tx` is the shared model object; array form: `vi.fn(async (arr) => Promise.all(arr))`
+- Custom errors in routes must use `{ statusCode: N }` (not `{ code: 'NAME' }`) — Fastify's error handler only reads `err.statusCode`
 
 ## Database schema (17 models)
 
@@ -120,7 +123,9 @@ Seed data lives in `packages/db/src/seed.ts`:
 ## Security model
 
 - **Role source**: Role is read exclusively from `app_metadata` in the Supabase JWT (server-controlled). `user_metadata` is never trusted for access control.
-- **Role allowlist**: Only `'admin' | 'studio_admin' | 'instructor'` get elevated roles — anything else defaults to `'client'`.
+- **Role allowlist**: `'admin' | 'franchise_admin' | 'studio_admin' | 'instructor' | 'fronthost'` get elevated roles — anything else defaults to `'member'`.
+- **Role ranks**: `admin=5`, `franchise_admin=4`, `studio_admin=3`, `instructor=2`, `fronthost=2`, `member=1`. `fronthost` and `instructor` share rank 2 — both pass `requireRole('instructor')` guards but not `requireRole('studio_admin')`.
+- **fronthost permissions**: Can check in members, handle payments (credit adjustments), and access daily session/stats views. Cannot edit layouts, manage schedules, or access franchise-level data. Instructors default `canCheckInMembers: false`.
 - **Tenant isolation**: All admin routes call `assertStudioAccess(userId, studioId)` which checks `Member.studioId === studioId`. An admin from studio A cannot access studio B's data.
 - **Race conditions**: Booking creation, cancellation+waitlist-promote, and waitlist-join all run inside `prisma.$transaction()`. DB-level `@@unique([sessionId, memberId])` is the final guard.
 - **Status validation**: Session status updates validated against explicit allowlist `['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']`.
@@ -140,6 +145,8 @@ Seed data lives in `packages/db/src/seed.ts`:
   - `POST /admin/sessions/:id/checkin/:bookingId` — toggle check-in
   - `PATCH /admin/sessions/:id` — update session status
   - `GET /admin/stats?studioId=` — today's headline stats
+  - `GET /admin/members/search?studioId=&q=` — fuzzy search members by name/email (up to 10 results, includes creditBalance and membershipStatus)
+  - `POST /admin/members/:memberId/credits` — adjust credit balance (positive or negative integer, type: MANUAL_ADJUSTMENT)
 - `rooms.ts` — room layout and spot assignment
   - `GET /rooms/:id/layout` — active layout with stations
   - `POST /rooms/:id/layout` — save/replace layout
@@ -198,16 +205,23 @@ Seed data lives in `packages/db/src/seed.ts`:
 ### Room map components (`components/room/`)
 - `RoomMapView.tsx` — orchestrator with `variant` prop: `'editor'` (layout only) or `'checkin'` (session spots only); also handles check-in toggles via `api.admin.checkin`
 - `RoomMapEditor.tsx` — drag-to-place floor plan editor; palette drag + canvas move + double-click rename + hover delete
-- `SessionRoomMap.tsx` — pixel-scale check-in map (90px/m, 130×100px min per station); shows member name, membership badge, credit balance, check-in toggle per station; DnD assignment; scrollable canvas
+- `SessionRoomMap.tsx` — pixel-scale check-in map (90px/m, 130×100px min per station); two-panel layout: compact station list (w-52, sorted by label, quick ✓ check-in button) + scrollable canvas; shows member name, membership badge, credit balance, check-in toggle; DnD assignment with lock — checked-in members cannot be dragged and their target station blocks drops
 - `constants.ts` — `STATION_META` (icon, color, physical size in metres per type), `GRID_STEP`, `snapToGrid`
 
+### Fronthost components (`components/fronthost/`)
+- `FronthostDashboard.tsx` — full-screen layout: session sidebar (w-72) with today's sessions, LIVE badge, fill bar, date picker; clicking a session loads `<RoomMapView variant="checkin" />`; "+ Credits" button opens CreditModal
+- `CreditModal.tsx` — member search via `api.admin.searchMembers`; preset amounts (+5, +10, +20, +30) with deduct toggle; manual amount + optional note; calls `api.admin.adjustCredits`
+
 ### Tests
-- `apps/api/src/__tests__/booking.test.ts` — 6 unit tests (create, full class, insufficient credits, cancelled session, on-time cancel, late cancel)
-- `apps/api/src/__tests__/waitlist.test.ts` — 4 unit tests (join empty, join with queue, confirm, expired window)
+- `apps/api/src/__tests__/booking.test.ts` — 8 unit tests (create 201, full class 409, insufficient credits 402, cancelled session 400, missing body 400, on-time cancel 200, late cancel 200, wrong user cancel 403)
+- `apps/api/src/__tests__/waitlist.test.ts` — 6 unit tests (join empty 201, join with queue 201, missing body 400, confirm valid 200, expired window 410, wrong user 403)
+- `apps/api/src/__tests__/checkin.test.ts` — 3 unit tests (toggle on, toggle off + clears checkedInAt, wrong session booking 404)
+- `apps/api/src/__tests__/credits.test.ts` — 5 unit tests (add credits, deduct credits, amount=0 rejected, non-integer rejected, missing member 404)
 - `e2e/auth.spec.ts` — redirect, form render, mode toggle, invalid credentials
 - `e2e/schedule.spec.ts` — day tabs, selected tab, class cards, week nav, sport filter, day switching
 - `e2e/booking.spec.ts` — book button, waitlist button
-- `e2e/performance.spec.ts` — LCP < 2500ms, CLS < 0.1, TTFB < 800ms, API < 500ms
+- `e2e/performance.spec.ts` — schedule LCP < 2500ms, schedule CLS < 0.1, login TTFB < 800ms, dashboard LCP < 3000ms, dashboard CLS < 0.1, schedule API < 500ms, admin sessions API < 600ms, member search API < 500ms
+- `e2e/fixtures.ts` — `authedPage` (member, lands /schedule) and `adminPage` (admin, lands /dashboard) fixtures
 
 ## What's next
 
@@ -252,6 +266,7 @@ apps/
         franchise/        # FranchiseDashboard
         studio/           # StudioManagerDashboard, RoomsTab, PermissionsTab, SettingsTab
         room/             # RoomMapView, RoomMapEditor, SessionRoomMap, constants
+        fronthost/        # FronthostDashboard, CreditModal
         onboarding/       # Onboarding wizard steps
       lib/
         api.ts            # Typed API client
