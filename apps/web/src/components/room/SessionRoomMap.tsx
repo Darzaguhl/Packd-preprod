@@ -151,9 +151,11 @@ function DroppableStation({
       className={`absolute rounded-xl border-2 transition-all overflow-hidden ${
         isOver && !isLocked
           ? 'border-gray-900 bg-gray-100 scale-105 z-20'
-          : assignment
-            ? `${meta.color} ${isLocked ? 'ring-2 ring-emerald-400' : ''} z-10`
-            : 'border-dashed border-gray-300 bg-white/60 hover:border-gray-400'
+          : isLocked
+            ? 'border-emerald-400 bg-emerald-50 z-10'
+            : assignment
+              ? 'border-gray-300 bg-white z-10'
+              : 'border-dashed border-gray-300 bg-gray-50/60 hover:border-gray-400'
       }`}
       style={{
         left: station.xM * SCALE,
@@ -258,19 +260,19 @@ function DroppableListStation({
   return (
     <div
       ref={setDropRef}
-      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left transition-all ${
+      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left transition-all border-l-2 ${
         isOver && !isLocked
-          ? 'bg-gray-900 ring-2 ring-gray-900 scale-[1.02]'
-          : assignment?.checkedIn
-            ? 'bg-emerald-50'
+          ? 'bg-gray-900 border-l-gray-900 scale-[1.02]'
+          : isLocked
+            ? 'bg-emerald-50 border-l-emerald-500'
             : assignment
-              ? 'bg-gray-50'
-              : 'bg-white'
+              ? 'bg-white border-l-gray-400'
+              : 'bg-gray-50 border-l-gray-200'
       }`}
     >
       <span className="text-sm leading-none shrink-0">{meta.icon}</span>
       <span
-        className={`text-[10px] font-semibold w-6 shrink-0 ${isOver && !isLocked ? 'text-gray-300' : 'text-gray-500'}`}
+        className={`text-[10px] font-semibold w-6 shrink-0 ${isOver && !isLocked ? 'text-gray-300' : isLocked ? 'text-emerald-700' : 'text-gray-500'}`}
         title={station.label}
       >
         {shortLabel(station.label)}
@@ -282,11 +284,11 @@ function DroppableListStation({
         className={`flex-1 min-w-0 ${assignment && !isLocked ? 'cursor-grab active:cursor-grabbing' : ''} ${isDragging ? 'opacity-30' : ''}`}
       >
         {assignment ? (
-          <p className={`text-[11px] font-medium truncate leading-tight ${isOver && !isLocked ? 'text-white' : 'text-gray-900'}`}>
+          <p className={`text-[11px] font-medium truncate leading-tight ${isOver && !isLocked ? 'text-white' : isLocked ? 'text-emerald-800' : 'text-gray-900'}`}>
             {isOver && !isLocked ? 'Drop here' : assignment.memberName}
           </p>
         ) : (
-          <p className={`text-[11px] italic ${isOver ? 'text-gray-300' : 'text-gray-300'}`}>
+          <p className={`text-[11px] italic ${isOver ? 'text-gray-300' : 'text-gray-400'}`}>
             {isOver ? 'Drop here' : 'empty'}
           </p>
         )}
