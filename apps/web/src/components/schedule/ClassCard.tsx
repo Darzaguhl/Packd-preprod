@@ -8,19 +8,13 @@ import { sportConfig } from './constants'
 
 interface ClassCardProps {
   session: SessionSlot
-  onBook: (sessionId: string) => void
-  onCancel: (bookingId: string, sessionId: string) => void
-  onWaitlist: (sessionId: string) => void
-  isLoading: boolean
+  onSelect: (session: SessionSlot) => void
   draggable?: boolean
 }
 
 export default function ClassCard({
   session: s,
-  onBook,
-  onCancel,
-  onWaitlist,
-  isLoading,
+  onSelect,
   draggable = false,
 }: ClassCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -51,7 +45,8 @@ export default function ClassCard({
       style={style}
       data-testid="class-card"
       data-session-id={s.id}
-      className={`group relative flex items-stretch bg-white border rounded-2xl overflow-hidden transition-all duration-150 ${
+      onClick={() => !draggable && onSelect(s)}
+      className={`group relative flex items-stretch bg-white border rounded-2xl overflow-hidden transition-all duration-150 cursor-pointer ${
         isDragging
           ? 'shadow-2xl border-gray-300 scale-[1.02]'
           : 'border-gray-100 hover:border-gray-200 hover:shadow-md'
@@ -106,36 +101,11 @@ export default function ClassCard({
           </div>
         </div>
 
-        {/* Action */}
-        <div className="shrink-0">
-          {isBooked ? (
-            <button
-              onClick={() => onCancel(s.userBookingId!, s.id)}
-              disabled={isLoading}
-              data-testid="cancel-btn"
-              className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 disabled:opacity-40 transition-colors font-medium"
-            >
-              {isLoading ? '…' : 'Cancel'}
-            </button>
-          ) : isFull ? (
-            <button
-              onClick={() => onWaitlist(s.id)}
-              disabled={isLoading}
-              data-testid="waitlist-btn"
-              className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 transition-colors font-medium"
-            >
-              {isLoading ? '…' : 'Waitlist'}
-            </button>
-          ) : (
-            <button
-              onClick={() => onBook(s.id)}
-              disabled={isLoading}
-              data-testid="book-btn"
-              className="text-xs px-3 py-1.5 rounded-lg bg-black text-white hover:bg-gray-800 disabled:opacity-40 transition-colors font-medium"
-            >
-              {isLoading ? '…' : 'Book'}
-            </button>
-          )}
+        {/* Chevron */}
+        <div className="shrink-0 flex items-center pr-1 text-gray-300 group-hover:text-gray-500 transition-colors">
+          <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none">
+            <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
         </div>
       </div>
     </div>

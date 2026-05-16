@@ -14,12 +14,11 @@ import type { SessionSlot } from '@packd/types'
 import { api } from '@/lib/api'
 import { createClient } from '@/lib/supabase/client'
 import ClassCard from './schedule/ClassCard'
+import SessionDetailView from './schedule/SessionDetailView'
 import DayTabs, { type DayTab } from './schedule/DayTabs'
 import FilterBar from './schedule/FilterBar'
 import MiniCalendar from './schedule/MiniCalendar'
 import NavBar from './NavBar'
-import SpotPicker from './room/SpotPicker'
-import { type RoomLayout, type SessionSpots } from '@/lib/api'
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -58,7 +57,9 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   const [selectedDay, setSelectedDay] = useState<string>(toIsoDate(new Date()))
   const [selectedSport, setSelectedSport] = useState('ALL')
   const [weekOffset, setWeekOffset] = useState(0)
-  const [spotModal, setSpotModal] = useState<{ session: SessionSlot; spots: SessionSpots } | null>(null)
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  // Derive the selected session from the live sessions array so mutations stay reflected
+  const selectedSession = selectedSessionId ? sessions.find(s => s.id === selectedSessionId) ?? null : null
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
@@ -146,15 +147,6 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
         userBookingId: res.success ? res.data.id : 'booked',
       })
       showToast('Class booked!')
-      // Offer spot selection if the room has a layout
-      try {
-        const spots = await api.rooms.spots(session.roomId, sessionId, token)
-        if (spots.layout && spots.layout.stations.length > 0) {
-          setSpotModal({ session: { ...session, userBookingId: res.success ? res.data.id : 'booked' }, spots })
-        }
-      } catch {
-        // no layout — skip spot picker
-      }
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Failed to book', false)
     } finally {
@@ -163,20 +155,10 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   }
 
   async function handlePickSpot(stationId: string | null) {
-    if (!spotModal || !token) return
-    const { session } = spotModal
+    if (!selectedSession || !token) return
     try {
-      await api.rooms.pickMySpot(session.roomId, session.id, stationId, token)
-      mutateSession(session.id, { userStationId: stationId })
-      setSpotModal(prev => prev ? {
-        ...prev,
-        spots: {
-          ...prev.spots,
-          assignments: prev.spots.assignments.map(a =>
-            a.memberId === a.memberId ? { ...a, stationId } : a
-          ),
-        },
-      } : null)
+      await api.rooms.pickMySpot(selectedSession.roomId, selectedSession.id, stationId, token)
+      mutateSession(selectedSession.id, { userStationId: stationId })
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Failed to pick spot', false)
     }
@@ -258,9 +240,18 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
 
       {/* Content: two-column on md+ */}
       <div className="max-w-6xl mx-auto px-4 py-4 flex gap-5 items-start">
-        {/* Session list */}
+        {/* Session list or detail view */}
         <div className="flex-1 min-w-0">
-          {loading ? (
+          {selectedSession ? (
+            <SessionDetailView
+              session={selectedSession}
+              onBack={() => setSelectedSessionId(null)}
+              onBook={handleBook}
+              onCancel={handleCancel}
+              onWaitlist={handleWaitlist}
+              onPickSpot={handlePickSpot}
+            />
+          ) : loading ? (
             <div className="space-y-2">
               {[...Array(4)].map((_, i) => (
                 <div key={i} className="h-24 bg-white rounded-2xl animate-pulse border border-gray-100" />
@@ -286,10 +277,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
                     <ClassCard
                       key={s.id}
                       session={s}
-                      onBook={handleBook}
-                      onCancel={handleCancel}
-                      onWaitlist={handleWaitlist}
-                      isLoading={actionLoading === s.id}
+                      onSelect={s => setSelectedSessionId(s.id)}
                       draggable={false}
                     />
                   ))}
@@ -321,49 +309,6 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
         </div>
       )}
 
-      {/* Spot picker modal */}
-      {spotModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl flex flex-col gap-4 p-6">
-            <div className="flex items-start justify-between">
-              <div>
-                <h2 className="text-base font-semibold text-gray-900">Pick your spot</h2>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {spotModal.session.templateName} · {spotModal.session.roomName}
-                </p>
-              </div>
-              <button
-                onClick={() => setSpotModal(null)}
-                className="text-gray-400 hover:text-gray-700 text-lg leading-none"
-              >
-                ×
-              </button>
-            </div>
-
-            <SpotPicker
-              layout={spotModal.spots.layout!}
-              assignments={spotModal.spots.assignments}
-              myStationId={spotModal.session.userStationId ?? null}
-              onPick={handlePickSpot}
-            />
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => setSpotModal(null)}
-                className="text-xs text-gray-500 hover:text-gray-800 underline underline-offset-2"
-              >
-                Skip for now
-              </button>
-              <button
-                onClick={() => setSpotModal(null)}
-                className="text-xs font-medium bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

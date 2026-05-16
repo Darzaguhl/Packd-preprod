@@ -326,11 +326,8 @@ function DroppableListStation({
 const DROP_ANIMATION: DropAnimation = {
   duration: 180,
   easing: 'ease-out',
-  keyframes({ transform }) {
-    return [
-      { opacity: 1, transform: transform.initial },
-      { opacity: 0, transform: transform.initial },
-    ]
+  keyframes() {
+    return [{ opacity: 1 }, { opacity: 0 }]
   },
 }
 
