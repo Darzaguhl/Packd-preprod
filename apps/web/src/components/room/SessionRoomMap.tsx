@@ -36,6 +36,44 @@ function shortLabel(label: string) {
   return `${label.trim()[0].toUpperCase()}${num ? num[0] : ''}`
 }
 
+function CheckInButton({
+  checkedIn,
+  onClick,
+  size = 'sm',
+}: {
+  checkedIn: boolean
+  onClick: () => void
+  size?: 'sm' | 'md'
+}) {
+  const dim = size === 'md' ? 'w-6 h-6' : 'w-5 h-5'
+  return (
+    <button
+      onPointerDown={e => e.stopPropagation()}
+      onClick={e => { e.stopPropagation(); onClick() }}
+      title={checkedIn ? 'Undo check-in' : 'Check in'}
+      className={`group ${dim} rounded-full flex items-center justify-center transition-colors shrink-0 ${
+        checkedIn
+          ? 'bg-emerald-500 text-white hover:bg-red-500'
+          : 'bg-white border-2 border-gray-300 text-transparent hover:border-emerald-400'
+      }`}
+    >
+      {/* Checkmark — hidden on hover when checked in */}
+      <svg
+        className={`w-3 h-3 ${checkedIn ? 'group-hover:hidden' : ''}`}
+        viewBox="0 0 12 12" fill="none"
+      >
+        <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+      {/* × — shown on hover only when checked in */}
+      {checkedIn && (
+        <svg className="w-3 h-3 hidden group-hover:block" viewBox="0 0 12 12" fill="none">
+          <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      )}
+    </button>
+  )
+}
+
 function MembershipBadge({ status }: { status: SpotAssignment['membershipStatus'] }) {
   if (status === 'ACTIVE') return (
     <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Active</span>
@@ -132,20 +170,10 @@ function DroppableStation({
               <span className="text-[10px] font-semibold truncate text-gray-700">{station.label}</span>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              <button
-                onPointerDown={e => e.stopPropagation()}
-                onClick={e => { e.stopPropagation(); onCheckin?.(assignment.bookingId) }}
-                title={assignment.checkedIn ? 'Undo check-in' : 'Check in'}
-                className={`w-5 h-5 rounded-full flex items-center justify-center transition-colors shrink-0 ${
-                  assignment.checkedIn
-                    ? 'bg-emerald-500 text-white'
-                    : 'bg-white border-2 border-gray-300 text-transparent hover:border-emerald-400'
-                }`}
-              >
-                <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
-                  <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </button>
+              <CheckInButton
+                checkedIn={assignment.checkedIn}
+                onClick={() => onCheckin?.(assignment.bookingId)}
+              />
               {!isLocked && (
                 <button
                   onPointerDown={e => e.stopPropagation()}
@@ -275,23 +303,15 @@ function DroppableListStation({
           </button>
         )}
         {/* Check-in */}
-        <button
-          onPointerDown={e => e.stopPropagation()}
-          onClick={() => assignment && onCheckin?.(assignment.bookingId)}
-          disabled={!assignment}
-          title={assignment?.checkedIn ? 'Undo check-in' : 'Check in'}
-          className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-colors ${
-            assignment?.checkedIn
-              ? 'bg-emerald-500 text-white'
-              : assignment
-                ? 'border-2 border-gray-300 text-transparent hover:border-emerald-400 bg-white'
-                : 'border border-dashed border-gray-200 text-transparent cursor-default'
-          }`}
-        >
-          <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
-            <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
+        {assignment ? (
+          <CheckInButton
+            checkedIn={assignment.checkedIn}
+            onClick={() => onCheckin?.(assignment.bookingId)}
+            size="md"
+          />
+        ) : (
+          <div className="w-6 h-6 rounded-full border border-dashed border-gray-200 shrink-0" />
+        )}
       </div>
     </div>
   )
