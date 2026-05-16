@@ -2,7 +2,6 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import FranchiseDashboard from '@/components/franchise/FranchiseDashboard'
 import StudioManagerDashboard from '@/components/studio/StudioManagerDashboard'
-import FronthostDashboard from '@/components/fronthost/FronthostDashboard'
 
 const STUDIO_ID = process.env.NEXT_PUBLIC_STUDIO_ID!
 
@@ -21,9 +20,7 @@ export default async function DashboardPage() {
     return <StudioManagerDashboard studioId={STUDIO_ID} />
   }
 
-  if (role === 'fronthost') {
-    return <FronthostDashboard studioId={STUDIO_ID} />
-  }
+  if (role === 'fronthost') redirect('/fronthost')
 
   // instructor and member land on schedule
   redirect('/schedule')
