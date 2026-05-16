@@ -47,18 +47,28 @@ export async function bookingRoutes(app: FastifyInstance) {
           throw Object.assign(new Error('Insufficient credits'), { statusCode: 402 })
         }
 
+        // Check for an existing booking row (confirmed = already booked,
+        // cancelled = user previously cancelled and is re-booking).
+        const existing = await tx.booking.findUnique({
+          where: { sessionId_memberId: { sessionId, memberId: member.id } },
+        })
+
+        if (existing?.status === 'CONFIRMED') {
+          throw Object.assign(new Error('Already booked'), { statusCode: 409 })
+        }
+
+        // Re-activate a previously cancelled booking instead of creating a
+        // duplicate (which would violate the @@unique([sessionId, memberId])).
         let newBooking
-        try {
+        if (existing?.status === 'CANCELLED') {
+          newBooking = await tx.booking.update({
+            where: { id: existing.id },
+            data: { status: 'CONFIRMED', stationId: null, checkedIn: false, checkedInAt: null },
+          })
+        } else {
           newBooking = await tx.booking.create({
             data: { sessionId, memberId: member.id, status: 'CONFIRMED' },
           })
-        } catch (e) {
-          // Concurrent duplicate booking — surface as 409 so the client can
-          // detect "already booked" and skip straight to spot assignment.
-          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-            throw Object.assign(new Error('Already booked'), { statusCode: 409 })
-          }
-          throw e
         }
 
         await tx.creditBalance.update({
