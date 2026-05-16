@@ -216,7 +216,9 @@ function DroppableListStation({
 }) {
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `list-${station.id}` })
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
-    id: assignment?.bookingId ?? `empty-${station.id}`,
+    // Prefix with list-drag- so the canvas tile's useDraggable (bare bookingId)
+    // does NOT see isDragging=true when the drag originates from the list.
+    id: assignment ? `list-drag-${assignment.bookingId}` : `empty-${station.id}`,
     disabled: !assignment || assignment.checkedIn,
   })
   const meta = STATION_META[station.type]
@@ -290,18 +292,21 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
 
   const unassigned = assignments.filter(a => !a.stationId)
   const checkedInCount = assignments.filter(a => a.checkedIn).length
-  const activeAssignment = activeId ? assignments.find(a => a.bookingId === activeId) : null
+  // Resolve bare bookingId from either canvas (bare) or list (list-drag-) drag ids
+  const activeBookingId = activeId?.replace(/^list-drag-/, '') ?? null
+  const activeAssignment = activeBookingId ? assignments.find(a => a.bookingId === activeBookingId) : null
 
   async function handleDragEnd(event: DragEndEvent) {
     setActiveId(null)
     const { active, over } = event
     if (!over) return
-    // Strip list- prefix (left panel droppables use list-{stationId})
+    // Strip prefixes: over uses list-{stationId}, active may use list-drag-{bookingId}
     const stationId = (over.id as string).replace(/^list-/, '')
+    const bookingId = (active.id as string).replace(/^list-drag-/, '')
     // Don't overwrite a checked-in member
     const targetAssignment = assignmentByStation(stationId)
     if (targetAssignment?.checkedIn) return
-    await onAssign(active.id as string, stationId)
+    await onAssign(bookingId, stationId)
   }
 
   // Sorted stations for the list panel
