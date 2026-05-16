@@ -215,6 +215,7 @@ model ClassSession {
   waitlist     WaitlistEntry[]
 
   @@index([studioId, startsAt])
+  @@index([scheduleId])
 }
 
 enum SessionStatus {

@@ -170,8 +170,15 @@ export async function roomRoutes(app: FastifyInstance) {
     '/:roomId/sessions/:sessionId/spots',
     { preHandler: requireRole('instructor') },
     async (request, reply) => {
-      const { sessionId } = request.params
+      const { roomId, sessionId } = request.params
       const { bookingId, stationId } = request.body
+      const user = getUser(request)
+
+      if (!await assertRoomAccess(user.id, user.role, roomId, reply)) return
+
+      // Verify the booking belongs to this session (prevent cross-session reassignment)
+      const booking = await prisma.booking.findUnique({ where: { id: bookingId }, select: { sessionId: true } })
+      if (!booking || booking.sessionId !== sessionId) return reply.notFound('Booking not found in this session')
 
       // clear any existing booking on that station for this session
       if (stationId) {

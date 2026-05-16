@@ -184,13 +184,23 @@ export async function franchiseRoutes(app: FastifyInstance) {
         return reply.code(404).send({ error: 'Instructor not found' })
       }
 
+      const VALID_PERMISSION_KEYS: (keyof InstructorPermissions)[] = [
+        'canCheckInMembers', 'canManageBookings', 'canViewMemberContact',
+        'canManageWaitlist', 'canEditSessionDetails', 'canCancelSession',
+      ]
+      const sanitized = Object.fromEntries(
+        Object.entries(request.body).filter(([k, v]) =>
+          VALID_PERMISSION_KEYS.includes(k as keyof InstructorPermissions) && typeof v === 'boolean'
+        )
+      ) as Partial<InstructorPermissions>
+
       const existing = instructor.permissions as Record<string, unknown>
       const hasKeys = existing && Object.keys(existing).length > 0
       const currentPermissions: InstructorPermissions = hasKeys
         ? { ...DEFAULT_PERMISSIONS, ...(existing as Partial<InstructorPermissions>) }
         : { ...DEFAULT_PERMISSIONS }
 
-      const merged: InstructorPermissions = { ...currentPermissions, ...request.body }
+      const merged: InstructorPermissions = { ...currentPermissions, ...sanitized }
 
       const updated = await prisma.instructor.update({
         where: { id: instructorId },

@@ -22,8 +22,10 @@ export async function waitlistRoutes(app: FastifyInstance) {
       // inside a transaction. The @@unique([sessionId, memberId]) on WaitlistEntry
       // prevents duplicate entries at the DB level.
       const entry = await prisma.$transaction(async (tx) => {
+        // Use max across ALL statuses so position is globally unique even after removals.
+        // This avoids collisions when a REMOVED entry frees a position number.
         const lastEntry = await tx.waitlistEntry.findFirst({
-          where: { sessionId, status: 'WAITING' },
+          where: { sessionId },
           orderBy: { position: 'desc' },
           select: { position: true },
         })
@@ -96,7 +98,7 @@ export async function waitlistRoutes(app: FastifyInstance) {
         })
 
         if (session._count.bookings >= session.capacity) {
-          throw Object.assign(new Error('Class is now full'), { code: 'CONFLICT' })
+          throw Object.assign(new Error('Class is now full'), { statusCode: 409 })
         }
 
         await tx.booking.create({
@@ -106,7 +108,7 @@ export async function waitlistRoutes(app: FastifyInstance) {
         // Fix #10: guard against negative balance
         const current = await tx.creditBalance.findUniqueOrThrow({ where: { memberId: entry.memberId } })
         if (current.balance < entry.session.creditsRequired) {
-          throw Object.assign(new Error('Insufficient credits'), { code: 'PAYMENT_REQUIRED' })
+          throw Object.assign(new Error('Insufficient credits'), { statusCode: 402 })
         }
 
         await tx.creditBalance.update({

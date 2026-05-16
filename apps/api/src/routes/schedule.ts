@@ -10,6 +10,14 @@ export async function scheduleRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId } = request.params
       const { from, to } = request.query
+      const user = getUser(request)
+
+      // Tenant isolation: members can only view their own studio's schedule.
+      // Elevated roles (instructor+) can view any studio.
+      if (user.role === 'member') {
+        const member = await prisma.member.findUnique({ where: { userId: user.id }, select: { studioId: true } })
+        if (!member || member.studioId !== studioId) return reply.forbidden('Access denied to this studio')
+      }
 
       const sessions = await prisma.classSession.findMany({
         where: {
@@ -21,12 +29,10 @@ export async function scheduleRoutes(app: FastifyInstance) {
           template: true,
           instructor: { include: { user: true } },
           room: true,
-          _count: { select: { bookings: true, waitlist: true } },
+          _count: { select: { bookings: { where: { status: 'CONFIRMED' } }, waitlist: true } },
         },
         orderBy: { startsAt: 'asc' },
       })
-
-      const user = getUser(request)
 
       const userBookings =
         user.role === 'member'
