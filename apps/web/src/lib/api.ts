@@ -218,6 +218,15 @@ export interface OrphanedPattern {
   daysOfWeek: number[]
 }
 
+export interface StaffMember {
+  id: string
+  userId: string
+  name: string
+  email: string
+  staffRole: string
+  joinedAt: string
+}
+
 export interface AdminBooking {
   id: string
   memberId: string
@@ -409,6 +418,18 @@ export const api = {
       `/schedules/sessions/${sessionId}/substitute`,
       { method: 'PATCH', body: JSON.stringify({ substituteInstructorId, studioId }), token },
     ),
+  },
+  staff: {
+    list: (studioId: string, token: string) =>
+      apiFetch<StaffMember[]>(`/staff?studioId=${studioId}`, { token }),
+    assign: (studioId: string, email: string, staffRole: string, token: string) =>
+      apiFetch<{ success: boolean }>('/staff', {
+        method: 'POST',
+        body: JSON.stringify({ studioId, email, staffRole }),
+        token,
+      }),
+    remove: (memberId: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/staff/${memberId}`, { method: 'DELETE', token }),
   },
   studios: {
     list: (token: string) =>

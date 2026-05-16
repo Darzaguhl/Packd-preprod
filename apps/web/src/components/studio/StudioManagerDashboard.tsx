@@ -6,13 +6,14 @@ import { api, type AdminSession } from '@/lib/api'
 import { SPORT_CONFIG } from '@/components/schedule/constants'
 import SessionPanel from '@/components/admin/SessionPanel'
 import PermissionsTab from './PermissionsTab'
+import StaffTab from './StaffTab'
 import RoomsTab from './RoomsTab'
 import SettingsTab from './SettingsTab'
 import NavBar from '@/components/NavBar'
 import RoomMapView from '@/components/room/RoomMapView'
 import CalendarView from '@/components/calendar/CalendarView'
 
-type Tab = 'today' | 'calendar' | 'rooms' | 'room' | 'permissions' | 'settings'
+type Tab = 'today' | 'calendar' | 'rooms' | 'room' | 'permissions' | 'staff' | 'settings'
 
 function toIsoDate(d: Date) {
   const y = d.getFullYear()
@@ -77,6 +78,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
     { id: 'rooms', label: 'Rooms' },
     { id: 'room', label: 'Room map' },
     { id: 'permissions', label: 'Permissions' },
+    { id: 'staff', label: 'Staff' },
     { id: 'settings', label: 'Settings' },
   ]
 
@@ -283,6 +285,15 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
             Configure what each instructor is allowed to do within this studio.
           </p>
           <PermissionsTab studioId={studioId} token={token} />
+        </div>
+      )}
+
+      {tab === 'staff' && token && (
+        <div className="max-w-3xl mx-auto w-full px-6 py-6">
+          <p className="text-sm text-gray-500 mb-4">
+            Manage front-desk staff for this studio. Staff members can check in members and handle credit adjustments.
+          </p>
+          <StaffTab studioId={studioId} token={token} />
         </div>
       )}
 
