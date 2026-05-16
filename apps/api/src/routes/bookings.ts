@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { prisma } from '@packd/db'
+import { prisma, Prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
 import { enqueueLateCancelCheck } from '../jobs/index.js'
 
@@ -47,9 +47,19 @@ export async function bookingRoutes(app: FastifyInstance) {
           throw Object.assign(new Error('Insufficient credits'), { statusCode: 402 })
         }
 
-        const newBooking = await tx.booking.create({
-          data: { sessionId, memberId: member.id, status: 'CONFIRMED' },
-        })
+        let newBooking
+        try {
+          newBooking = await tx.booking.create({
+            data: { sessionId, memberId: member.id, status: 'CONFIRMED' },
+          })
+        } catch (e) {
+          // Concurrent duplicate booking — surface as 409 so the client can
+          // detect "already booked" and skip straight to spot assignment.
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+            throw Object.assign(new Error('Already booked'), { statusCode: 409 })
+          }
+          throw e
+        }
 
         await tx.creditBalance.update({
           where: { memberId: member.id },
