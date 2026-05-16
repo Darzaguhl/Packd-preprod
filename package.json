@@ -8,6 +8,7 @@
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
+    "postinstall": "npm_config_cpu=arm64 npm install @esbuild/darwin-arm64 --no-save --ignore-scripts 2>/dev/null; npm_config_cpu=x64 npm install --no-save --ignore-scripts --prefix node_modules/vite 2>/dev/null; true",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "db:generate": "turbo db:generate",
@@ -39,7 +40,7 @@
     "@types/react-dom": "^19.0.0"
   },
   "optionalDependencies": {
-    "@esbuild/darwin-arm64": "0.28.0",
+    "@esbuild/darwin-arm64": "^0.28.0",
     "@esbuild/darwin-x64": "0.28.0"
   }
 }

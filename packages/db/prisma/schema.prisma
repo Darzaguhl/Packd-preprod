@@ -30,6 +30,24 @@ model Studio {
   memberships    MembershipPlan[]
   products       Product[]
   cancellationPolicy CancellationPolicy?
+  integration   StudioIntegration?
+}
+
+// ─── External integrations ────────────────────────────────────────────────────
+
+model StudioIntegration {
+  id            String    @id @default(cuid())
+  studioId      String    @unique
+  provider      String    // "mariana_tek"
+  // API key stored encrypted at application level — never log or expose raw
+  apiKeyEnc     String
+  webhookSecret String?
+  syncEnabled   Boolean   @default(false)
+  lastSyncedAt  DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  studio Studio @relation(fields: [studioId], references: [id], onDelete: Cascade)
 }
 
 // ─── Auth & Users ────────────────────────────────────────────────────────────
@@ -123,6 +141,7 @@ model Instructor {
   bio         String?
   photoUrl    String?
   permissions Json    @default("{}")
+  externalId  String? // e.g. Mariana Tek instructor ID
 
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   studio        Studio         @relation(fields: [studioId], references: [id], onDelete: Cascade)
@@ -201,6 +220,8 @@ model ClassSession {
   capacity               Int
   status                 SessionStatus @default(SCHEDULED)
   creditsRequired        Int           @default(1)
+  externalId             String?       // e.g. Mariana Tek class occurrence ID
+  source                 String        @default("packd") // "packd" | "mariana_tek"
   createdAt              DateTime      @default(now())
   updatedAt              DateTime      @updatedAt
 
@@ -216,6 +237,7 @@ model ClassSession {
 
   @@index([studioId, startsAt])
   @@index([scheduleId])
+  @@unique([studioId, externalId])
 }
 
 enum SessionStatus {
@@ -228,11 +250,13 @@ enum SessionStatus {
 // ─── Members ─────────────────────────────────────────────────────────────────
 
 model Member {
-  id        String   @id @default(cuid())
-  userId    String   @unique
-  studioId  String
-  joinedAt  DateTime @default(now())
-  notes     String?
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  studioId   String
+  joinedAt   DateTime @default(now())
+  notes      String?
+  externalId String?  // e.g. Mariana Tek member ID (scoped per studio)
+  source     String   @default("packd") // "packd" | "mariana_tek"
 
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   studio          Studio           @relation(fields: [studioId], references: [id], onDelete: Cascade)
@@ -241,6 +265,8 @@ model Member {
   creditBalance   CreditBalance?
   memberships     MembershipSubscription[]
   transactions    CreditTransaction[]
+
+  @@unique([studioId, externalId])
 }
 
 // ─── Bookings ─────────────────────────────────────────────────────────────────
@@ -254,6 +280,8 @@ model Booking {
   bookedAt    DateTime      @default(now())
   checkedIn   Boolean       @default(false)
   checkedInAt DateTime?
+  externalId  String?       @unique // Mariana Tek reservation ID (globally unique)
+  source      String        @default("packd")
 
   session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   member  Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
@@ -353,6 +381,7 @@ model MembershipSubscription {
   startDate   DateTime
   endDate     DateTime?
   stripeSubId String?
+  externalId  String?            @unique // Mariana Tek contract/agreement ID
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
 
