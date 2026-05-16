@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { api, type AdminSession } from '@/lib/api'
+import NavBar from '@/components/NavBar'
 import RoomMapView from '@/components/room/RoomMapView'
 import CreditModal from './CreditModal'
 
@@ -42,29 +43,25 @@ export default function FronthostDashboard({ studioId }: Props) {
   const activeSession = sessions.find(s => new Date(s.startsAt) <= now && new Date(s.endsAt) >= now)
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Top bar */}
-      <div className="bg-white border-b border-gray-100 px-6 py-4 flex items-center gap-4">
-        <div>
-          <h1 className="text-base font-bold text-gray-900">Front Desk</h1>
-          <p className="text-xs text-gray-400">Check-in & customer management</p>
+    <div className="flex flex-col h-screen bg-gray-50">
+      <NavBar title="Front Desk" subtitle="Check-in & customer management">
+        <div className="flex items-center gap-3 pb-3">
+          <input
+            type="date"
+            value={date}
+            onChange={e => setDate(e.target.value)}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-gray-400"
+          />
+          <button
+            onClick={() => setCreditModal(true)}
+            className="text-xs font-medium bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
+          >
+            + Credits
+          </button>
         </div>
-        <div className="flex-1" />
-        <input
-          type="date"
-          value={date}
-          onChange={e => setDate(e.target.value)}
-          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-gray-400"
-        />
-        <button
-          onClick={() => setCreditModal(true)}
-          className="text-xs font-medium bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
-        >
-          + Credits
-        </button>
-      </div>
+      </NavBar>
 
-      <div className="flex h-[calc(100vh-65px)]">
+      <div className="flex flex-1 min-h-0">
         {/* Session list sidebar */}
         <div className="w-72 shrink-0 bg-white border-r border-gray-100 flex flex-col">
           <div className="px-4 py-3 border-b border-gray-100">
