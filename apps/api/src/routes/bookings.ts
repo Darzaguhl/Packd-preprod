@@ -20,15 +20,13 @@ export async function bookingRoutes(app: FastifyInstance) {
 
       const member = await prisma.member.findUniqueOrThrow({
         where: { userId: user.id },
-        include: { creditBalance: true },
       })
 
-      // Fix #1 (double booking race condition): run capacity check + booking
-      // creation inside a single transaction with a row-level lock on the session.
-      // The @@unique([sessionId, memberId]) constraint on Booking also prevents
-      // duplicate bookings from concurrent requests at the DB level.
+      // Run capacity check + balance check + booking creation inside a single
+      // transaction. Both the session and credit balance are read inside the
+      // transaction so concurrent requests cannot race past either guard.
+      // The @@unique([sessionId, memberId]) on Booking is the final DB-level guard.
       const booking = await prisma.$transaction(async (tx) => {
-        // Lock the session row for the duration of this transaction
         const session = await tx.classSession.findUniqueOrThrow({
           where: { id: sessionId },
           include: { _count: { select: { bookings: { where: { status: 'CONFIRMED' } } } } },
@@ -38,12 +36,13 @@ export async function bookingRoutes(app: FastifyInstance) {
           throw Object.assign(new Error('Class is not available for booking'), { statusCode: 400 })
         }
 
-        // Fix #8: count only CONFIRMED bookings for capacity check
         if (session._count.bookings >= session.capacity) {
           throw Object.assign(new Error('Class is full — join the waitlist instead'), { statusCode: 409 })
         }
 
-        const balance = member.creditBalance?.balance ?? 0
+        // Read balance inside the transaction to prevent concurrent overdraft
+        const creditBalance = await tx.creditBalance.findUnique({ where: { memberId: member.id } })
+        const balance = creditBalance?.balance ?? 0
         if (balance < session.creditsRequired) {
           throw Object.assign(new Error('Insufficient credits'), { statusCode: 402 })
         }

@@ -21,7 +21,7 @@ export async function adminRoutes(app: FastifyInstance) {
       if (!studioId) return reply.badRequest('studioId is required')
 
       const user = getUser(request)
-      await assertStudioAccess(user.id, user.role, studioId, reply)
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
 
       const day = date ? new Date(date) : new Date()
       const from = new Date(day)
@@ -66,7 +66,7 @@ export async function adminRoutes(app: FastifyInstance) {
       const session = await prisma.classSession.findUniqueOrThrow({
         where: { id: request.params.id },
       })
-      await assertStudioAccess(user.id, user.role, session.studioId, reply)
+      if (!await assertStudioAccess(user.id, user.role, session.studioId, reply)) return
 
       const bookings = await prisma.booking.findMany({
         where: { sessionId: request.params.id, status: 'CONFIRMED' },
@@ -98,7 +98,7 @@ export async function adminRoutes(app: FastifyInstance) {
       const session = await prisma.classSession.findUniqueOrThrow({
         where: { id: request.params.id },
       })
-      await assertStudioAccess(user.id, user.role, session.studioId, reply)
+      if (!await assertStudioAccess(user.id, user.role, session.studioId, reply)) return
 
       const booking = await prisma.booking.findUniqueOrThrow({
         where: { id: request.params.bookingId },
@@ -131,7 +131,7 @@ export async function adminRoutes(app: FastifyInstance) {
       const existing = await prisma.classSession.findUniqueOrThrow({
         where: { id: request.params.id },
       })
-      await assertStudioAccess(user.id, user.role, existing.studioId, reply)
+      if (!await assertStudioAccess(user.id, user.role, existing.studioId, reply)) return
 
       const session = await prisma.classSession.update({
         where: { id: request.params.id },
@@ -151,7 +151,7 @@ export async function adminRoutes(app: FastifyInstance) {
       if (!studioId) return reply.badRequest('studioId is required')
 
       const user = getUser(request)
-      await assertStudioAccess(user.id, user.role, studioId, reply)
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
 
       const today = new Date()
       today.setHours(0, 0, 0, 0)
@@ -182,8 +182,7 @@ export async function adminRoutes(app: FastifyInstance) {
       if (!q || q.trim().length < 2) return reply.badRequest('q must be at least 2 characters')
 
       const user = getUser(request)
-      await assertStudioAccess(user.id, user.role, studioId, reply)
-      if (reply.sent) return
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
 
       const term = q.trim().toLowerCase()
       const members = await prisma.member.findMany({
@@ -237,8 +236,7 @@ export async function adminRoutes(app: FastifyInstance) {
       if (!member) return reply.notFound('Member not found')
 
       const user = getUser(request)
-      await assertStudioAccess(user.id, user.role, member.studioId, reply)
-      if (reply.sent) return
+      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply)) return
 
       const [balance] = await prisma.$transaction([
         prisma.creditBalance.upsert({
@@ -263,17 +261,20 @@ export async function adminRoutes(app: FastifyInstance) {
 
 /**
  * admin/franchise_admin: unrestricted.
- * studio_admin/instructor: must have a Member record for this studio.
+ * studio_admin/instructor/fronthost: must have a Member record for this studio.
+ * Returns false and sends 403 if access is denied — callers must `return` on false.
  */
 async function assertStudioAccess(
   userId: string,
   role: UserRole,
   studioId: string,
   reply: FastifyReply,
-) {
-  if (ROLE_RANK[role] >= ROLE_RANK['franchise_admin']) return
-  const member = await prisma.member.findUnique({ where: { userId } })
+): Promise<boolean> {
+  if (ROLE_RANK[role] >= ROLE_RANK['franchise_admin']) return true
+  const member = await prisma.member.findUnique({ where: { userId }, select: { studioId: true } })
   if (!member || member.studioId !== studioId) {
-    return reply.forbidden('Access denied to this studio')
+    reply.forbidden('Access denied to this studio')
+    return false
   }
+  return true
 }

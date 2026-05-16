@@ -262,7 +262,7 @@ export async function studioRoutes(app: FastifyInstance) {
     return studio
   })
 
-  // POST /studios/onboard — full studio setup in one transaction (unchanged)
+  // POST /studios/onboard — full studio setup in one transaction (franchise_admin only)
   app.post<{
     Body: {
       name: string
@@ -275,7 +275,7 @@ export async function studioRoutes(app: FastifyInstance) {
     }
   }>(
     '/onboard',
-    { preHandler: requireAuth },
+    { preHandler: requireFranchiseAdmin },
     async (request, reply) => {
       const { name, slug, timezone, currency, policy, location, rooms } = request.body
 
@@ -296,12 +296,14 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /studios/:studioId/membership-plans
+  // GET /studios/:studioId/membership-plans — authenticated; stripePriceId is not exposed
   app.get<{ Params: { studioId: string } }>(
     '/:studioId/membership-plans',
+    { preHandler: requireAuth },
     async (request, reply) => {
       const plans = await prisma.membershipPlan.findMany({
         where: { studioId: request.params.studioId },
+        select: { id: true, studioId: true, name: true, description: true, priceInCents: true, intervalMonths: true, creditsPerCycle: true },
       })
       return plans
     },

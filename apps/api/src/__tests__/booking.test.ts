@@ -6,7 +6,7 @@ vi.mock('@packd/db', () => {
   const classSession = { findUniqueOrThrow: vi.fn() }
   const member = { findUniqueOrThrow: vi.fn() }
   const booking = { create: vi.fn().mockResolvedValue({ id: 'booking-1' }), update: vi.fn(), findUniqueOrThrow: vi.fn() }
-  const creditBalance = { update: vi.fn() }
+  const creditBalance = { findUnique: vi.fn(), update: vi.fn() }
   const creditTransaction = { create: vi.fn() }
   const cancellationPolicy = { findUnique: vi.fn() }
   const waitlistEntry = { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn() }
@@ -56,10 +56,9 @@ const mockSession = (overrides = {}) => ({
   ...overrides,
 })
 
-const mockMember = (credits = 5) => ({
+const mockMember = () => ({
   id: 'member-1',
   userId: 'user-1',
-  creditBalance: { balance: credits },
 })
 
 describe('POST /bookings', () => {
@@ -68,6 +67,7 @@ describe('POST /bookings', () => {
   it('creates a booking and returns 201', async () => {
     vi.mocked(prisma.classSession.findUniqueOrThrow).mockResolvedValue(mockSession() as never)
     vi.mocked(prisma.member.findUniqueOrThrow).mockResolvedValue(mockMember() as never)
+    vi.mocked(prisma.creditBalance.findUnique).mockResolvedValue({ balance: 5 } as never)
     vi.mocked(prisma.booking.create).mockResolvedValue({ id: 'booking-1' } as never)
 
     const app = await buildApp()
@@ -94,7 +94,8 @@ describe('POST /bookings', () => {
     vi.mocked(prisma.classSession.findUniqueOrThrow).mockResolvedValue(
       mockSession({ creditsRequired: 3 }) as never,
     )
-    vi.mocked(prisma.member.findUniqueOrThrow).mockResolvedValue(mockMember(1) as never)
+    vi.mocked(prisma.member.findUniqueOrThrow).mockResolvedValue(mockMember() as never)
+    vi.mocked(prisma.creditBalance.findUnique).mockResolvedValue({ balance: 1 } as never)
 
     const app = await buildApp()
     const res = await app.inject({ method: 'POST', url: '/bookings', body: { sessionId: 'session-1' } })

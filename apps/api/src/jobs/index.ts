@@ -51,7 +51,7 @@ export async function setupJobs() {
     const { bookingId } = job.data as { bookingId: string }
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
-      include: { session: true, member: { include: { creditBalance: true } } },
+      include: { session: true },
     })
     if (!booking || booking.status !== 'LATE_CANCELLED') return
 
@@ -61,14 +61,19 @@ export async function setupJobs() {
     const fee = policy?.lateCancelFeeCredits ?? 1
 
     await prisma.$transaction(async (tx) => {
+      // Floor at 0 — never drive balance negative
+      const current = await tx.creditBalance.findUnique({ where: { memberId: booking.memberId } })
+      const actualFee = Math.min(fee, current?.balance ?? 0)
+      if (actualFee <= 0) return
+
       await tx.creditBalance.update({
         where: { memberId: booking.memberId },
-        data: { balance: { decrement: fee } },
+        data: { balance: { decrement: actualFee } },
       })
       await tx.creditTransaction.create({
         data: {
           memberId: booking.memberId,
-          amount: -fee,
+          amount: -actualFee,
           type: 'LATE_CANCEL_FEE',
           note: `Late cancel: session ${booking.sessionId}`,
         },
@@ -89,25 +94,38 @@ export async function setupJobs() {
 
     const noShows = await prisma.booking.findMany({
       where: { sessionId, status: 'CONFIRMED', checkedIn: false },
+      select: { id: true, memberId: true },
     })
 
-    for (const booking of noShows) {
-      await prisma.$transaction(async (tx) => {
-        await tx.booking.update({ where: { id: booking.id }, data: { status: 'NO_SHOW' } })
+    if (noShows.length === 0) return
+
+    // Single batched transaction for all no-shows in the session
+    await prisma.$transaction(async (tx) => {
+      await tx.booking.updateMany({
+        where: { id: { in: noShows.map(b => b.id) } },
+        data: { status: 'NO_SHOW' },
+      })
+
+      for (const booking of noShows) {
+        // Floor at 0 — never drive balance negative
+        const current = await tx.creditBalance.findUnique({ where: { memberId: booking.memberId } })
+        const actualFee = Math.min(fee, current?.balance ?? 0)
+        if (actualFee <= 0) continue
+
         await tx.creditBalance.update({
           where: { memberId: booking.memberId },
-          data: { balance: { decrement: fee } },
+          data: { balance: { decrement: actualFee } },
         })
         await tx.creditTransaction.create({
           data: {
             memberId: booking.memberId,
-            amount: -fee,
+            amount: -actualFee,
             type: 'NO_SHOW_FEE',
             note: `No-show: session ${sessionId}`,
           },
         })
-      })
-    }
+      }
+    })
   })
 
   // Nightly cron: expire old waitlist entries and send membership reminders
