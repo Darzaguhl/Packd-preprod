@@ -51,6 +51,7 @@ function weekStart(date: Date): Date {
 export default function ScheduleView({ studioId }: { studioId: string }) {
   const [sessions, setSessions] = useState<SessionSlot[]>([])
   const [token, setToken] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<string>('member')
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
@@ -60,6 +61,8 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   // Derive the selected session from the live sessions array so mutations stay reflected
   const selectedSession = selectedSessionId ? sessions.find(s => s.id === selectedSessionId) ?? null : null
+  // Admins and fronthosts can interact with past/running classes; members cannot
+  const isPrivileged = userRole !== 'member'
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
@@ -76,6 +79,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
       .then(({ data: { session } }) => {
         const t = session?.access_token ?? null
         setToken(t)
+        setUserRole((session?.user?.app_metadata?.role as string | undefined) ?? 'member')
         if (!t) return
 
         const base = weekStart(new Date(Date.now() + weekOffset * WEEK_MS))
@@ -153,7 +157,13 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
       })
       showToast('Class booked!')
     } catch (e: unknown) {
-      showToast(e instanceof Error ? e.message : 'Failed to book', false)
+      // Don't show a toast for "already booked" — the caller (handleBookAndAssign)
+      // handles that case silently and falls through to spot assignment.
+      const msg = e instanceof Error ? e.message.toLowerCase() : ''
+      if (!msg.includes('already booked') && !msg.includes('unique')) {
+        showToast(e instanceof Error ? e.message : 'Failed to book', false)
+      }
+      throw e  // always re-throw so callers can catch and react
     } finally {
       setActionLoading(null)
     }
@@ -179,10 +189,11 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
         mutateSession(sessionId, {
           bookedCount: sessions.find((s) => s.id === sessionId)!.bookedCount - 1,
           userBookingId: undefined,
+          userStationId: undefined,
         })
         showToast(
-          res.data.isLateCancel ? 'Cancelled — late cancel fee applied' : 'Cancelled',
-          !res.data.isLateCancel,
+          res.isLateCancel ? 'Cancelled — late cancel fee applied' : 'Cancelled',
+          !res.isLateCancel,
         )
       }
     } catch {
@@ -251,6 +262,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
           {selectedSession ? (
             <SessionDetailView
               session={selectedSession}
+              privileged={isPrivileged}
               onBack={() => setSelectedSessionId(null)}
               onBook={handleBook}
               onCancel={handleCancel}
@@ -283,6 +295,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
                     <ClassCard
                       key={s.id}
                       session={s}
+                      privileged={isPrivileged}
                       onSelect={s => setSelectedSessionId(s.id)}
                       draggable={false}
                     />

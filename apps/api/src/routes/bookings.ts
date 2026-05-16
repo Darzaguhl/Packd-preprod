@@ -36,6 +36,13 @@ export async function bookingRoutes(app: FastifyInstance) {
           throw Object.assign(new Error('Class is not available for booking'), { statusCode: 400 })
         }
 
+        // Members cannot book classes that have already started; admins and
+        // fronthosts can re-book or adjust spots on running/past classes.
+        const isMember = !user.role || user.role === 'member'
+        if (isMember && session.startsAt <= new Date()) {
+          throw Object.assign(new Error('Class has already started'), { statusCode: 400 })
+        }
+
         if (session._count.bookings >= session.capacity) {
           throw Object.assign(new Error('Class is full — join the waitlist instead'), { statusCode: 409 })
         }
@@ -59,16 +66,25 @@ export async function bookingRoutes(app: FastifyInstance) {
 
         // Re-activate a previously cancelled booking instead of creating a
         // duplicate (which would violate the @@unique([sessionId, memberId])).
+        // Both CANCELLED and LATE_CANCELLED rows must be updated — creating a
+        // new row would violate the unique constraint on (sessionId, memberId).
         let newBooking
-        if (existing?.status === 'CANCELLED') {
+        if (existing?.status === 'CANCELLED' || existing?.status === 'LATE_CANCELLED') {
           newBooking = await tx.booking.update({
             where: { id: existing.id },
             data: { status: 'CONFIRMED', stationId: null, checkedIn: false, checkedInAt: null },
           })
         } else {
-          newBooking = await tx.booking.create({
-            data: { sessionId, memberId: member.id, status: 'CONFIRMED' },
-          })
+          try {
+            newBooking = await tx.booking.create({
+              data: { sessionId, memberId: member.id, status: 'CONFIRMED' },
+            })
+          } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+              throw Object.assign(new Error('Already booked'), { statusCode: 409 })
+            }
+            throw e
+          }
         }
 
         await tx.creditBalance.update({
@@ -130,7 +146,10 @@ export async function bookingRoutes(app: FastifyInstance) {
       await prisma.$transaction(async (tx) => {
         await tx.booking.update({
           where: { id: booking.id },
-          data: { status: isLateCancel ? 'LATE_CANCELLED' : 'CANCELLED' },
+          data: {
+            status: isLateCancel ? 'LATE_CANCELLED' : 'CANCELLED',
+            stationId: null, // always release the spot on cancellation
+          },
         })
 
         if (!isLateCancel) {
