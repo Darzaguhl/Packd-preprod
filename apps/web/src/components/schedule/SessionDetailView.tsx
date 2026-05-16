@@ -62,11 +62,19 @@ export default function SessionDetailView({
       .finally(() => setSpotsLoading(false))
   }, [s.roomId, s.id])
 
-  // Clicking a spot when NOT yet booked: book + assign in one action
+  // Clicking a spot when NOT yet booked: book + assign in one action.
+  // If the booking already exists (409 / "Already booked"), skip booking and
+  // just assign the spot — the session state was stale.
   async function handleBookAndAssign(stationId: string) {
     setActionLoading(true)
     try {
-      await onBook(s.id)
+      try {
+        await onBook(s.id)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message.toLowerCase() : ''
+        if (!msg.includes('already booked') && !msg.includes('unique')) throw e
+        // Already booked — fall through to spot assignment
+      }
       await onPickSpot(stationId)
       await refreshSpots()
     } finally {
