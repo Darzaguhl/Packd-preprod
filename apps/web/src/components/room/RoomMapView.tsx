@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { api, type RoomLayout, type SessionSpots, type AdminSession } from '@/lib/api'
 import RoomMapEditor from './RoomMapEditor'
 import SessionRoomMap from './SessionRoomMap'
@@ -27,15 +28,23 @@ export default function RoomMapView({ roomId, token, session, variant }: Props) 
     setTimeout(() => setToast(null), 3000)
   }
 
+  // Always fetch the current session token — Supabase auto-refreshes it, so
+  // this never returns a stale token even after the initial 1-hour expiry.
+  async function getFreshToken(): Promise<string> {
+    const { data } = await createClient().auth.getSession()
+    return data.session?.access_token ?? token // fall back to prop if somehow missing
+  }
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
+      const t = await getFreshToken()
       if (session) {
-        const s = await api.rooms.spots(roomId, session.id, token)
+        const s = await api.rooms.spots(roomId, session.id, t)
         setSpots(s)
         setLayout(s.layout)
       } else {
-        const l = await api.rooms.layout(roomId, token)
+        const l = await api.rooms.layout(roomId, t)
         setLayout(l)
       }
     } catch {
@@ -43,12 +52,14 @@ export default function RoomMapView({ roomId, token, session, variant }: Props) 
     } finally {
       setLoading(false)
     }
-  }, [roomId, token, session])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, session])
 
   useEffect(() => { load() }, [load])
 
   async function handleSaveLayout(body: Parameters<typeof api.rooms.saveLayout>[1]) {
-    const saved = await api.rooms.saveLayout(roomId, body, token)
+    const t = await getFreshToken()
+    const saved = await api.rooms.saveLayout(roomId, body, t)
     setLayout(saved)
     showToast('Layout saved')
     setMode('map')
@@ -57,7 +68,8 @@ export default function RoomMapView({ roomId, token, session, variant }: Props) 
   async function handleCheckin(bookingId: string) {
     if (!session) return
     try {
-      const res = await api.admin.checkin(session.id, bookingId, token)
+      const t = await getFreshToken()
+      const res = await api.admin.checkin(session.id, bookingId, t)
       setSpots(prev => {
         if (!prev) return prev
         return {
@@ -75,7 +87,8 @@ export default function RoomMapView({ roomId, token, session, variant }: Props) 
   async function handleAssign(bookingId: string, stationId: string | null) {
     if (!session) return
     try {
-      await api.rooms.assignSpot(roomId, session.id, bookingId, stationId, token)
+      const t = await getFreshToken()
+      await api.rooms.assignSpot(roomId, session.id, bookingId, stationId, t)
       setSpots(prev => {
         if (!prev) return prev
         return {
