@@ -63,6 +63,11 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
+  async function getFreshToken(): Promise<string> {
+    const { data } = await createClient().auth.getSession()
+    return data.session?.access_token ?? token ?? ''
+  }
+
   // Load token + sessions
   useEffect(() => {
     setLoading(true)
@@ -137,10 +142,10 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   }
 
   async function handleBook(sessionId: string) {
-    if (!token) return
     setActionLoading(sessionId)
     try {
-      const res = await api.bookings.create(sessionId, token)
+      const t = await getFreshToken()
+      const res = await api.bookings.create(sessionId, t)
       const session = sessions.find((s) => s.id === sessionId)!
       mutateSession(sessionId, {
         bookedCount: session.bookedCount + 1,
@@ -155,9 +160,10 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   }
 
   async function handlePickSpot(stationId: string | null) {
-    if (!selectedSession || !token) return
+    if (!selectedSession) return
     try {
-      await api.rooms.pickMySpot(selectedSession.roomId, selectedSession.id, stationId, token)
+      const t = await getFreshToken()
+      await api.rooms.pickMySpot(selectedSession.roomId, selectedSession.id, stationId, t)
       mutateSession(selectedSession.id, { userStationId: stationId })
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Failed to pick spot', false)
@@ -165,10 +171,10 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   }
 
   async function handleCancel(bookingId: string, sessionId: string) {
-    if (!token) return
     setActionLoading(sessionId)
     try {
-      const res = await api.bookings.cancel(bookingId, token)
+      const t = await getFreshToken()
+      const res = await api.bookings.cancel(bookingId, t)
       if (res.success) {
         mutateSession(sessionId, {
           bookedCount: sessions.find((s) => s.id === sessionId)!.bookedCount - 1,
@@ -187,10 +193,10 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   }
 
   async function handleWaitlist(sessionId: string) {
-    if (!token) return
     setActionLoading(sessionId)
     try {
-      const res = await api.waitlist.join(sessionId, token)
+      const t = await getFreshToken()
+      const res = await api.waitlist.join(sessionId, t)
       if (res.success) showToast(`You're #${res.data.position} on the waitlist`)
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Failed to join waitlist', false)

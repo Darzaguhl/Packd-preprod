@@ -38,11 +38,20 @@ export default function SessionDetailView({
   const isBooked = !!s.userBookingId
   const isWaitlisted = !!s.userWaitlistPosition
   const isFull = s.bookedCount >= s.capacity
+  const hasSpot = !!s.userStationId
+  const hasLayout = !spotsLoading && !!spots?.layout && spots.layout.stations.length > 0
+
   const durationMin = Math.round(
     (new Date(s.endsAt).getTime() - new Date(s.startsAt).getTime()) / 60000,
   )
   const startTime = new Date(s.startsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
   const endTime = new Date(s.endsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+
+  async function refreshSpots() {
+    const t = await getFreshToken()
+    const fresh = await api.rooms.spots(s.roomId, s.id, t).catch(() => null)
+    if (fresh) setSpots(fresh)
+  }
 
   useEffect(() => {
     setSpotsLoading(true)
@@ -53,28 +62,55 @@ export default function SessionDetailView({
       .finally(() => setSpotsLoading(false))
   }, [s.roomId, s.id])
 
-  async function handleAction() {
+  // Clicking a spot when NOT yet booked: book + assign in one action
+  async function handleBookAndAssign(stationId: string) {
     setActionLoading(true)
     try {
-      if (isBooked) {
-        await onCancel(s.userBookingId!, s.id)
-      } else if (isWaitlisted) {
-        // no-op — waitlist cancel not yet wired; show info only
-      } else {
-        await onBook(s.id)
-      }
+      await onBook(s.id)
+      await onPickSpot(stationId)
+      await refreshSpots()
     } finally {
       setActionLoading(false)
     }
   }
 
+  // Clicking a spot when already booked: just reassign
   async function handlePickSpot(stationId: string | null) {
-    await onPickSpot(stationId)
-    // Refresh spots so the map reflects the new selection
-    const t = await getFreshToken()
-    const fresh = await api.rooms.spots(s.roomId, s.id, t).catch(() => null)
-    if (fresh) setSpots(fresh)
+    setActionLoading(true)
+    try {
+      await onPickSpot(stationId)
+      await refreshSpots()
+    } finally {
+      setActionLoading(false)
+    }
   }
+
+  async function handleCancel() {
+    setActionLoading(true)
+    try {
+      await onCancel(s.userBookingId!, s.id)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  async function handleWaitlist() {
+    setActionLoading(true)
+    try {
+      await onWaitlist(s.id)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  // What hint to show above the map
+  const mapHint = isBooked
+    ? hasSpot
+      ? 'Tap your spot to deselect, or tap another to move'
+      : 'Tap an available spot to reserve your place'
+    : isFull
+      ? 'Class is full — join the waitlist'
+      : 'Tap a spot to book and reserve your place'
 
   return (
     <div className="animate-[fadeIn_180ms_ease-out]">
@@ -90,23 +126,18 @@ export default function SessionDetailView({
       </button>
 
       <div className="flex gap-6 items-start flex-col lg:flex-row">
-        {/* ── Left: class info + action ── */}
+        {/* ── Left: class info + actions ── */}
         <div className="w-full lg:w-72 shrink-0 space-y-4">
-          {/* Class info card */}
           <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
-            {/* Sport accent bar */}
             <div className={`h-1.5 w-full ${cfg.accent}`} />
-
             <div className="p-5 space-y-4">
               {/* Time */}
               <div>
                 <p className="text-2xl font-bold text-gray-900 tabular-nums">{startTime}</p>
                 <p className="text-sm text-gray-400">{endTime} · {durationMin} min</p>
               </div>
-
               <div className="h-px bg-gray-100" />
-
-              {/* Class name + details */}
+              {/* Class details */}
               <div className="space-y-1.5">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-lg font-bold text-gray-900">{s.templateName}</h2>
@@ -117,9 +148,7 @@ export default function SessionDetailView({
                 <p className="text-sm text-gray-600">{s.instructorName}</p>
                 <p className="text-sm text-gray-400">{s.roomName}</p>
               </div>
-
               <div className="h-px bg-gray-100" />
-
               {/* Capacity + credits */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
@@ -128,8 +157,7 @@ export default function SessionDetailView({
                 </div>
                 <CapacityBar booked={s.bookedCount} capacity={s.capacity} />
               </div>
-
-              {/* Booking status */}
+              {/* Status badges */}
               {isBooked && (
                 <div className="flex items-center gap-2 text-sm font-medium text-emerald-700 bg-emerald-50 rounded-xl px-3 py-2">
                   <svg className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none">
@@ -146,40 +174,59 @@ export default function SessionDetailView({
             </div>
           </div>
 
-          {/* Action button */}
-          {!isWaitlisted && (
+          {/* ── Action buttons ── */}
+
+          {/* No layout: show full book/cancel/waitlist controls */}
+          {!spotsLoading && !hasLayout && !isBooked && !isWaitlisted && (
             <button
-              onClick={handleAction}
+              onClick={isFull ? handleWaitlist : async () => { setActionLoading(true); try { await onBook(s.id) } finally { setActionLoading(false) } }}
               disabled={actionLoading}
-              className={`w-full py-3 rounded-xl text-sm font-semibold transition-colors disabled:opacity-40 ${
-                isBooked
-                  ? 'border border-red-200 text-red-500 hover:bg-red-50 bg-white'
-                  : isFull
-                    ? 'bg-gray-900 text-white hover:bg-gray-700'
-                    : 'bg-gray-900 text-white hover:bg-gray-700'
-              }`}
+              className="w-full py-3 rounded-xl text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
             >
-              {actionLoading
-                ? '…'
-                : isBooked
-                  ? 'Cancel booking'
-                  : isFull
-                    ? 'Join waitlist'
-                    : 'Book class'}
+              {actionLoading ? '…' : isFull ? 'Join waitlist' : 'Book class'}
             </button>
           )}
+
+          {/* Cancel: shown when booked; faded + disabled until a spot is picked (only relevant when there IS a layout) */}
+          {isBooked && (
+            <button
+              onClick={handleCancel}
+              disabled={actionLoading || (hasLayout && !hasSpot)}
+              title={hasLayout && !hasSpot ? 'Pick a spot first' : 'Cancel your booking'}
+              className={`w-full py-3 rounded-xl text-sm font-semibold border transition-colors ${
+                hasLayout && !hasSpot
+                  ? 'border-gray-200 text-gray-300 bg-white cursor-not-allowed'
+                  : 'border-red-200 text-red-500 hover:bg-red-50 bg-white disabled:opacity-40'
+              }`}
+            >
+              {actionLoading ? '…' : 'Cancel booking'}
+            </button>
+          )}
+
+          {/* Waitlisted: leave waitlist */}
           {isWaitlisted && !isBooked && (
             <button
-              onClick={() => onWaitlist(s.id)}
+              onClick={handleWaitlist}
               disabled={actionLoading}
               className="w-full py-3 rounded-xl text-sm font-semibold border border-gray-200 text-gray-500 hover:bg-gray-50 bg-white disabled:opacity-40 transition-colors"
             >
-              Leave waitlist
+              {actionLoading ? '…' : 'Leave waitlist'}
+            </button>
+          )}
+
+          {/* Full + not booked/waitlisted + has layout: offer waitlist */}
+          {!isBooked && !isWaitlisted && isFull && hasLayout && (
+            <button
+              onClick={handleWaitlist}
+              disabled={actionLoading}
+              className="w-full py-3 rounded-xl text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
+            >
+              {actionLoading ? '…' : 'Join waitlist'}
             </button>
           )}
         </div>
 
-        {/* ── Right: spot picker ── */}
+        {/* ── Right: spot picker map ── */}
         <div className="flex-1 min-w-0">
           {spotsLoading ? (
             <div className="h-64 bg-white rounded-2xl border border-gray-100 animate-pulse" />
@@ -187,17 +234,23 @@ export default function SessionDetailView({
             <div className="bg-white border border-gray-100 rounded-2xl p-5 space-y-4">
               <div>
                 <h3 className="text-sm font-semibold text-gray-900">
-                  {isBooked ? 'Pick your spot' : 'Room layout'}
+                  {isBooked ? 'Your spot' : 'Pick a spot'}
                 </h3>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {isBooked ? 'Tap an available station to reserve it' : 'Book the class to pick a spot'}
-                </p>
+                <p className="text-xs text-gray-400 mt-0.5">{mapHint}</p>
               </div>
               <SpotPicker
                 layout={spots.layout}
                 assignments={spots.assignments}
                 myStationId={s.userStationId ?? null}
-                onPick={isBooked ? handlePickSpot : () => {}}
+                onPick={
+                  actionLoading
+                    ? () => {}
+                    : isBooked
+                      ? handlePickSpot
+                      : isFull
+                        ? () => {}           // full, can't book by picking
+                        : (id: string | null) => id ? handleBookAndAssign(id) : Promise.resolve()
+                }
               />
             </div>
           ) : !spotsLoading && (
