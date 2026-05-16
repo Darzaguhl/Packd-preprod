@@ -11,6 +11,7 @@ import {
   useSensors,
   pointerWithin,
   type DragEndEvent,
+  type DropAnimation,
 } from '@dnd-kit/core'
 import type { RoomLayout, SpotAssignment, Station } from '@/lib/api'
 import { STATION_META } from './constants'
@@ -162,7 +163,7 @@ function DroppableStation({
       }}
     >
       {assignment ? (
-        <div className="flex flex-col h-full p-2 gap-1">
+        <div key={assignment.bookingId} className="flex flex-col h-full p-2 gap-1 animate-[fadeIn_180ms_ease-out]">
           {/* Station header */}
           <div className="flex items-center justify-between gap-1">
             <div className="flex items-center gap-1 min-w-0">
@@ -317,6 +318,20 @@ function DroppableListStation({
   )
 }
 
+// Fade the ghost out in-place rather than snapping it to the destination.
+// Combined with the optimistic state update the real card is already visible
+// at the target, so this creates a seamless "settle" feel.
+const DROP_ANIMATION: DropAnimation = {
+  duration: 180,
+  easing: 'ease-out',
+  keyframes({ transform }) {
+    return [
+      { opacity: 1, transform: transform.initial },
+      { opacity: 0, transform: transform.initial },
+    ]
+  },
+}
+
 export default function SessionRoomMap({ layout, assignments, onAssign, onCheckin }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
@@ -441,7 +456,7 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
         Drag members onto stations · Drag assigned members to reassign · Click ✓ to check in · Checked-in spots are locked
       </p>
 
-      <DragOverlay>
+      <DragOverlay dropAnimation={DROP_ANIMATION}>
         {activeAssignment && <MemberTile assignment={activeAssignment} isDragging />}
       </DragOverlay>
     </DndContext>
