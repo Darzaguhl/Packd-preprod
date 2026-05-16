@@ -86,20 +86,26 @@ export default function RoomMapView({ roomId, token, session, variant }: Props) 
 
   async function handleAssign(bookingId: string, stationId: string | null) {
     if (!session) return
+
+    // Optimistic update — move the card instantly so there's no bounce-back
+    const previous = spots
+    setSpots(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        assignments: prev.assignments.map(a =>
+          a.bookingId === bookingId ? { ...a, stationId } :
+          stationId && a.stationId === stationId ? { ...a, stationId: null } : a
+        ),
+      }
+    })
+
     try {
       const t = await getFreshToken()
       await api.rooms.assignSpot(roomId, session.id, bookingId, stationId, t)
-      setSpots(prev => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          assignments: prev.assignments.map(a =>
-            a.bookingId === bookingId ? { ...a, stationId } :
-            stationId && a.stationId === stationId ? { ...a, stationId: null } : a
-          ),
-        }
-      })
     } catch {
+      // Roll back to previous state and let the user know
+      setSpots(previous)
       showToast('Failed to assign spot', false)
     }
   }
