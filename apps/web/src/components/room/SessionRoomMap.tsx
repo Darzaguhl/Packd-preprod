@@ -170,10 +170,6 @@ function DroppableStation({
               <span className="text-[10px] font-semibold truncate text-gray-700">{station.label}</span>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              <CheckInButton
-                checkedIn={assignment.checkedIn}
-                onClick={() => onCheckin?.(assignment.bookingId)}
-              />
               {!isLocked && (
                 <button
                   onPointerDown={e => e.stopPropagation()}
@@ -184,6 +180,10 @@ function DroppableStation({
                   ×
                 </button>
               )}
+              <CheckInButton
+                checkedIn={assignment.checkedIn}
+                onClick={() => onCheckin?.(assignment.bookingId)}
+              />
             </div>
           </div>
 
