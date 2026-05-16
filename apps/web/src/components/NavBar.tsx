@@ -14,6 +14,7 @@ interface Props {
 }
 
 const ELEVATED = new Set(['admin', 'franchise_admin', 'studio_admin', 'instructor'])
+const FRONTHOST = new Set(['fronthost'])
 
 export default function NavBar({ title, subtitle, leading, children }: Props) {
   const [role, setRole] = useState<string | undefined>()
@@ -39,10 +40,12 @@ export default function NavBar({ title, subtitle, leading, children }: Props) {
   }
 
   const isElevated = ELEVATED.has(role ?? '')
+  const isFronthost = FRONTHOST.has(role ?? '')
 
   const navLinks: { label: string; href: string }[] = [
     { label: 'Schedule', href: '/schedule' },
     ...(isElevated ? [{ label: 'Dashboard', href: '/dashboard' }] : []),
+    ...(isFronthost ? [{ label: 'Front Desk', href: '/fronthost' }] : []),
     { label: 'Account', href: '/account' },
   ]
 
