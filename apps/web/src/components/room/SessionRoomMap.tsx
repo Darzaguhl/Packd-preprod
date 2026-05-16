@@ -209,10 +209,12 @@ function DroppableListStation({
   station,
   assignment,
   onCheckin,
+  onUnassign,
 }: {
   station: Station
   assignment: SpotAssignment | undefined
   onCheckin?: (bookingId: string) => void
+  onUnassign?: (bookingId: string) => void
 }) {
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `list-${station.id}` })
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
@@ -260,23 +262,37 @@ function DroppableListStation({
           </p>
         )}
       </div>
-      <button
-        onPointerDown={e => e.stopPropagation()}
-        onClick={() => assignment && onCheckin?.(assignment.bookingId)}
-        disabled={!assignment}
-        title={assignment?.checkedIn ? 'Undo check-in' : 'Check in'}
-        className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-colors ${
-          assignment?.checkedIn
-            ? 'bg-emerald-500 text-white'
-            : assignment
-              ? 'border-2 border-gray-300 text-transparent hover:border-emerald-400 bg-white'
-              : 'border border-dashed border-gray-200 text-transparent cursor-default'
-        }`}
-      >
-        <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
-          <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-      </button>
+      <div className="flex items-center gap-1 shrink-0">
+        {/* Remove from station */}
+        {assignment && !isLocked && (
+          <button
+            onPointerDown={e => e.stopPropagation()}
+            onClick={e => { e.stopPropagation(); onUnassign?.(assignment.bookingId) }}
+            title="Remove from station"
+            className="w-5 h-5 rounded-full bg-white text-gray-400 hover:text-red-500 hover:bg-red-50 flex items-center justify-center text-[11px] font-bold transition-colors"
+          >
+            ×
+          </button>
+        )}
+        {/* Check-in */}
+        <button
+          onPointerDown={e => e.stopPropagation()}
+          onClick={() => assignment && onCheckin?.(assignment.bookingId)}
+          disabled={!assignment}
+          title={assignment?.checkedIn ? 'Undo check-in' : 'Check in'}
+          className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+            assignment?.checkedIn
+              ? 'bg-emerald-500 text-white'
+              : assignment
+                ? 'border-2 border-gray-300 text-transparent hover:border-emerald-400 bg-white'
+                : 'border border-dashed border-gray-200 text-transparent cursor-default'
+          }`}
+        >
+          <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
+            <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      </div>
     </div>
   )
 }
@@ -340,6 +356,7 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
               station={station}
               assignment={assignmentByStation(station.id)}
               onCheckin={onCheckin}
+              onUnassign={bookingId => onAssign(bookingId, null)}
             />
           ))}
 
