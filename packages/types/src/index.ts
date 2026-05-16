@@ -22,7 +22,8 @@ export interface AuthUser {
   id: string
   email: string
   role: UserRole
-  studioId?: string
+  studioId?: string     // first assigned studio (backward compat)
+  studioIds?: string[]  // all studios this user is assigned to (staff only)
 }
 
 // ─── Schedule ─────────────────────────────────────────────────────────────────

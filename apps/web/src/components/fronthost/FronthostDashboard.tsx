@@ -7,45 +7,80 @@ import NavBar from '@/components/NavBar'
 import RoomMapView from '@/components/room/RoomMapView'
 import CreditModal from './CreditModal'
 
-interface Props {
-  studioId: string
+interface Studio {
+  id: string
+  name: string
+  timezone: string
 }
 
 function isoDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export default function FronthostDashboard({ studioId }: Props) {
+export default function FronthostDashboard({ defaultStudioId }: { defaultStudioId?: string }) {
   const [token, setToken] = useState<string | null>(null)
+  const [studios, setStudios] = useState<Studio[]>([])
+  const [studioId, setStudioId] = useState<string | null>(defaultStudioId ?? null)
   const [sessions, setSessions] = useState<AdminSession[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedSession, setSelectedSession] = useState<AdminSession | null>(null)
   const [creditModal, setCreditModal] = useState(false)
   const [date, setDate] = useState(isoDate(new Date()))
 
+  // Load token, then fetch assigned studios
   useEffect(() => {
-    createClient().auth.getSession().then(({ data }) => setToken(data.session?.access_token ?? null))
+    createClient().auth.getSession().then(async ({ data }) => {
+      const t = data.session?.access_token ?? null
+      setToken(t)
+      if (!t) return
+
+      try {
+        const list = await api.staff.myStudios(t)
+        setStudios(list)
+        // If we don't have a studioId yet, pick the first assigned studio
+        if (!studioId && list.length > 0) setStudioId(list[0].id)
+      } catch {
+        // Fallback: keep defaultStudioId if provided
+      }
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Load sessions whenever studio or date changes
   useEffect(() => {
-    if (!token) return
+    if (!token || !studioId) return
     setLoading(true)
+    setSelectedSession(null)
     api.admin.sessions(studioId, date, token)
       .then(data => {
         setSessions(data)
-        setSelectedSession(prev => prev ? (data.find(s => s.id === prev.id) ?? data[0] ?? null) : (data[0] ?? null))
+        setSelectedSession(data[0] ?? null)
       })
+      .catch(() => setSessions([]))
       .finally(() => setLoading(false))
   }, [token, studioId, date])
 
-  const checkedInTotal = 0 // populated from map stats via child
   const now = new Date()
   const activeSession = sessions.find(s => new Date(s.startsAt) <= now && new Date(s.endsAt) >= now)
 
+  const currentStudio = studios.find(s => s.id === studioId)
+
   return (
     <div className="flex flex-col h-screen bg-gray-50">
-      <NavBar title="Front Desk" subtitle="Check-in & customer management">
-        <div className="flex items-center gap-3 pb-3">
+      <NavBar title="Front Desk" subtitle={currentStudio?.name ?? 'Check-in & customer management'}>
+        <div className="flex items-center gap-3 pb-3 flex-wrap">
+          {/* Studio switcher — only shown when assigned to more than one studio */}
+          {studios.length > 1 && (
+            <select
+              value={studioId ?? ''}
+              onChange={e => setStudioId(e.target.value)}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-gray-400"
+            >
+              {studios.map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          )}
           <input
             type="date"
             value={date}
@@ -135,19 +170,17 @@ export default function FronthostDashboard({ studioId }: Props) {
 
         {/* Main content — room map */}
         <div className="flex-1 overflow-auto p-6">
-          {token && selectedSession ? (
+          {token && studioId && selectedSession ? (
             <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <div>
-                  <h2 className="text-sm font-bold text-gray-900">{selectedSession.templateName}</h2>
-                  <p className="text-xs text-gray-500">
-                    {new Date(selectedSession.startsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                    {' – '}
-                    {new Date(selectedSession.endsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                    {' · '}{selectedSession.roomName}
-                    {' · '}{selectedSession.instructorName}
-                  </p>
-                </div>
+              <div>
+                <h2 className="text-sm font-bold text-gray-900">{selectedSession.templateName}</h2>
+                <p className="text-xs text-gray-500">
+                  {new Date(selectedSession.startsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                  {' – '}
+                  {new Date(selectedSession.endsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                  {' · '}{selectedSession.roomName}
+                  {' · '}{selectedSession.instructorName}
+                </p>
               </div>
               <RoomMapView
                 roomId={selectedSession.roomId}
@@ -158,13 +191,13 @@ export default function FronthostDashboard({ studioId }: Props) {
             </div>
           ) : !loading && (
             <div className="h-full flex items-center justify-center text-sm text-gray-400">
-              Select a session to start check-in
+              {studioId ? 'Select a session to start check-in' : 'No studio assigned — contact your administrator.'}
             </div>
           )}
         </div>
       </div>
 
-      {creditModal && token && (
+      {creditModal && token && studioId && (
         <CreditModal
           studioId={studioId}
           token={token}

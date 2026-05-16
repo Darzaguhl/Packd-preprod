@@ -21,15 +21,20 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
 
     // Role MUST come from app_metadata (server-controlled).
     // user_metadata is writable by the client and must never grant elevated access.
-    const appMeta = payload.app_metadata as { role?: string; studioId?: string } | undefined
+    const appMeta = payload.app_metadata as { role?: string; studioId?: string; studioIds?: string[] } | undefined
     const rawRole = appMeta?.role
     const role: UserRole = ELEVATED_ROLES.has(rawRole ?? '') ? (rawRole as UserRole) : 'member'
+
+    // Support both legacy singular studioId and new studioIds array
+    const studioIds: string[] = appMeta?.studioIds ?? (appMeta?.studioId ? [appMeta.studioId] : [])
+    const studioId = studioIds[0]
 
     request.user = {
       id: payload.sub!,
       email: payload.email as string,
       role,
-      studioId: appMeta?.studioId,
+      studioId,
+      studioIds,
     } satisfies AuthUser
   } catch {
     return reply.code(401).send({ error: 'Invalid token' })

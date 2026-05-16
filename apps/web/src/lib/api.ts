@@ -420,6 +420,8 @@ export const api = {
     ),
   },
   staff: {
+    myStudios: (token: string) =>
+      apiFetch<{ id: string; name: string; timezone: string }[]>('/staff/studios', { token }),
     list: (studioId: string, token: string) =>
       apiFetch<StaffMember[]>(`/staff?studioId=${studioId}`, { token }),
     assign: (studioId: string, email: string, staffRole: string, token: string) =>
@@ -428,8 +430,8 @@ export const api = {
         body: JSON.stringify({ studioId, email, staffRole }),
         token,
       }),
-    remove: (memberId: string, token: string) =>
-      apiFetch<{ success: boolean }>(`/staff/${memberId}`, { method: 'DELETE', token }),
+    remove: (memberId: string, studioId: string, token: string) =>
+      apiFetch<{ success: boolean; remainingStudios: number }>(`/staff/${memberId}?studioId=${studioId}`, { method: 'DELETE', token }),
   },
   studios: {
     list: (token: string) =>

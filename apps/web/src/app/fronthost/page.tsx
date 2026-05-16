@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import FronthostDashboard from '@/components/fronthost/FronthostDashboard'
 
-const STUDIO_ID = process.env.NEXT_PUBLIC_STUDIO_ID!
+const DEFAULT_STUDIO_ID = process.env.NEXT_PUBLIC_STUDIO_ID
 
 export default async function FronthostPage() {
   const supabase = await createClient()
@@ -14,5 +14,7 @@ export default async function FronthostPage() {
   const allowed = ['fronthost', 'admin', 'franchise_admin', 'studio_admin']
   if (!allowed.includes(role ?? '')) redirect('/schedule')
 
-  return <FronthostDashboard studioId={STUDIO_ID} />
+  // FronthostDashboard fetches its own studio list from the JWT.
+  // Pass DEFAULT_STUDIO_ID only as a fallback for admin users who bypass the staff flow.
+  return <FronthostDashboard defaultStudioId={DEFAULT_STUDIO_ID} />
 }
