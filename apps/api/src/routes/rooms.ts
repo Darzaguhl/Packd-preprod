@@ -8,6 +8,7 @@ async function assertRoomAccess(
   userRole: string,
   roomId: string,
   reply: FastifyReply,
+  jwtStudioIds?: string[],
 ): Promise<boolean> {
   if (ROLE_RANK[userRole as keyof typeof ROLE_RANK] >= ROLE_RANK['franchise_admin']) {
     return true
@@ -18,6 +19,12 @@ async function assertRoomAccess(
   })
   if (!room) {
     reply.code(404).send({ error: 'Room not found' })
+    return false
+  }
+  // Staff carry their assigned studio IDs in the JWT — no Member record needed
+  if (jwtStudioIds && jwtStudioIds.length > 0) {
+    if (jwtStudioIds.includes(room.location.studioId)) return true
+    reply.code(403).send({ error: 'Access denied' })
     return false
   }
   const member = await prisma.member.findUnique({ where: { userId }, select: { studioId: true } })
@@ -37,7 +44,7 @@ export async function roomRoutes(app: FastifyInstance) {
       const { roomId } = request.params
       const user = getUser(request)
 
-      if (!await assertRoomAccess(user.id, user.role, roomId, reply)) return
+      if (!await assertRoomAccess(user.id, user.role, roomId, reply, user.studioIds)) return
 
       const layout = await prisma.roomLayout.findFirst({
         where: { roomId, isActive: true },
@@ -66,7 +73,7 @@ export async function roomRoutes(app: FastifyInstance) {
       const { name = 'Default', widthM, lengthM, stations } = request.body
       const user = getUser(request)
 
-      if (!await assertRoomAccess(user.id, user.role, roomId, reply)) return
+      if (!await assertRoomAccess(user.id, user.role, roomId, reply, user.studioIds)) return
 
       const validTypes = ['BIKE', 'TREADMILL', 'BENCH', 'ROWER', 'MAT', 'REFORMER', 'BARRE', 'OTHER']
       for (const s of stations) {
@@ -110,7 +117,7 @@ export async function roomRoutes(app: FastifyInstance) {
       const { roomId, sessionId } = request.params
       const user = getUser(request)
 
-      if (!await assertRoomAccess(user.id, user.role, roomId, reply)) return
+      if (!await assertRoomAccess(user.id, user.role, roomId, reply, user.studioIds)) return
 
       const session = await prisma.classSession.findUnique({
         where: { id: sessionId },
@@ -174,7 +181,7 @@ export async function roomRoutes(app: FastifyInstance) {
       const { bookingId, stationId } = request.body
       const user = getUser(request)
 
-      if (!await assertRoomAccess(user.id, user.role, roomId, reply)) return
+      if (!await assertRoomAccess(user.id, user.role, roomId, reply, user.studioIds)) return
 
       // Verify the booking belongs to this session (prevent cross-session reassignment)
       const booking = await prisma.booking.findUnique({ where: { id: bookingId }, select: { sessionId: true } })

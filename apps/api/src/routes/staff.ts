@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@packd/db'
-import { requireRole, getUser } from '../lib/auth.js'
+import { requireRole, requireAuth, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 
 const requireStudioAdmin = requireRole('studio_admin')
@@ -11,11 +11,23 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const VALID_STAFF_ROLES = ['fronthost'] as const
 type StaffRole = typeof VALID_STAFF_ROLES[number]
 
-/** Update a Supabase user's app_metadata (role + optional studioId). */
-async function setSupabaseAppMeta(
-  userId: string,
-  meta: { role: string; studioId?: string | null },
-): Promise<void> {
+interface SupabaseAppMeta {
+  role?: string
+  studioIds?: string[]
+}
+
+/** Fetch current app_metadata for a Supabase user. */
+async function getSupabaseAppMeta(userId: string): Promise<SupabaseAppMeta> {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}`, {
+    headers: { Authorization: `Bearer ${SERVICE_ROLE_KEY}`, apikey: SERVICE_ROLE_KEY },
+  })
+  if (!res.ok) return {}
+  const data = await res.json() as { app_metadata?: SupabaseAppMeta }
+  return data.app_metadata ?? {}
+}
+
+/** Overwrite a Supabase user's app_metadata. */
+async function setSupabaseAppMeta(userId: string, meta: SupabaseAppMeta): Promise<void> {
   const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}`, {
     method: 'PUT',
     headers: {
@@ -35,13 +47,33 @@ async function assertStudioAccess(
   userId: string,
   role: string,
   studioId: string,
+  jwtStudioIds?: string[],
 ): Promise<boolean> {
   if (ROLE_RANK[role as keyof typeof ROLE_RANK] >= ROLE_RANK['franchise_admin']) return true
+  // Check JWT studioIds first (no DB roundtrip for staff)
+  if (jwtStudioIds && jwtStudioIds.length > 0) return jwtStudioIds.includes(studioId)
   const member = await prisma.member.findUnique({ where: { userId }, select: { studioId: true } })
   return !!(member && member.studioId === studioId)
 }
 
 export async function staffRoutes(app: FastifyInstance) {
+  // GET /staff/studios — studios assigned to the current user (fronthost use)
+  app.get(
+    '/studios',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const user = getUser(request)
+      const ids = user.studioIds ?? []
+      if (ids.length === 0) return reply.send([])
+      const studios = await prisma.studio.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, name: true, timezone: true },
+        orderBy: { name: 'asc' },
+      })
+      return reply.send(studios)
+    },
+  )
+
   // GET /staff?studioId= — list all staff members for a studio
   app.get<{ Querystring: { studioId: string } }>(
     '/',
@@ -51,7 +83,7 @@ export async function staffRoutes(app: FastifyInstance) {
       if (!studioId) return reply.badRequest('studioId is required')
 
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId)) return reply.forbidden()
+      if (!await assertStudioAccess(user.id, user.role, studioId, user.studioIds)) return reply.forbidden()
 
       const staff = await prisma.member.findMany({
         where: { studioId, staffRole: { not: null } },
@@ -71,7 +103,7 @@ export async function staffRoutes(app: FastifyInstance) {
   )
 
   // POST /staff — assign a staff role to an existing user
-  // Body: { studioId, email, staffRole }
+  // Appends studioId to the user's studioIds array in Supabase app_metadata.
   app.post<{ Body: { studioId: string; email: string; staffRole: string } }>(
     '/',
     { preHandler: requireStudioAdmin },
@@ -85,48 +117,49 @@ export async function staffRoutes(app: FastifyInstance) {
       }
 
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId)) return reply.forbidden()
+      if (!await assertStudioAccess(user.id, user.role, studioId, user.studioIds)) return reply.forbidden()
 
       if (!SERVICE_ROLE_KEY) return reply.internalServerError('SUPABASE_SERVICE_ROLE_KEY not configured on server')
 
-      // Find the user in our DB by email
       const targetUser = await prisma.user.findUnique({ where: { email } })
       if (!targetUser) {
         return reply.notFound('No account found with that email address. The user must sign up first.')
       }
 
-      // Update Supabase app_metadata — carries the role + studioId into every JWT
-      await setSupabaseAppMeta(targetUser.id, { role: staffRole, studioId })
+      // Merge new studioId into existing studioIds array
+      const current = await getSupabaseAppMeta(targetUser.id)
+      const existingIds: string[] = current.studioIds ?? []
+      const newIds = [...new Set([...existingIds, studioId])]
 
-      // Create or update a Member record so staff appear in the studio's member list
-      // and so assertStudioAccess (Member-lookup path) works as a fallback.
+      await setSupabaseAppMeta(targetUser.id, { role: staffRole, studioIds: newIds })
+
+      // Upsert Member record for the primary (first) studio so the user appears in StaffTab
+      const primaryStudioId = newIds[0]
       const existing = await prisma.member.findUnique({ where: { userId: targetUser.id } })
       if (existing) {
         await prisma.member.update({
           where: { userId: targetUser.id },
-          data: { studioId, staffRole },
+          // Update studioId only if this is their first assignment
+          data: { studioId: existing.studioId === primaryStudioId ? existing.studioId : primaryStudioId, staffRole },
         })
       } else {
         await prisma.member.create({
-          data: {
-            userId: targetUser.id,
-            studioId,
-            staffRole,
-            source: 'packd',
-          },
+          data: { userId: targetUser.id, studioId: primaryStudioId, staffRole, source: 'packd' },
         })
       }
 
-      return reply.send({ success: true })
+      return reply.send({ success: true, studioIds: newIds })
     },
   )
 
-  // DELETE /staff/:memberId — revoke staff role, revert to regular member
-  app.delete<{ Params: { memberId: string } }>(
+  // DELETE /staff/:memberId — remove this studio from the user's assignments.
+  // If no studios remain, reverts role to 'member'.
+  app.delete<{ Params: { memberId: string }; Querystring: { studioId?: string } }>(
     '/:memberId',
     { preHandler: requireStudioAdmin },
     async (request, reply) => {
       const { memberId } = request.params
+      const callerStudioId = request.query.studioId
 
       const member = await prisma.member.findUnique({
         where: { id: memberId },
@@ -135,20 +168,29 @@ export async function staffRoutes(app: FastifyInstance) {
       if (!member) return reply.notFound()
 
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, member.studioId)) return reply.forbidden()
+      const studioToRemove = callerStudioId ?? member.studioId
+      if (!await assertStudioAccess(user.id, user.role, studioToRemove, user.studioIds)) return reply.forbidden()
 
       if (!SERVICE_ROLE_KEY) return reply.internalServerError('SUPABASE_SERVICE_ROLE_KEY not configured on server')
 
-      // Revert Supabase role to 'member' and clear studioId from app_metadata
-      await setSupabaseAppMeta(member.user.id, { role: 'member', studioId: null })
+      const current = await getSupabaseAppMeta(member.user.id)
+      const remaining = (current.studioIds ?? [member.studioId]).filter(id => id !== studioToRemove)
 
-      // Clear staffRole — keep the Member record in case they were also a regular member
-      await prisma.member.update({
-        where: { id: memberId },
-        data: { staffRole: null },
-      })
+      if (remaining.length === 0) {
+        // No more studios — fully revoke staff role
+        await setSupabaseAppMeta(member.user.id, { role: 'member', studioIds: [] })
+        await prisma.member.update({ where: { id: memberId }, data: { staffRole: null } })
+      } else {
+        // Still assigned to other studios — keep role, update studioIds
+        await setSupabaseAppMeta(member.user.id, { role: current.role ?? member.staffRole!, studioIds: remaining })
+        // Update Member record to point to their next primary studio
+        await prisma.member.update({
+          where: { id: memberId },
+          data: { studioId: remaining[0], staffRole: member.staffRole },
+        })
+      }
 
-      return reply.send({ success: true })
+      return reply.send({ success: true, remainingStudios: remaining.length })
     },
   )
 }

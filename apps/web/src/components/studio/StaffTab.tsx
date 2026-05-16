@@ -55,7 +55,7 @@ export default function StaffTab({ studioId, token }: Props) {
     setError(null)
     setSuccess(null)
     try {
-      await api.staff.remove(member.id, token)
+      await api.staff.remove(member.id, studioId, token)
       setSuccess(`${member.name} removed from staff.`)
       await load()
     } catch (err) {
