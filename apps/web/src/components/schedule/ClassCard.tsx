@@ -10,12 +10,15 @@ interface ClassCardProps {
   session: SessionSlot
   onSelect: (session: SessionSlot) => void
   draggable?: boolean
+  /** Admins and fronthosts can click past classes; members cannot */
+  privileged?: boolean
 }
 
 export default function ClassCard({
   session: s,
   onSelect,
   draggable = false,
+  privileged = false,
 }: ClassCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: s.id,
@@ -25,6 +28,7 @@ export default function ClassCard({
   const cfg = sportConfig(s.sport)
   const isFull = s.bookedCount >= s.capacity
   const isBooked = !!s.userBookingId
+  const isPast = !privileged && new Date(s.startsAt) < new Date()
   const durationMin = Math.round(
     (new Date(s.endsAt).getTime() - new Date(s.startsAt).getTime()) / 60000,
   )
@@ -45,12 +49,14 @@ export default function ClassCard({
       style={style}
       data-testid="class-card"
       data-session-id={s.id}
-      onClick={() => !draggable && onSelect(s)}
-      className={`group relative flex items-stretch bg-white border rounded-2xl overflow-hidden transition-all duration-150 cursor-pointer ${
-        isDragging
-          ? 'shadow-2xl border-gray-300 scale-[1.02]'
-          : 'border-gray-100 hover:border-gray-200 hover:shadow-md'
-      } ${isBooked ? 'ring-1 ring-black ring-inset' : ''}`}
+      onClick={() => !draggable && !isPast && onSelect(s)}
+      className={`group relative flex items-stretch border rounded-2xl overflow-hidden transition-all duration-150 ${
+        isPast
+          ? 'bg-gray-50 opacity-50 cursor-not-allowed'
+          : isDragging
+            ? 'bg-white shadow-2xl border-gray-300 scale-[1.02] cursor-pointer'
+            : 'bg-white border-gray-100 hover:border-gray-200 hover:shadow-md cursor-pointer'
+      } ${isBooked && !isPast ? 'ring-1 ring-black ring-inset' : ''}`}
     >
       {/* Sport accent bar */}
       <div className={`w-1 shrink-0 ${cfg.accent}`} />

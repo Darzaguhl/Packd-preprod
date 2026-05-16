@@ -10,6 +10,8 @@ import { sportConfig } from './constants'
 
 interface Props {
   session: SessionSlot
+  /** Admins and fronthosts bypass the past-class lock */
+  privileged?: boolean
   onBack: () => void
   onBook: (sessionId: string) => Promise<void>
   onCancel: (bookingId: string, sessionId: string) => Promise<void>
@@ -24,6 +26,7 @@ async function getFreshToken() {
 
 export default function SessionDetailView({
   session: s,
+  privileged = false,
   onBack,
   onBook,
   onCancel,
@@ -40,6 +43,7 @@ export default function SessionDetailView({
   const isFull = s.bookedCount >= s.capacity
   const hasSpot = !!s.userStationId
   const hasLayout = !spotsLoading && !!spots?.layout && spots.layout.stations.length > 0
+  const isPast = !privileged && new Date(s.startsAt) < new Date()
 
   const durationMin = Math.round(
     (new Date(s.endsAt).getTime() - new Date(s.startsAt).getTime()) / 60000,
@@ -97,6 +101,7 @@ export default function SessionDetailView({
     setActionLoading(true)
     try {
       await onCancel(s.userBookingId!, s.id)
+      await refreshSpots()
     } finally {
       setActionLoading(false)
     }
@@ -114,7 +119,7 @@ export default function SessionDetailView({
   // What hint to show above the map
   const mapHint = isBooked
     ? hasSpot
-      ? 'Tap your spot to deselect, or tap another to move'
+      ? 'Tap your spot to cancel, or tap another to move'
       : 'Tap an available spot to reserve your place'
     : isFull
       ? 'Class is full — join the waitlist'
@@ -184,53 +189,68 @@ export default function SessionDetailView({
 
           {/* ── Action buttons ── */}
 
-          {/* No layout: show full book/cancel/waitlist controls */}
-          {!spotsLoading && !hasLayout && !isBooked && !isWaitlisted && (
-            <button
-              onClick={isFull ? handleWaitlist : async () => { setActionLoading(true); try { await onBook(s.id) } finally { setActionLoading(false) } }}
-              disabled={actionLoading}
-              className="w-full py-3 rounded-xl text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
-            >
-              {actionLoading ? '…' : isFull ? 'Join waitlist' : 'Book class'}
-            </button>
-          )}
+          {isPast ? (
+            <p className="text-xs text-center text-gray-400 py-1">This class has already started</p>
+          ) : (
+            <>
+              {/* No layout: show full book/cancel/waitlist controls */}
+              {!spotsLoading && !hasLayout && !isBooked && !isWaitlisted && (
+                <button
+                  onClick={isFull ? handleWaitlist : async () => { setActionLoading(true); try { await onBook(s.id) } catch { /* toast shown in handleBook */ } finally { setActionLoading(false) } }}
+                  disabled={actionLoading}
+                  className="w-full py-3 rounded-xl text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
+                >
+                  {actionLoading ? '…' : isFull ? 'Join waitlist' : 'Book class'}
+                </button>
+              )}
 
-          {/* Cancel: shown when booked; faded + disabled until a spot is picked (only relevant when there IS a layout) */}
-          {isBooked && (
-            <button
-              onClick={handleCancel}
-              disabled={actionLoading || (hasLayout && !hasSpot)}
-              title={hasLayout && !hasSpot ? 'Pick a spot first' : 'Cancel your booking'}
-              className={`w-full py-3 rounded-xl text-sm font-semibold border transition-colors ${
-                hasLayout && !hasSpot
-                  ? 'border-gray-200 text-gray-300 bg-white cursor-not-allowed'
-                  : 'border-red-200 text-red-500 hover:bg-red-50 bg-white disabled:opacity-40'
-              }`}
-            >
-              {actionLoading ? '…' : 'Cancel booking'}
-            </button>
-          )}
+              {/* Cancel: always visible; active only when booked + spot picked (or no layout) */}
+              {(() => {
+                const needsSpot = isBooked && hasLayout && !hasSpot
+                const inactive = !isBooked || needsSpot
+                const title = !isBooked
+                  ? 'Book a class first'
+                  : needsSpot
+                    ? 'Pick a spot first'
+                    : 'Cancel your booking'
+                return (
+                  <button
+                    onClick={inactive ? undefined : handleCancel}
+                    disabled={actionLoading || inactive}
+                    title={title}
+                    className={`w-full py-3 rounded-xl text-sm font-semibold border transition-colors ${
+                      inactive
+                        ? 'border-gray-200 text-gray-300 bg-white cursor-not-allowed'
+                        : 'border-red-200 text-red-500 hover:bg-red-50 bg-white disabled:opacity-40'
+                    }`}
+                  >
+                    {actionLoading ? '…' : 'Cancel booking'}
+                  </button>
+                )
+              })()}
 
-          {/* Waitlisted: leave waitlist */}
-          {isWaitlisted && !isBooked && (
-            <button
-              onClick={handleWaitlist}
-              disabled={actionLoading}
-              className="w-full py-3 rounded-xl text-sm font-semibold border border-gray-200 text-gray-500 hover:bg-gray-50 bg-white disabled:opacity-40 transition-colors"
-            >
-              {actionLoading ? '…' : 'Leave waitlist'}
-            </button>
-          )}
+              {/* Waitlisted: leave waitlist */}
+              {isWaitlisted && !isBooked && (
+                <button
+                  onClick={handleWaitlist}
+                  disabled={actionLoading}
+                  className="w-full py-3 rounded-xl text-sm font-semibold border border-gray-200 text-gray-500 hover:bg-gray-50 bg-white disabled:opacity-40 transition-colors"
+                >
+                  {actionLoading ? '…' : 'Leave waitlist'}
+                </button>
+              )}
 
-          {/* Full + not booked/waitlisted + has layout: offer waitlist */}
-          {!isBooked && !isWaitlisted && isFull && hasLayout && (
-            <button
-              onClick={handleWaitlist}
-              disabled={actionLoading}
-              className="w-full py-3 rounded-xl text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
-            >
-              {actionLoading ? '…' : 'Join waitlist'}
-            </button>
+              {/* Full + not booked/waitlisted + has layout: offer waitlist */}
+              {!isBooked && !isWaitlisted && isFull && hasLayout && (
+                <button
+                  onClick={handleWaitlist}
+                  disabled={actionLoading}
+                  className="w-full py-3 rounded-xl text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
+                >
+                  {actionLoading ? '…' : 'Join waitlist'}
+                </button>
+              )}
+            </>
           )}
         </div>
 
@@ -251,12 +271,14 @@ export default function SessionDetailView({
                 assignments={spots.assignments}
                 myStationId={s.userStationId ?? null}
                 onPick={
-                  actionLoading
+                  actionLoading || isPast
                     ? () => {}
                     : isBooked
-                      ? handlePickSpot
+                      ? (id: string | null) => id === null
+                          ? handleCancel()          // tapped own spot → cancel booking
+                          : handlePickSpot(id)      // tapped another spot → move
                       : isFull
-                        ? () => {}           // full, can't book by picking
+                        ? () => {}                  // full, can't book by picking
                         : (id: string | null) => id ? handleBookAndAssign(id) : Promise.resolve()
                 }
               />

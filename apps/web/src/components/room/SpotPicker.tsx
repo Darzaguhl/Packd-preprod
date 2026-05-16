@@ -44,9 +44,9 @@ export default function SpotPicker({ layout, assignments, myStationId, onPick }:
               key={station.id}
               disabled={isTaken}
               onClick={() => onPick(isMine ? null : station.id)}
-              className={`absolute flex flex-col items-center justify-center border-2 rounded-xl transition-all ${
+              className={`group absolute flex flex-col items-center justify-center border-2 rounded-xl transition-all ${
                 isMine
-                  ? 'border-gray-900 bg-gray-900 text-white scale-105 shadow-md'
+                  ? 'border-gray-900 bg-gray-900 text-white scale-105 shadow-md hover:border-red-500 hover:bg-red-500'
                   : isTaken
                   ? 'border-gray-200 bg-gray-100 opacity-50 cursor-not-allowed'
                   : `${meta.color} hover:scale-105 hover:shadow-sm cursor-pointer`
@@ -60,8 +60,16 @@ export default function SpotPicker({ layout, assignments, myStationId, onPick }:
             >
               {isMine ? (
                 <>
-                  <span className="text-xs">✓</span>
-                  <span className="text-[8px] font-semibold truncate px-0.5 max-w-full">You</span>
+                  {/* Normal state: checkmark + "You" */}
+                  <svg className="w-3 h-3 group-hover:hidden" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  <span className="text-[8px] font-semibold truncate px-0.5 max-w-full leading-tight group-hover:hidden">You</span>
+                  {/* Hover state: X + "Cancel" */}
+                  <svg className="w-3 h-3 hidden group-hover:block" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                  </svg>
+                  <span className="text-[8px] font-semibold truncate px-0.5 max-w-full leading-tight hidden group-hover:block">Cancel</span>
                 </>
               ) : isTaken ? (
                 <>
@@ -94,7 +102,7 @@ export default function SpotPicker({ layout, assignments, myStationId, onPick }:
       </div>
 
       {myStationId && (
-        <p className="text-xs text-gray-500">Click your spot again to unselect it.</p>
+        <p className="text-xs text-gray-500">Tap your spot to cancel, or tap another to move.</p>
       )}
     </div>
   )

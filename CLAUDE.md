@@ -35,7 +35,7 @@ cd apps/api && npm run dev    # API on :4000
 cd apps/web && npm run dev    # Web on :3001 (or :3000)
 
 # Tests
-npm test                      # Vitest unit tests (22 tests, all passing)
+npm test                      # Vitest unit tests (26 tests, all passing)
 npm run test:coverage         # with coverage report
 npm run test:e2e              # Playwright E2E (needs web + API running)
 ```
@@ -127,7 +127,9 @@ Seed data lives in `packages/db/src/seed.ts`:
 - **Role ranks**: `admin=5`, `franchise_admin=4`, `studio_admin=3`, `instructor=2`, `fronthost=2`, `member=1`. `fronthost` and `instructor` share rank 2 — both pass `requireRole('instructor')` guards but not `requireRole('studio_admin')`.
 - **fronthost permissions**: Can check in members, handle payments (credit adjustments), and access daily session/stats views. Cannot edit layouts, manage schedules, or access franchise-level data. Instructors default `canCheckInMembers: false`.
 - **Tenant isolation**: All admin routes call `assertStudioAccess(userId, studioId)` which checks `Member.studioId === studioId`. An admin from studio A cannot access studio B's data.
-- **Race conditions**: Booking creation, cancellation+waitlist-promote, and waitlist-join all run inside `prisma.$transaction()`. DB-level `@@unique([sessionId, memberId])` is the final guard.
+- **Race conditions**: Booking creation, cancellation+waitlist-promote, and waitlist-join all run inside `prisma.$transaction()`. DB-level `@@unique([sessionId, memberId])` is the final guard. P2002 on `booking.create` is caught and re-thrown as 409 to handle TOCTOU races.
+- **Re-booking**: `CANCELLED` and `LATE_CANCELLED` booking rows are reactivated via `update` (not `create`) to avoid violating the unique constraint. Booking route checks for all three statuses before deciding whether to update or create.
+- **Past-class booking**: Members cannot book classes whose `startsAt` has passed (400). Admins, franchise_admins, studio_admins, instructors, and fronthosts bypass this check and can book/adjust past or running classes.
 - **Status validation**: Session status updates validated against explicit allowlist `['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']`.
 - **Setting admin role**: Use Supabase Admin API — `PUT /auth/v1/admin/users/:userId` with body `{"app_metadata": {"role": "admin"}}` and service role key. No script needed; curl works fine.
 
@@ -176,8 +178,9 @@ Seed data lives in `packages/db/src/seed.ts`:
 - `/dashboard` — admin dashboard (admin role required)
 
 ### Schedule UI components
-- `ScheduleView.tsx` — main shell, two-column layout (schedule + calendar sidebar)
-- `schedule/ClassCard.tsx` — drag-ready card with sport accent bar, capacity bar, book/cancel/waitlist actions
+- `ScheduleView.tsx` — main shell, two-column layout (schedule + calendar sidebar); reads `userRole` from `session.user.app_metadata` and derives `isPrivileged` (non-member), passed as `privileged` prop to cards and detail view
+- `schedule/ClassCard.tsx` — drag-ready card; past classes are greyed out and non-clickable for members; accepts `privileged` prop to bypass the past-class lock
+- `schedule/SessionDetailView.tsx` — full session detail view opened when a card is clicked; spot picker with book-by-spot-click flow; cancel button always visible (greyed out until spot picked); members locked out of all actions on past classes via `isPast = !privileged && startsAt < now`; tapping own spot on the map cancels the booking (red hover state with ✕)
 - `schedule/DayTabs.tsx` — 7-day tabs with integrated prev/next arrows, today outline, selected filled
 - `schedule/FilterBar.tsx` — sport filter pills
 - `schedule/CapacityBar.tsx` — green/amber/red fill bar
@@ -203,9 +206,10 @@ Seed data lives in `packages/db/src/seed.ts`:
 - `SubstituteModal.tsx` — per-session substitute instructor assignment
 
 ### Room map components (`components/room/`)
-- `RoomMapView.tsx` — orchestrator with `variant` prop: `'editor'` (layout only) or `'checkin'` (session spots only); also handles check-in toggles via `api.admin.checkin`
+- `RoomMapView.tsx` — orchestrator with `variant` prop: `'editor'` (layout only) or `'checkin'` (session spots only); also handles check-in toggles via `api.admin.checkin`; always calls `createClient().auth.getSession()` for a fresh token before API calls
 - `RoomMapEditor.tsx` — drag-to-place floor plan editor; palette drag + canvas move + double-click rename + hover delete
-- `SessionRoomMap.tsx` — pixel-scale check-in map (90px/m, 130×100px min per station); two-panel layout: compact station list (w-52, sorted by label, quick ✓ check-in button) + scrollable canvas; shows member name, membership badge, credit balance, check-in toggle; DnD assignment with lock — checked-in members cannot be dragged and their target station blocks drops
+- `SessionRoomMap.tsx` — pixel-scale check-in map (90px/m, 130×100px min per station); two-panel layout: compact station list (w-52, sorted by label, quick ✓ check-in button) + scrollable canvas; shows member name, membership badge, credit balance, check-in toggle; DnD assignment with lock — checked-in members cannot be dragged and their target station blocks drops; drag IDs namespaced: canvas uses bare `bookingId`, list uses `list-drag-{bookingId}`, droppable list rows use `list-{stationId}`
+- `SpotPicker.tsx` — member-facing spot map; own spot shows ✓/"You" normally, red ✕/"Cancel" on hover; clicking own spot calls `onPick(null)` which the parent wires to cancel the booking
 - `constants.ts` — `STATION_META` (icon, color, physical size in metres per type), `GRID_STEP`, `snapToGrid`
 
 ### Fronthost components (`components/fronthost/`)
@@ -213,7 +217,7 @@ Seed data lives in `packages/db/src/seed.ts`:
 - `CreditModal.tsx` — member search via `api.admin.searchMembers`; preset amounts (+5, +10, +20, +30) with deduct toggle; manual amount + optional note; calls `api.admin.adjustCredits`
 
 ### Tests
-- `apps/api/src/__tests__/booking.test.ts` — 8 unit tests (create 201, full class 409, insufficient credits 402, cancelled session 400, missing body 400, on-time cancel 200, late cancel 200, wrong user cancel 403)
+- `apps/api/src/__tests__/booking.test.ts` — 12 unit tests (create 201, full class 409, insufficient credits 402, cancelled session 400, missing body 400, past class rejected for member 400, past class allowed for admin 201, LATE_CANCELLED re-book via update 201, on-time cancel 200, late cancel 200, wrong user cancel 403, cancel clears stationId)
 - `apps/api/src/__tests__/waitlist.test.ts` — 6 unit tests (join empty 201, join with queue 201, missing body 400, confirm valid 200, expired window 410, wrong user 403)
 - `apps/api/src/__tests__/checkin.test.ts` — 3 unit tests (toggle on, toggle off + clears checkedInAt, wrong session booking 404)
 - `apps/api/src/__tests__/credits.test.ts` — 5 unit tests (add credits, deduct credits, amount=0 rejected, non-integer rejected, missing member 404)
@@ -234,7 +238,6 @@ Seed data lives in `packages/db/src/seed.ts`:
 - [ ] Stripe credit purchase flow — buy credit packs, webhook updates CreditBalance
 - [ ] Membership subscription management — upgrade/downgrade/cancel
 - [ ] Admin drag-to-reschedule — wire up the DnD stub in ScheduleView (`handleDragEnd`)
-- [ ] Member spot self-selection — member-facing spot picker using `api.rooms.pickMySpot`
 
 ### Lower priority
 - [ ] Expo mobile app — auth, schedule view, booking (Expo Router)
