@@ -10,9 +10,9 @@ export default async function FronthostPage() {
   if (!user) redirect('/login')
 
   const role = (user.app_metadata as { role?: string } | undefined)?.role
-  if (role !== 'fronthost' && role !== 'admin' && role !== 'franchise_admin' && role !== 'studio_admin') {
-    redirect('/schedule')
-  }
+  // /fronthost is the check-in terminal — accessible to fronthost staff and all admin levels
+  const allowed = ['fronthost', 'admin', 'franchise_admin', 'studio_admin']
+  if (!allowed.includes(role ?? '')) redirect('/schedule')
 
   return <FronthostDashboard studioId={STUDIO_ID} />
 }

@@ -11,9 +11,8 @@ function roleHomePath(role: string | undefined): string {
     case 'studio_admin':
       return '/dashboard'
     case 'instructor':
-      return '/dashboard'
     case 'fronthost':
-      return '/fronthost'
+      return '/schedule'
     default:
       return '/schedule'
   }
