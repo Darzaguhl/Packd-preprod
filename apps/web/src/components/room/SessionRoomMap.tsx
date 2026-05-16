@@ -155,21 +155,8 @@ function DroppableStation({
 
           <div className="h-px bg-black/10" />
 
-          {/* Member info */}
-          <div className="flex items-center gap-1.5 flex-1 min-h-0">
-            <div className={`w-7 h-7 rounded-full bg-gray-900 text-white flex items-center justify-center text-[10px] font-bold shrink-0 ${
-              assignment.checkedIn ? 'ring-2 ring-emerald-400 ring-offset-1' : ''
-            }`}>
-              {initials(assignment.memberName)}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] font-semibold text-gray-900 truncate leading-tight">{assignment.memberName}</p>
-              <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                <MembershipBadge status={assignment.membershipStatus} />
-                <span className="text-[9px] text-gray-500">{assignment.creditBalance} cr</span>
-              </div>
-            </div>
-          </div>
+          {/* Member info — draggable when not checked in */}
+          <DraggableInStation assignment={assignment} />
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center h-full gap-1 pointer-events-none">
@@ -178,6 +165,36 @@ function DroppableStation({
           <span className="text-[9px] text-gray-400">{isOver ? 'Drop here' : 'Empty'}</span>
         </div>
       )}
+    </div>
+  )
+}
+
+function DraggableInStation({ assignment }: { assignment: SpotAssignment }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: assignment.bookingId,
+    disabled: assignment.checkedIn,
+  })
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={`flex items-center gap-1.5 flex-1 min-h-0 rounded-lg transition-opacity ${
+        !assignment.checkedIn ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
+      } ${isDragging ? 'opacity-30' : ''}`}
+    >
+      <div className={`w-7 h-7 rounded-full bg-gray-900 text-white flex items-center justify-center text-[10px] font-bold shrink-0 ${
+        assignment.checkedIn ? 'ring-2 ring-emerald-400 ring-offset-1' : ''
+      }`}>
+        {initials(assignment.memberName)}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[11px] font-semibold text-gray-900 truncate leading-tight">{assignment.memberName}</p>
+        <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+          <MembershipBadge status={assignment.membershipStatus} />
+          <span className="text-[9px] text-gray-500">{assignment.creditBalance} cr</span>
+        </div>
+      </div>
     </div>
   )
 }
@@ -360,7 +377,7 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
       </div>
 
       <p className="text-xs text-gray-400 mt-2">
-        Drag unassigned members onto stations · Click ✓ to check in · Checked-in spots are locked
+        Drag members onto stations · Drag assigned members to reassign · Click ✓ to check in · Checked-in spots are locked
       </p>
 
       <DragOverlay>
