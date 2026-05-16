@@ -9,10 +9,8 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  closestCenter,
   pointerWithin,
   type DragEndEvent,
-  type CollisionDetection,
 } from '@dnd-kit/core'
 import type { RoomLayout, SpotAssignment, Station } from '@/lib/api'
 import { STATION_META } from './constants'
@@ -184,9 +182,65 @@ function DroppableStation({
   )
 }
 
-const collisionDetection: CollisionDetection = (args) => {
-  const within = pointerWithin(args)
-  return within.length > 0 ? within : closestCenter(args)
+function DroppableListStation({
+  station,
+  assignment,
+  onCheckin,
+}: {
+  station: Station
+  assignment: SpotAssignment | undefined
+  onCheckin?: (bookingId: string) => void
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `list-${station.id}` })
+  const meta = STATION_META[station.type]
+  const isLocked = assignment?.checkedIn ?? false
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left transition-all ${
+        isOver && !isLocked
+          ? 'bg-gray-900 ring-2 ring-gray-900 scale-[1.02]'
+          : assignment?.checkedIn
+            ? 'bg-emerald-50'
+            : assignment
+              ? 'bg-gray-50'
+              : 'bg-white'
+      }`}
+    >
+      <span className="text-sm leading-none shrink-0">{meta.icon}</span>
+      <span className={`text-[10px] font-semibold w-12 truncate shrink-0 ${isOver && !isLocked ? 'text-gray-300' : 'text-gray-500'}`}>
+        {station.label}
+      </span>
+      <div className="flex-1 min-w-0">
+        {assignment ? (
+          <p className={`text-[11px] font-medium truncate leading-tight ${isOver && !isLocked ? 'text-white' : 'text-gray-900'}`}>
+            {isOver && !isLocked ? 'Drop here' : assignment.memberName}
+          </p>
+        ) : (
+          <p className={`text-[11px] italic ${isOver ? 'text-gray-300' : 'text-gray-300'}`}>
+            {isOver ? 'Drop here' : 'empty'}
+          </p>
+        )}
+      </div>
+      <button
+        onClick={() => assignment && onCheckin?.(assignment.bookingId)}
+        disabled={!assignment}
+        title={assignment?.checkedIn ? 'Undo check-in' : 'Check in'}
+        className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+          assignment?.checkedIn
+            ? 'bg-emerald-500 text-white'
+            : assignment
+              ? 'border-2 border-gray-300 text-transparent hover:border-emerald-400 bg-white'
+              : 'border border-dashed border-gray-200 text-transparent cursor-default'
+        }`}
+      >
+        <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
+          <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+    </div>
+  )
 }
 
 export default function SessionRoomMap({ layout, assignments, onAssign, onCheckin }: Props) {
@@ -206,10 +260,12 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
     setActiveId(null)
     const { active, over } = event
     if (!over) return
+    // Strip list- prefix (left panel droppables use list-{stationId})
+    const stationId = (over.id as string).replace(/^list-/, '')
     // Don't overwrite a checked-in member
-    const targetAssignment = assignmentByStation(over.id as string)
+    const targetAssignment = assignmentByStation(stationId)
     if (targetAssignment?.checkedIn) return
-    await onAssign(active.id as string, over.id as string)
+    await onAssign(active.id as string, stationId)
   }
 
   // Sorted stations for the list panel
@@ -221,7 +277,7 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={collisionDetection}
+      collisionDetection={pointerWithin}
       onDragStart={e => setActiveId(e.active.id as string)}
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveId(null)}
@@ -237,45 +293,14 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
           </div>
 
           {/* Station rows */}
-          {sortedStations.map(station => {
-            const meta = STATION_META[station.type]
-            const a = assignmentByStation(station.id)
-            return (
-              <div
-                key={station.id}
-                className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left ${
-                  a?.checkedIn ? 'bg-emerald-50' : a ? 'bg-gray-50' : 'bg-white'
-                }`}
-              >
-                <span className="text-sm leading-none shrink-0">{meta.icon}</span>
-                <span className="text-[10px] font-semibold text-gray-500 w-12 truncate shrink-0">{station.label}</span>
-                <div className="flex-1 min-w-0">
-                  {a ? (
-                    <p className="text-[11px] font-medium text-gray-900 truncate leading-tight">{a.memberName}</p>
-                  ) : (
-                    <p className="text-[11px] text-gray-300 italic">empty</p>
-                  )}
-                </div>
-                {/* Quick check-in button */}
-                <button
-                  onClick={() => a && onCheckin?.(a.bookingId)}
-                  disabled={!a}
-                  title={a?.checkedIn ? 'Undo check-in' : 'Check in'}
-                  className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-colors ${
-                    a?.checkedIn
-                      ? 'bg-emerald-500 text-white'
-                      : a
-                        ? 'border-2 border-gray-300 text-transparent hover:border-emerald-400 bg-white'
-                        : 'border border-dashed border-gray-200 text-transparent cursor-default'
-                  }`}
-                >
-                  <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
-                    <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </button>
-              </div>
-            )
-          })}
+          {sortedStations.map(station => (
+            <DroppableListStation
+              key={station.id}
+              station={station}
+              assignment={assignmentByStation(station.id)}
+              onCheckin={onCheckin}
+            />
+          ))}
 
           {/* Unassigned section */}
           {unassigned.length > 0 && (
