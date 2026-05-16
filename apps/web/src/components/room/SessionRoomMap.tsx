@@ -30,6 +30,12 @@ function initials(name: string) {
   return name.split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()
 }
 
+// "Treadmill 1" → "T1", "Floor 2" → "F2"
+function shortLabel(label: string) {
+  const num = label.match(/\d+/)
+  return `${label.trim()[0].toUpperCase()}${num ? num[0] : ''}`
+}
+
 function MembershipBadge({ status }: { status: SpotAssignment['membershipStatus'] }) {
   if (status === 'ACTIVE') return (
     <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Active</span>
@@ -208,13 +214,17 @@ function DroppableListStation({
   assignment: SpotAssignment | undefined
   onCheckin?: (bookingId: string) => void
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: `list-${station.id}` })
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `list-${station.id}` })
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+    id: assignment?.bookingId ?? `empty-${station.id}`,
+    disabled: !assignment || assignment.checkedIn,
+  })
   const meta = STATION_META[station.type]
   const isLocked = assignment?.checkedIn ?? false
 
   return (
     <div
-      ref={setNodeRef}
+      ref={setDropRef}
       className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left transition-all ${
         isOver && !isLocked
           ? 'bg-gray-900 ring-2 ring-gray-900 scale-[1.02]'
@@ -226,10 +236,18 @@ function DroppableListStation({
       }`}
     >
       <span className="text-sm leading-none shrink-0">{meta.icon}</span>
-      <span className={`text-[10px] font-semibold w-12 truncate shrink-0 ${isOver && !isLocked ? 'text-gray-300' : 'text-gray-500'}`}>
-        {station.label}
+      <span
+        className={`text-[10px] font-semibold w-6 shrink-0 ${isOver && !isLocked ? 'text-gray-300' : 'text-gray-500'}`}
+        title={station.label}
+      >
+        {shortLabel(station.label)}
       </span>
-      <div className="flex-1 min-w-0">
+      {/* Member name — draggable when assigned and not checked in */}
+      <div
+        ref={setDragRef}
+        {...(assignment && !isLocked ? { ...listeners, ...attributes } : {})}
+        className={`flex-1 min-w-0 ${assignment && !isLocked ? 'cursor-grab active:cursor-grabbing' : ''} ${isDragging ? 'opacity-30' : ''}`}
+      >
         {assignment ? (
           <p className={`text-[11px] font-medium truncate leading-tight ${isOver && !isLocked ? 'text-white' : 'text-gray-900'}`}>
             {isOver && !isLocked ? 'Drop here' : assignment.memberName}
@@ -241,6 +259,7 @@ function DroppableListStation({
         )}
       </div>
       <button
+        onPointerDown={e => e.stopPropagation()}
         onClick={() => assignment && onCheckin?.(assignment.bookingId)}
         disabled={!assignment}
         title={assignment?.checkedIn ? 'Undo check-in' : 'Check in'}
