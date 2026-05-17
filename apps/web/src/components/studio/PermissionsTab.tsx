@@ -10,6 +10,7 @@ const PERMISSION_META: { key: keyof InstructorPermissions; label: string; descri
   { key: 'canViewMemberContact',  label: 'View member contact',   description: 'See member email addresses and phone numbers' },
   { key: 'canEditSessionDetails', label: 'Edit session details',  description: 'Change capacity, credits required, or timing' },
   { key: 'canCancelSession',      label: 'Cancel a session',      description: 'Mark a session as cancelled' },
+  { key: 'canCreateSchedules',    label: 'Create & edit schedules', description: 'Add recurring schedules and modify existing ones' },
 ]
 
 interface Props {

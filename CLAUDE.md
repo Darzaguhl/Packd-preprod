@@ -126,6 +126,7 @@ Seed data lives in `packages/db/src/seed.ts`:
 - **Role allowlist**: `'admin' | 'franchise_admin' | 'studio_admin' | 'instructor' | 'fronthost'` get elevated roles — anything else defaults to `'member'`.
 - **Role ranks**: `admin=5`, `franchise_admin=4`, `studio_admin=3`, `instructor=2`, `fronthost=2`, `member=1`. `fronthost` and `instructor` share rank 2 — both pass `requireRole('instructor')` guards but not `requireRole('studio_admin')`.
 - **fronthost permissions**: Can check in members, handle payments (credit adjustments), and access daily session/stats views. Cannot edit layouts, manage schedules, or access franchise-level data. Instructors default `canCheckInMembers: false`.
+- **Instructor permissions** (`InstructorPermissions` JSON on `Instructor` model): `canCheckInMembers`, `canManageWaitlist` (true by default), `canManageBookings`, `canViewMemberContact`, `canEditSessionDetails`, `canCancelSession`, `canCreateSchedules` (all false by default). Managed via PermissionsTab; `canCreateSchedules` gates schedule creation/edit/delete UI in CalendarView.
 - **Tenant isolation**: All admin routes call `assertStudioAccess(userId, studioId)` which checks `Member.studioId === studioId`. An admin from studio A cannot access studio B's data.
 - **Race conditions**: Booking creation, cancellation+waitlist-promote, and waitlist-join all run inside `prisma.$transaction()`. DB-level `@@unique([sessionId, memberId])` is the final guard. P2002 on `booking.create` is caught and re-thrown as 409 to handle TOCTOU races.
 - **Re-booking**: `CANCELLED` and `LATE_CANCELLED` booking rows are reactivated via `update` (not `create`) to avoid violating the unique constraint. Booking route checks for all three statuses before deciding whether to update or create.
@@ -137,16 +138,16 @@ Seed data lives in `packages/db/src/seed.ts`:
 
 ### API (`apps/api/src/routes/`)
 - `schedule.ts` — `GET /schedule/:studioId` — lists sessions with booking status per user
-- `bookings.ts` — `POST /bookings`, `DELETE /bookings/:id`, `POST /bookings/:id/checkin`
+- `bookings.ts` — `POST /bookings`, `DELETE /bookings/:id`, `POST /bookings/:id/checkin`; members (role=member or no role) are blocked from booking past sessions (400); LATE_CANCELLED bookings are re-activated via `update` not `create` to avoid P2002; cancel clears `stationId: null`
 - `waitlist.ts` — `POST /waitlist`, `DELETE /waitlist/:id`, `POST /waitlist/:id/confirm`
 - `members.ts` — `GET /members/me`
 - `studios.ts` — `GET/POST /studios`, `PATCH/DELETE /studios/:id`, `GET /studios/:id/rooms`, `POST /studios/:id/rooms`, `DELETE /studios/:id/rooms/:roomId`, `POST /studios/onboard`
 - `admin.ts` — admin-only routes behind `requireAdmin` (role from `app_metadata`)
-  - `GET /admin/sessions?studioId=&date=` — daily session list with booked counts
+  - `GET /admin/sessions?studioId=&date=` — daily session list with booked counts; includes `instructorUserId` for client-side "my classes" filtering
   - `GET /admin/sessions/:id/bookings` — attendee list with check-in status
   - `POST /admin/sessions/:id/checkin/:bookingId` — toggle check-in
   - `PATCH /admin/sessions/:id` — update session status
-  - `GET /admin/stats?studioId=` — today's headline stats
+  - `GET /admin/stats?studioId=` — today's headline stats; includes `studioName` for NavBar display
   - `GET /admin/members/search?studioId=&q=` — fuzzy search members by name/email (up to 10 results, includes creditBalance and membershipStatus)
   - `POST /admin/members/:memberId/credits` — adjust credit balance (positive or negative integer, type: MANUAL_ADJUSTMENT)
 - `rooms.ts` — room layout and spot assignment
@@ -165,6 +166,7 @@ Seed data lives in `packages/db/src/seed.ts`:
   - `GET /schedules/month?studioId=&year=&month=` — session counts per day for month grid
   - `GET /schedules/orphaned?studioId=` — unique session patterns with no schedule link
   - `DELETE /schedules/orphaned` — delete future unbooked orphaned sessions by pattern
+- `staff.ts` — `GET/POST /staff`, `DELETE /staff/:memberId`; valid roles: `fronthost`, `instructor`; creating instructor role also upserts `Instructor` DB record; deleting removes `Instructor` record if present
 - `franchise.ts` — multi-studio management
   - `GET /franchise/studios` — all studios summary
   - `GET /franchise/studios/:id/instructors` — instructors with permissions
@@ -189,19 +191,21 @@ Seed data lives in `packages/db/src/seed.ts`:
 
 ### Admin UI components
 - `admin/AdminDashboard.tsx` — stat cards (today's classes, bookings, waitlist, members), date picker, session list with fill bars, slide-in panel
-- `admin/SessionPanel.tsx` — attendee list with avatar initials + credit balance, check-in toggle (circle → filled tick), cancel session with confirm dialog
+- `admin/SessionPanel.tsx` — attendee list with avatar initials + credit balance, check-in toggle; three-segment attendance bar (black=checked-in, amber=booked-not-in, light-gray=empty); `canCancel` prop (default true) — instructors see the panel without the cancel button
 
 ### Franchise / studio management components
 - `franchise/FranchiseDashboard.tsx` — multi-studio overview cards, drill into per-studio management; `onStudioUpdate` callback keeps cards in sync after settings save without reload
-- `studio/StudioManagerDashboard.tsx` — tabbed per-studio view (Today · Calendar · Rooms · Permissions · Settings)
+- `studio/StudioManagerDashboard.tsx` — tabbed per-studio view; role-aware: instructors see Today + Calendar only; clicking a session opens room map directly; `myClassesOnly` filter defaults ON for instructors; loads own `Instructor` record to pass `myInstructorId` + `myPermissions` to CalendarView; studio name shown in NavBar for all roles
 - `studio/RoomsTab.tsx` — room list + layout editor (editor-only, no session features)
-- `studio/PermissionsTab.tsx` — per-instructor permission toggles with accordion UI; toggle fix: explicit `left-1 translate-x-0/translate-x-4` anchoring required
+- `studio/PermissionsTab.tsx` — per-instructor permission toggles with accordion UI; toggle fix: explicit `left-1 translate-x-0/translate-x-4` anchoring required; includes `canCreateSchedules` permission
 - `studio/SettingsTab.tsx` — studio name, timezone (grouped optgroup, ~80 zones), currency (34 options); calls `onStudioUpdate` on save
+- `studio/StaffTab.tsx` — manage fronthosts and instructors; violet badge for instructors; shortcut to Permissions tab for instructor rows; creating an instructor role upserts an `Instructor` DB record; removing it deletes the record
 
 ### Calendar components (`components/calendar/`)
 - `CalendarView.tsx` — three views: `week` (time grid with overlap layout), `month` (sport-dot grid), `schedules` (master recurring + orphaned sessions)
   - Critical: `isoDate()` uses `getFullYear()/getMonth()/getDate()` not `.toISOString()` to avoid UTC offset shifting the week
   - Overlap layout: sessions sorted by start, grouped by overlap, rendered side-by-side with `leftFrac`/`widthFrac`
+  - Props: `canCreateSchedules` (default true) gates all schedule creation/edit/delete UI; `filterInstructorId` enables "My classes" filter pill (defaults ON); `visibleSessions` derived from filter state, includes sessions where instructor is primary or substitute
 - `ScheduleModal.tsx` — create/edit recurring schedule; day-of-week pills; frequency: 1/2/3/4 weeks; pre-fills from orphaned session patterns
 - `SubstituteModal.tsx` — per-session substitute instructor assignment
 
