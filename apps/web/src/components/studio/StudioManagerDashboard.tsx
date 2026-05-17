@@ -53,12 +53,12 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
       const uid = session?.user?.id ?? null
       setToken(t)
       setCurrentUserId(uid)
-      // Instructors: resolve own Instructor record + permissions in one request
-      if (role === 'instructor' && t && uid) {
+      // Instructors: resolve own Instructor record + permissions
+      if (role === 'instructor' && t) {
         try {
-          const instructors = await api.franchise.instructors(studioId, t)
-          const mine = instructors.find(i => i.userId === uid)
-          if (mine) { setMyInstructorId(mine.id); setMyPermissions(mine.permissions) }
+          const mine = await api.franchise.myInstructor(studioId, t)
+          setMyInstructorId(mine.id)
+          setMyPermissions(mine.permissions)
         } catch { /* non-fatal */ }
       }
     })

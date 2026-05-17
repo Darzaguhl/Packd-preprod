@@ -326,6 +326,8 @@ export const api = {
       apiFetch<StudioSummary[]>('/franchise/studios', { token }),
     instructors: (studioId: string, token: string) =>
       apiFetch<InstructorWithPermissions[]>(`/franchise/studios/${studioId}/instructors`, { token }),
+    myInstructor: (studioId: string, token: string) =>
+      apiFetch<{ id: string; permissions: InstructorPermissions }>(`/franchise/studios/${studioId}/my-instructor`, { token }),
     updatePermissions: (studioId: string, instructorId: string, permissions: Partial<InstructorPermissions>, token: string) =>
       apiFetch<{ success: boolean; permissions: InstructorPermissions }>(
         `/franchise/studios/${studioId}/instructors/${instructorId}/permissions`,
