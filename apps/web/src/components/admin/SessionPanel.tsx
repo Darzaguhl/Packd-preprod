@@ -72,18 +72,32 @@ export default function SessionPanel({ session, token, onClose, onSessionUpdate,
 
       {/* Check-in summary */}
       <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div>
-            <p className="text-2xl font-bold text-gray-900 tabular-nums">{checkedInCount}<span className="text-gray-400 font-normal text-lg">/{session.bookedCount}</span></p>
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="shrink-0">
+            <p className="text-2xl font-bold text-gray-900 tabular-nums">
+              {checkedInCount}
+              <span className="text-gray-400 font-normal text-lg">/{session.bookedCount}</span>
+            </p>
             <p className="text-xs text-gray-400">checked in</p>
           </div>
-          {/* Progress ring approximation with bar */}
-          <div className="flex-1 w-24">
-            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-black rounded-full transition-all duration-300"
-                style={{ width: session.bookedCount > 0 ? `${(checkedInCount / session.bookedCount) * 100}%` : '0%' }}
-              />
+          {/* Three-segment bar: checked-in (black) · booked not in (amber) · empty (light gray) */}
+          <div className="flex-1 min-w-0 space-y-1">
+            <div className="h-2 bg-gray-100 rounded-full overflow-hidden flex gap-px">
+              {session.capacity > 0 && (() => {
+                const checkedInPct  = (checkedInCount / session.capacity) * 100
+                const bookedPct     = ((session.bookedCount - checkedInCount) / session.capacity) * 100
+                return (
+                  <>
+                    {checkedInPct > 0  && <div className="h-full bg-gray-900 transition-all duration-300 rounded-l-full" style={{ width: `${checkedInPct}%` }} />}
+                    {bookedPct    > 0  && <div className="h-full bg-amber-400 transition-all duration-300" style={{ width: `${bookedPct}%` }} />}
+                  </>
+                )
+              })()}
+            </div>
+            <div className="flex items-center gap-3 text-[10px] text-gray-400">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-gray-900 inline-block" />Checked in</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-amber-400 inline-block" />Booked</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-gray-100 border border-gray-200 inline-block" />Empty</span>
             </div>
           </div>
         </div>

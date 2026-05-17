@@ -5,6 +5,7 @@ export interface AdminSession {
   templateName: string
   sport: string
   instructorName: string
+  instructorUserId: string
   roomId: string
   roomName: string
   capacity: number
@@ -295,7 +296,7 @@ export const api = {
   },
   admin: {
     stats: (studioId: string, token: string) =>
-      apiFetch<{ todaySessions: number; totalMembers: number; totalBookingsToday: number; waitlistToday: number }>(
+      apiFetch<{ studioName: string | null; todaySessions: number; totalMembers: number; totalBookingsToday: number; waitlistToday: number }>(
         `/admin/stats?studioId=${studioId}`, { token }),
     sessions: (studioId: string, date: string, token: string) =>
       apiFetch<AdminSession[]>(`/admin/sessions?studioId=${studioId}&date=${date}`, { token }),

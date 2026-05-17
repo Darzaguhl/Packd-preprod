@@ -35,15 +35,19 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
   const [studioName, setStudioName] = useState(initialStudioName)
   const [tab, setTab] = useState<Tab>('today')
   const [token, setToken] = useState<string | null>(null)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
   const [sessions, setSessions] = useState<AdminSession[]>([])
   const [selectedDate, setSelectedDate] = useState(toIsoDate(new Date()))
   const [selectedSession, setSelectedSession] = useState<AdminSession | null>(null)
   const [loading, setLoading] = useState(true)
+  // Instructors default to seeing only their own classes; can toggle off
+  const [myClassesOnly, setMyClassesOnly] = useState(role === 'instructor')
 
   useEffect(() => {
     createClient().auth.getSession().then(({ data: { session } }) => {
       setToken(session?.access_token ?? null)
+      setCurrentUserId(session?.user?.id ?? null)
     })
   }, [])
 
@@ -57,12 +61,14 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
       ])
       setSessions(s)
       setStats(st)
+      // Populate studio name from stats if not already set
+      if (!studioName && st.studioName) setStudioName(st.studioName)
     } catch {
       // network/auth failure — leave existing data
     } finally {
       setLoading(false)
     }
-  }, [token, studioId, selectedDate])
+  }, [token, studioId, selectedDate, studioName])
 
   useEffect(() => { if (tab === 'today') refresh() }, [refresh, tab])
 
@@ -153,86 +159,115 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
               </button>
             </div>
 
-            {/* Session list */}
-            {loading ? (
-              <div className="space-y-2">
-                {[...Array(3)].map((_, i) => (
-                  <div key={i} className="h-20 bg-white rounded-2xl animate-pulse border border-gray-100" />
-                ))}
-              </div>
-            ) : sessions.length === 0 ? (
-              <div className="text-center py-16 text-gray-400 text-sm">No classes scheduled for this day</div>
-            ) : (
-              <div className="space-y-2">
-                {sessions.map((s) => {
-                  const cfg = SPORT_CONFIG[s.sport] ?? SPORT_CONFIG.OTHER
-                  const pct = fillPct(s)
-                  const isFull = s.bookedCount >= s.capacity
-                  const isSelected = selectedSession?.id === s.id
-
-                  return (
-                    <div
-                      key={s.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => {
-                        if (role === 'instructor') { setSelectedSession(s); setTab('room') }
-                        else setSelectedSession(isSelected ? null : s)
-                      }}
-                      onKeyDown={e => {
-                        if (e.key !== 'Enter') return
-                        if (role === 'instructor') { setSelectedSession(s); setTab('room') }
-                        else setSelectedSession(isSelected ? null : s)
-                      }}
-                      className={`w-full text-left flex items-stretch bg-white border rounded-2xl overflow-hidden transition-all duration-150 cursor-pointer ${
-                        isSelected ? 'border-gray-900 shadow-md' : 'border-gray-100 hover:border-gray-200 hover:shadow-sm'
-                      } ${s.status === 'CANCELLED' ? 'opacity-50' : ''}`}
-                    >
-                      <div className={`w-1 shrink-0 ${cfg.accent}`} />
-                      <div className="flex-1 px-4 py-3 flex items-center gap-4">
-                        <div className="w-20 shrink-0">
-                          <p className="text-sm font-semibold text-gray-900 tabular-nums">{formatTime(s.startsAt)}</p>
-                          <p className="text-xs text-gray-400">
-                            {Math.round((new Date(s.endsAt).getTime() - new Date(s.startsAt).getTime()) / 60000)}m
-                          </p>
-                        </div>
-                        <div className="w-px h-8 bg-gray-100 shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-semibold text-gray-900 truncate">{s.templateName}</p>
-                            {s.status === 'CANCELLED' && (
-                              <span className="text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-medium">Cancelled</span>
-                            )}
-                          </div>
-                          <p className="text-xs text-gray-500 truncate">{s.instructorName} · {s.roomName}</p>
-                        </div>
-                        <div className="shrink-0 text-right w-28">
-                          <p className={`text-sm font-semibold tabular-nums ${isFull ? 'text-red-500' : 'text-gray-900'}`}>
-                            {s.bookedCount}/{s.capacity}
-                          </p>
-                          <div className="mt-1 h-1 bg-gray-100 rounded-full overflow-hidden w-full">
-                            <div
-                              className={`h-full rounded-full ${isFull ? 'bg-red-400' : pct >= 80 ? 'bg-amber-400' : 'bg-emerald-400'}`}
-                              style={{ width: `${pct}%` }}
-                            />
-                          </div>
-                        </div>
-                        <button
-                          onPointerDown={e => e.stopPropagation()}
-                          onClick={e => { e.stopPropagation(); setSelectedSession(s); setTab('room') }}
-                          className="text-[10px] font-medium text-gray-400 border border-gray-200 rounded-md px-2 py-1 hover:border-gray-400 hover:text-gray-700 transition-colors shrink-0"
-                        >
-                          Map
-                        </button>
-                        <svg className={`w-4 h-4 text-gray-300 shrink-0 transition-transform ${isSelected ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 16 16">
-                          <path d="M6 4l4 4-4 4" strokeLinecap="round" />
-                        </svg>
-                      </div>
-                    </div>
-                  )
-                })}
+            {/* My classes filter — instructors only */}
+            {role === 'instructor' && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setMyClassesOnly(v => !v)}
+                  className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
+                    myClassesOnly
+                      ? 'bg-gray-900 text-white border-gray-900'
+                      : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+                  }`}
+                >
+                  {myClassesOnly ? (
+                    <>
+                      <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                      My classes
+                    </>
+                  ) : 'My classes'}
+                </button>
+                {myClassesOnly && (
+                  <button onClick={() => setMyClassesOnly(false)} className="text-xs text-gray-400 hover:text-gray-700 underline underline-offset-2">
+                    Show all
+                  </button>
+                )}
               </div>
             )}
+
+            {/* Session list */}
+            {(() => {
+              const visible = myClassesOnly && currentUserId
+                ? sessions.filter(s => s.instructorUserId === currentUserId)
+                : sessions
+
+              return loading ? (
+                <div className="space-y-2">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="h-20 bg-white rounded-2xl animate-pulse border border-gray-100" />
+                  ))}
+                </div>
+              ) : visible.length === 0 ? (
+                <div className="text-center py-16 text-gray-400 text-sm">
+                  {myClassesOnly ? 'No classes assigned to you on this day' : 'No classes scheduled for this day'}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {visible.map((s) => {
+                    const cfg = SPORT_CONFIG[s.sport] ?? SPORT_CONFIG.OTHER
+                    const pct = fillPct(s)
+                    const isFull = s.bookedCount >= s.capacity
+                    const isSelected = selectedSession?.id === s.id
+
+                    return (
+                      <div
+                        key={s.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => {
+                          if (role === 'instructor') { setSelectedSession(s); setTab('room') }
+                          else setSelectedSession(isSelected ? null : s)
+                        }}
+                        onKeyDown={e => {
+                          if (e.key !== 'Enter') return
+                          if (role === 'instructor') { setSelectedSession(s); setTab('room') }
+                          else setSelectedSession(isSelected ? null : s)
+                        }}
+                        className={`w-full text-left flex items-stretch bg-white border rounded-2xl overflow-hidden transition-all duration-150 cursor-pointer ${
+                          isSelected ? 'border-gray-900 shadow-md' : 'border-gray-100 hover:border-gray-200 hover:shadow-sm'
+                        } ${s.status === 'CANCELLED' ? 'opacity-50' : ''}`}
+                      >
+                        <div className={`w-1 shrink-0 ${cfg.accent}`} />
+                        <div className="flex-1 px-4 py-3 flex items-center gap-4">
+                          <div className="w-20 shrink-0">
+                            <p className="text-sm font-semibold text-gray-900 tabular-nums">{formatTime(s.startsAt)}</p>
+                            <p className="text-xs text-gray-400">
+                              {Math.round((new Date(s.endsAt).getTime() - new Date(s.startsAt).getTime()) / 60000)}m
+                            </p>
+                          </div>
+                          <div className="w-px h-8 bg-gray-100 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-semibold text-gray-900 truncate">{s.templateName}</p>
+                              {s.status === 'CANCELLED' && (
+                                <span className="text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-medium">Cancelled</span>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-500 truncate">{s.instructorName} · {s.roomName}</p>
+                          </div>
+                          <div className="shrink-0 text-right w-28">
+                            <p className={`text-sm font-semibold tabular-nums ${isFull ? 'text-red-500' : 'text-gray-900'}`}>
+                              {s.bookedCount}/{s.capacity}
+                            </p>
+                            <div className="mt-1 h-1 bg-gray-100 rounded-full overflow-hidden w-full">
+                              <div
+                                className={`h-full rounded-full ${isFull ? 'bg-red-400' : pct >= 80 ? 'bg-amber-400' : 'bg-emerald-400'}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </div>
+                          <svg className={`w-4 h-4 text-gray-300 shrink-0 transition-transform ${isSelected ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 16 16">
+                            <path d="M6 4l4 4-4 4" strokeLinecap="round" />
+                          </svg>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </div>
 
           {/* Slide-in session panel */}
@@ -268,7 +303,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
       {tab === 'room' && token && (
         <div className="max-w-5xl mx-auto w-full px-6 py-6 space-y-4">
           <button
-            onClick={() => setTab('today')}
+            onClick={() => { setTab('today'); setSelectedSession(null) }}
             className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors"
           >
             <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none">
