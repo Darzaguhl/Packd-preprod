@@ -8,7 +8,7 @@ const requireStudioAdmin = requireRole('studio_admin')
 const SUPABASE_URL = process.env.SUPABASE_URL!
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
-const VALID_STAFF_ROLES = ['fronthost'] as const
+const VALID_STAFF_ROLES = ['fronthost', 'instructor'] as const
 type StaffRole = typeof VALID_STAFF_ROLES[number]
 
 interface SupabaseAppMeta {
@@ -133,18 +133,26 @@ export async function staffRoutes(app: FastifyInstance) {
 
       await setSupabaseAppMeta(targetUser.id, { role: staffRole, studioIds: newIds })
 
-      // Upsert Member record for the primary (first) studio so the user appears in StaffTab
+      // Upsert Member record so the user appears in StaffTab
       const primaryStudioId = newIds[0]
-      const existing = await prisma.member.findUnique({ where: { userId: targetUser.id } })
-      if (existing) {
+      const existingMember = await prisma.member.findUnique({ where: { userId: targetUser.id } })
+      if (existingMember) {
         await prisma.member.update({
           where: { userId: targetUser.id },
-          // Update studioId only if this is their first assignment
-          data: { studioId: existing.studioId === primaryStudioId ? existing.studioId : primaryStudioId, staffRole },
+          data: { studioId: existingMember.studioId === primaryStudioId ? existingMember.studioId : primaryStudioId, staffRole },
         })
       } else {
         await prisma.member.create({
           data: { userId: targetUser.id, studioId: primaryStudioId, staffRole, source: 'packd' },
+        })
+      }
+
+      // For instructors also upsert the Instructor record (used for session assignments and permissions)
+      if (staffRole === 'instructor') {
+        await prisma.instructor.upsert({
+          where: { userId: targetUser.id },
+          create: { userId: targetUser.id, studioId: primaryStudioId },
+          update: { studioId: primaryStudioId },
         })
       }
 
@@ -180,6 +188,10 @@ export async function staffRoutes(app: FastifyInstance) {
         // No more studios — fully revoke staff role
         await setSupabaseAppMeta(member.user.id, { role: 'member', studioIds: [] })
         await prisma.member.update({ where: { id: memberId }, data: { staffRole: null } })
+        // Remove Instructor record if this was an instructor
+        if (member.staffRole === 'instructor') {
+          await prisma.instructor.deleteMany({ where: { userId: member.user.id } })
+        }
       } else {
         // Still assigned to other studios — keep role, update studioIds
         await setSupabaseAppMeta(member.user.id, { role: current.role ?? member.staffRole!, studioIds: remaining })
@@ -188,6 +200,13 @@ export async function staffRoutes(app: FastifyInstance) {
           where: { id: memberId },
           data: { studioId: remaining[0], staffRole: member.staffRole },
         })
+        // Update Instructor record's primary studio if needed
+        if (member.staffRole === 'instructor') {
+          await prisma.instructor.updateMany({
+            where: { userId: member.user.id },
+            data: { studioId: remaining[0] },
+          })
+        }
       }
 
       return reply.send({ success: true, remainingStudios: remaining.length })
