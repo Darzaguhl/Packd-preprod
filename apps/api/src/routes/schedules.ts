@@ -4,6 +4,7 @@ import { requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 
 const requireStudioAdmin = requireRole('studio_admin')
+const requireInstructor = requireRole('instructor')
 
 async function assertStudioAccess(
   userId: string,
@@ -84,7 +85,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
   // GET /schedules?studioId=&weekStart= — schedules + sessions for a week
   app.get<{ Querystring: { studioId: string; weekStart?: string } }>(
     '/',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireInstructor },
     async (request, reply) => {
       const { studioId, weekStart } = request.query
       if (!studioId) return reply.badRequest('studioId required')
@@ -170,7 +171,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
   // GET /schedules/all?studioId= — list all recurring schedules (for management)
   app.get<{ Querystring: { studioId: string } }>(
     '/all',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireInstructor },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId required')
@@ -450,7 +451,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
   // GET /schedules/month?studioId=&year=&month= — sessions grouped by date for month view
   app.get<{ Querystring: { studioId: string; year: string; month: string } }>(
     '/month',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireInstructor },
     async (request, reply) => {
       const { studioId, year, month } = request.query
       if (!studioId) return reply.badRequest('studioId required')
@@ -485,7 +486,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
   // GET /schedules/orphaned?studioId= — sessions without a scheduleId grouped by pattern
   app.get<{ Querystring: { studioId: string } }>(
     '/orphaned',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireInstructor },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId required')
