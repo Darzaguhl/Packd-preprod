@@ -157,19 +157,21 @@ Seed data lives in `packages/db/src/seed.ts`:
   - `POST /rooms/:id/sessions/:sessionId/spots` — assign booking to station
   - `POST /rooms/:id/sessions/:sessionId/my-spot` — member picks own spot
 - `schedules.ts` — recurring class schedule management
-  - `GET /schedules?studioId=&weekStart=` — sessions + resources for a Mon–Sun week
-  - `GET /schedules/all?studioId=` — all active ClassSchedule records
+  - `GET /schedules?studioId=&weekStart=` — sessions + resources for a Mon–Sun week *(instructor+ role)*
+  - `GET /schedules/all?studioId=` — all active ClassSchedule records *(instructor+ role)*
   - `POST /schedules` — create recurring schedule + generate N weeks of sessions
   - `PATCH /schedules/:id` — update schedule (deletes future unbooked/unsubstituted sessions, regenerates)
   - `DELETE /schedules/:id` — deactivate + remove future unbooked sessions
   - `PATCH /schedules/sessions/:sessionId/substitute` — set/clear substitute instructor
-  - `GET /schedules/month?studioId=&year=&month=` — session counts per day for month grid
-  - `GET /schedules/orphaned?studioId=` — unique session patterns with no schedule link
+  - `GET /schedules/month?studioId=&year=&month=` — session counts per day for month grid *(instructor+ role)*
+  - `GET /schedules/orphaned?studioId=` — unique session patterns with no schedule link *(instructor+ role)*
   - `DELETE /schedules/orphaned` — delete future unbooked orphaned sessions by pattern
+  - Read-only GETs require `instructor` (rank 2); mutating POST/PATCH/DELETE require `studio_admin` (rank 3)
 - `staff.ts` — `GET/POST /staff`, `DELETE /staff/:memberId`; valid roles: `fronthost`, `instructor`; creating instructor role also upserts `Instructor` DB record; deleting removes `Instructor` record if present
 - `franchise.ts` — multi-studio management
   - `GET /franchise/studios` — all studios summary
-  - `GET /franchise/studios/:id/instructors` — instructors with permissions
+  - `GET /franchise/studios/:id/instructors` — instructors with permissions (studio_admin+)
+  - `GET /franchise/studios/:id/my-instructor` — calling instructor's own id + permissions (instructor+ role)
   - `PATCH /franchise/studios/:id/instructors/:instructorId/permissions` — update instructor permissions
 - `stripe.ts` — Stripe webhook handler stub
 
