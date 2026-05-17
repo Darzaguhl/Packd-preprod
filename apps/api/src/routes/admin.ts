@@ -45,6 +45,7 @@ export async function adminRoutes(app: FastifyInstance) {
         templateName: s.template.name,
         sport: s.template.sport,
         instructorName: `${s.instructor.user.firstName} ${s.instructor.user.lastName}`,
+        instructorUserId: s.instructor.userId,
         roomId: s.roomId,
         roomName: s.room.name,
         capacity: s.capacity,
@@ -158,7 +159,8 @@ export async function adminRoutes(app: FastifyInstance) {
       const tomorrow = new Date(today)
       tomorrow.setDate(tomorrow.getDate() + 1)
 
-      const [todaySessions, totalMembers, totalBookingsToday, waitlistToday] = await Promise.all([
+      const [studio, todaySessions, totalMembers, totalBookingsToday, waitlistToday] = await Promise.all([
+        prisma.studio.findUnique({ where: { id: studioId }, select: { name: true } }),
         prisma.classSession.count({ where: { studioId, startsAt: { gte: today, lt: tomorrow } } }),
         prisma.member.count({ where: { studioId } }),
         prisma.booking.count({
@@ -169,7 +171,7 @@ export async function adminRoutes(app: FastifyInstance) {
         }),
       ])
 
-      return { todaySessions, totalMembers, totalBookingsToday, waitlistToday }
+      return { studioName: studio?.name ?? null, todaySessions, totalMembers, totalBookingsToday, waitlistToday }
     },
   )
 
