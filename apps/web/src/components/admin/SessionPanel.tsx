@@ -8,9 +8,10 @@ interface Props {
   token: string
   onClose: () => void
   onSessionUpdate: (s: AdminSession) => void
+  canCancel?: boolean
 }
 
-export default function SessionPanel({ session, token, onClose, onSessionUpdate }: Props) {
+export default function SessionPanel({ session, token, onClose, onSessionUpdate, canCancel = true }: Props) {
   const [bookings, setBookings] = useState<AdminBooking[]>([])
   const [loading, setLoading] = useState(true)
   const [actionId, setActionId] = useState<string | null>(null)
@@ -87,7 +88,7 @@ export default function SessionPanel({ session, token, onClose, onSessionUpdate 
           </div>
         </div>
 
-        {!isCancelled && (
+        {!isCancelled && canCancel && (
           <button
             onClick={cancelSession}
             disabled={cancelling}

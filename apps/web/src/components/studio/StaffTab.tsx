@@ -6,13 +6,15 @@ import { api, type StaffMember } from '@/lib/api'
 interface Props {
   studioId: string
   token: string
+  onOpenPermissions?: () => void
 }
 
 const STAFF_ROLE_LABELS: Record<string, string> = {
   fronthost: 'Front Desk',
+  instructor: 'Instructor',
 }
 
-export default function StaffTab({ studioId, token }: Props) {
+export default function StaffTab({ studioId, token, onOpenPermissions }: Props) {
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [loading, setLoading] = useState(true)
   const [addEmail, setAddEmail] = useState('')
@@ -86,6 +88,7 @@ export default function StaffTab({ studioId, token }: Props) {
             className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-gray-900"
           >
             <option value="fronthost">Front Desk</option>
+            <option value="instructor">Instructor</option>
           </select>
           <button
             type="submit"
@@ -134,13 +137,27 @@ export default function StaffTab({ studioId, token }: Props) {
                   <p className="text-xs text-gray-400 truncate">{member.email}</p>
                 </div>
 
-                <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 shrink-0">
+                <span className={`text-xs font-medium px-2.5 py-1 rounded-full shrink-0 ${
+                  member.staffRole === 'instructor'
+                    ? 'bg-violet-50 text-violet-700'
+                    : 'bg-blue-50 text-blue-700'
+                }`}>
                   {STAFF_ROLE_LABELS[member.staffRole] ?? member.staffRole}
                 </span>
 
+                {member.staffRole === 'instructor' && onOpenPermissions && (
+                  <button
+                    onClick={onOpenPermissions}
+                    className="text-xs text-gray-400 hover:text-violet-600 transition-colors shrink-0"
+                    title="Edit instructor permissions"
+                  >
+                    Permissions
+                  </button>
+                )}
+
                 <button
                   onClick={() => handleRemove(member)}
-                  className="text-xs text-gray-400 hover:text-red-500 transition-colors shrink-0 ml-1"
+                  className="text-xs text-gray-400 hover:text-red-500 transition-colors shrink-0"
                   title="Remove staff role"
                 >
                   Remove

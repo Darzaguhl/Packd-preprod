@@ -29,7 +29,9 @@ interface Stats {
   waitlistToday: number
 }
 
-export default function StudioManagerDashboard({ studioId, studioName: initialStudioName, onBack, onStudioUpdate }: { studioId: string; studioName?: string; onBack?: () => void; onStudioUpdate?: (data: { name: string; timezone: string; currency: string }) => void }) {
+const INSTRUCTOR_TABS: Tab[] = ['today', 'calendar', 'room']
+
+export default function StudioManagerDashboard({ studioId, studioName: initialStudioName, onBack, onStudioUpdate, role }: { studioId: string; studioName?: string; onBack?: () => void; onStudioUpdate?: (data: { name: string; timezone: string; currency: string }) => void; role?: string }) {
   const [studioName, setStudioName] = useState(initialStudioName)
   const [tab, setTab] = useState<Tab>('today')
   const [token, setToken] = useState<string | null>(null)
@@ -72,7 +74,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
     return Math.min((s.bookedCount / s.capacity) * 100, 100)
   }
 
-  const TABS: { id: Tab; label: string }[] = [
+  const ALL_TABS: { id: Tab; label: string }[] = [
     { id: 'today', label: 'Today' },
     { id: 'calendar', label: 'Calendar' },
     { id: 'rooms', label: 'Rooms' },
@@ -81,6 +83,10 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
     { id: 'staff', label: 'Staff' },
     { id: 'settings', label: 'Settings' },
   ]
+  // Instructors only see Today and Calendar (Room map tab is accessed via session click, not the tab bar)
+  const TABS = role === 'instructor'
+    ? ALL_TABS.filter(t => INSTRUCTOR_TABS.includes(t.id) && t.id !== 'room')
+    : ALL_TABS.filter(t => t.id !== 'room') // room is always a hidden tab opened via session click
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -169,8 +175,15 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
                       key={s.id}
                       role="button"
                       tabIndex={0}
-                      onClick={() => setSelectedSession(isSelected ? null : s)}
-                      onKeyDown={e => e.key === 'Enter' && setSelectedSession(isSelected ? null : s)}
+                      onClick={() => {
+                        if (role === 'instructor') { setSelectedSession(s); setTab('room') }
+                        else setSelectedSession(isSelected ? null : s)
+                      }}
+                      onKeyDown={e => {
+                        if (e.key !== 'Enter') return
+                        if (role === 'instructor') { setSelectedSession(s); setTab('room') }
+                        else setSelectedSession(isSelected ? null : s)
+                      }}
                       className={`w-full text-left flex items-stretch bg-white border rounded-2xl overflow-hidden transition-all duration-150 cursor-pointer ${
                         isSelected ? 'border-gray-900 shadow-md' : 'border-gray-100 hover:border-gray-200 hover:shadow-sm'
                       } ${s.status === 'CANCELLED' ? 'opacity-50' : ''}`}
@@ -228,6 +241,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
               <SessionPanel
                 session={selectedSession}
                 token={token}
+                canCancel={role !== 'instructor'}
                 onClose={() => setSelectedSession(null)}
                 onSessionUpdate={(updated) => {
                   setSessions(prev => prev.map(s => s.id === updated.id ? updated : s))
@@ -253,6 +267,16 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
 
       {tab === 'room' && token && (
         <div className="max-w-5xl mx-auto w-full px-6 py-6 space-y-4">
+          <button
+            onClick={() => setTab('today')}
+            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none">
+              <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Back to today
+          </button>
+
           {sessions.length > 0 && (
             <div className="flex items-center gap-3">
               <span className="text-sm font-semibold text-gray-700">Session</span>
@@ -293,7 +317,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
           <p className="text-sm text-gray-500 mb-4">
             Manage front-desk staff for this studio. Staff members can check in members and handle credit adjustments.
           </p>
-          <StaffTab studioId={studioId} token={token} />
+          <StaffTab studioId={studioId} token={token} onOpenPermissions={() => setTab('permissions')} />
         </div>
       )}
 
