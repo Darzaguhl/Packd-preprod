@@ -165,6 +165,32 @@ export async function franchiseRoutes(app: FastifyInstance) {
     },
   )
 
+  // Instructors fetch their own record (id + permissions) — lower role threshold
+  app.get<{ Params: { studioId: string } }>(
+    '/studios/:studioId/my-instructor',
+    { preHandler: requireRole('instructor') },
+    async (request, reply) => {
+      const { studioId } = request.params
+      const user = getUser(request)
+
+      const instructor = await prisma.instructor.findFirst({
+        where: { studioId, userId: user.id },
+      })
+
+      if (!instructor) {
+        return reply.code(404).send({ error: 'Instructor record not found' })
+      }
+
+      const raw = instructor.permissions as Record<string, unknown>
+      const hasKeys = raw && Object.keys(raw).length > 0
+      const permissions: InstructorPermissions = hasKeys
+        ? { ...DEFAULT_PERMISSIONS, ...(raw as Partial<InstructorPermissions>) }
+        : { ...DEFAULT_PERMISSIONS }
+
+      return reply.send({ id: instructor.id, permissions })
+    },
+  )
+
   app.patch<{
     Params: { studioId: string; instructorId: string }
     Body: Partial<InstructorPermissions>
