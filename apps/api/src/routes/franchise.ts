@@ -11,6 +11,7 @@ interface InstructorPermissions {
   canManageWaitlist: boolean
   canEditSessionDetails: boolean
   canCancelSession: boolean
+  canCreateSchedules: boolean
 }
 
 const DEFAULT_PERMISSIONS: InstructorPermissions = {
@@ -20,6 +21,7 @@ const DEFAULT_PERMISSIONS: InstructorPermissions = {
   canManageWaitlist: true,
   canEditSessionDetails: false,
   canCancelSession: false,
+  canCreateSchedules: false,
 }
 
 async function assertStudioAccess(
@@ -186,7 +188,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
 
       const VALID_PERMISSION_KEYS: (keyof InstructorPermissions)[] = [
         'canCheckInMembers', 'canManageBookings', 'canViewMemberContact',
-        'canManageWaitlist', 'canEditSessionDetails', 'canCancelSession',
+        'canManageWaitlist', 'canEditSessionDetails', 'canCancelSession', 'canCreateSchedules',
       ]
       const sanitized = Object.fromEntries(
         Object.entries(request.body).filter(([k, v]) =>

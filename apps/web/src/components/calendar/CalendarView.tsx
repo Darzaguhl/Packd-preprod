@@ -70,6 +70,10 @@ function layoutSessions(sessions: CalendarSession[]): Array<{
 interface Props {
   studioId: string
   token: string
+  /** When false (instructor default), hide schedule creation/edit/delete UI */
+  canCreateSchedules?: boolean
+  /** When set, filter displayed sessions to this Instructor record ID; user can toggle off */
+  filterInstructorId?: string
 }
 
 type ViewMode = 'week' | 'month' | 'schedules'
@@ -79,7 +83,7 @@ type Modal =
   | { type: 'edit-schedule'; schedule: ClassSchedule }
   | { type: 'substitute'; session: CalendarSession }
 
-export default function CalendarView({ studioId, token }: Props) {
+export default function CalendarView({ studioId, token, canCreateSchedules = true, filterInstructorId }: Props) {
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
   const [monthYear, setMonthYear] = useState(() => {
     const n = new Date(); return { year: n.getFullYear(), month: n.getMonth() + 1 }
@@ -93,6 +97,8 @@ export default function CalendarView({ studioId, token }: Props) {
   const [view, setView] = useState<ViewMode>('week')
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deletingOrphanKey, setDeletingOrphanKey] = useState<string | null>(null)
+  // Instructor filter — default on when filterInstructorId is provided
+  const [myClassesOnly, setMyClassesOnly] = useState(!!filterInstructorId)
 
   const load = useCallback(async () => {
     if (!token) return
@@ -134,9 +140,13 @@ export default function CalendarView({ studioId, token }: Props) {
 
   const today = new Date(); today.setHours(0, 0, 0, 0)
 
+  const visibleSessions = myClassesOnly && filterInstructorId
+    ? (data?.sessions ?? []).filter(s => s.instructorId === filterInstructorId || s.substituteInstructorId === filterInstructorId)
+    : (data?.sessions ?? [])
+
   const sessionsByDay: Record<number, CalendarSession[]> = {}
   for (let i = 0; i < 7; i++) sessionsByDay[i] = []
-  data?.sessions.forEach(s => {
+  visibleSessions.forEach(s => {
     const d = new Date(s.startsAt); d.setHours(0, 0, 0, 0)
     for (let i = 0; i < 7; i++) {
       if (d.getTime() === days[i].getTime()) { sessionsByDay[i].push(s); break }
@@ -217,12 +227,35 @@ export default function CalendarView({ studioId, token }: Props) {
           )}
         </div>
 
-        <button
-          onClick={() => setModal({ type: 'new-schedule' })}
-          className="text-sm font-medium bg-gray-900 text-white px-4 py-1.5 rounded-lg hover:bg-gray-700 transition-colors"
-        >
-          + New schedule
-        </button>
+        <div className="flex items-center gap-2">
+          {/* My classes filter pill — only shown when an instructor filter is available */}
+          {filterInstructorId && (
+            <button
+              onClick={() => setMyClassesOnly(v => !v)}
+              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
+                myClassesOnly
+                  ? 'bg-gray-900 text-white border-gray-900'
+                  : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+              }`}
+            >
+              {myClassesOnly && (
+                <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              )}
+              My classes
+            </button>
+          )}
+
+          {canCreateSchedules && (
+            <button
+              onClick={() => setModal({ type: 'new-schedule' })}
+              className="text-sm font-medium bg-gray-900 text-white px-4 py-1.5 rounded-lg hover:bg-gray-700 transition-colors"
+            >
+              + New schedule
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── WEEK VIEW ── */}
@@ -347,14 +380,16 @@ export default function CalendarView({ studioId, token }: Props) {
                         </div>
                         <p className="text-xs text-gray-500 mt-0.5">{dayStr} · {sched.startTime} · {sched.durationMin}m · {sched.instructorName} · {sched.roomName}</p>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button onClick={() => setModal({ type: 'edit-schedule', schedule: sched })}
-                          className="text-xs text-gray-400 hover:text-gray-700 border border-gray-200 rounded-md px-2.5 py-1 transition-colors">Edit</button>
-                        <button onClick={() => handleDeleteSchedule(sched.id)} disabled={deletingId === sched.id}
-                          className="text-xs text-red-400 hover:text-red-600 border border-red-100 rounded-md px-2.5 py-1 transition-colors disabled:opacity-40">
-                          {deletingId === sched.id ? '…' : 'Delete'}
-                        </button>
-                      </div>
+                      {canCreateSchedules && (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button onClick={() => setModal({ type: 'edit-schedule', schedule: sched })}
+                            className="text-xs text-gray-400 hover:text-gray-700 border border-gray-200 rounded-md px-2.5 py-1 transition-colors">Edit</button>
+                          <button onClick={() => handleDeleteSchedule(sched.id)} disabled={deletingId === sched.id}
+                            className="text-xs text-red-400 hover:text-red-600 border border-red-100 rounded-md px-2.5 py-1 transition-colors disabled:opacity-40">
+                            {deletingId === sched.id ? '…' : 'Delete'}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
@@ -382,12 +417,14 @@ export default function CalendarView({ studioId, token }: Props) {
                         <p className="text-xs text-gray-400 mt-0.5">{dayStr} · {p.startTime} · {p.durationMin}m · {p.instructorName} · {p.roomName} · {p.sessionCount} sessions upcoming</p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={() => setModal({ type: 'new-schedule', prefill: p })}
-                          className="text-xs font-medium text-gray-600 border border-gray-300 rounded-md px-2.5 py-1 hover:border-gray-600 hover:text-gray-900 transition-colors"
-                        >
-                          Make recurring
-                        </button>
+                        {canCreateSchedules && (
+                          <button
+                            onClick={() => setModal({ type: 'new-schedule', prefill: p })}
+                            className="text-xs font-medium text-gray-600 border border-gray-300 rounded-md px-2.5 py-1 hover:border-gray-600 hover:text-gray-900 transition-colors"
+                          >
+                            Make recurring
+                          </button>
+                        )}
                         <button
                           onClick={() => handleDeleteOrphaned(p)}
                           disabled={deletingOrphanKey === `${p.templateId}|${p.instructorId}|${p.startTime}`}
@@ -406,7 +443,9 @@ export default function CalendarView({ studioId, token }: Props) {
           {allSchedules.length === 0 && orphaned.length === 0 && (
             <div className="text-center py-16 text-gray-400 text-sm">
               No sessions or schedules yet.{' '}
-              <button className="text-gray-700 underline underline-offset-2" onClick={() => setModal({ type: 'new-schedule' })}>Create a schedule</button>
+              {canCreateSchedules && (
+                <button className="text-gray-700 underline underline-offset-2" onClick={() => setModal({ type: 'new-schedule' })}>Create a schedule</button>
+              )}
             </div>
           )}
         </div>

@@ -23,6 +23,7 @@ export interface InstructorPermissions {
   canManageWaitlist: boolean
   canEditSessionDetails: boolean
   canCancelSession: boolean
+  canCreateSchedules: boolean
 }
 
 export const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
@@ -32,6 +33,7 @@ export const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
   canManageWaitlist: true,
   canEditSessionDetails: false,
   canCancelSession: false,
+  canCreateSchedules: false,
 }
 
 export interface InstructorWithPermissions {

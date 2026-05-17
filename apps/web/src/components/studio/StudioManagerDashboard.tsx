@@ -43,13 +43,26 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
   const [loading, setLoading] = useState(true)
   // Instructors default to seeing only their own classes; can toggle off
   const [myClassesOnly, setMyClassesOnly] = useState(role === 'instructor')
+  // For instructors: own Instructor record ID + resolved permissions
+  const [myInstructorId, setMyInstructorId] = useState<string | null>(null)
+  const [myPermissions, setMyPermissions] = useState<import('@/lib/api').InstructorPermissions | null>(null)
 
   useEffect(() => {
-    createClient().auth.getSession().then(({ data: { session } }) => {
-      setToken(session?.access_token ?? null)
-      setCurrentUserId(session?.user?.id ?? null)
+    createClient().auth.getSession().then(async ({ data: { session } }) => {
+      const t = session?.access_token ?? null
+      const uid = session?.user?.id ?? null
+      setToken(t)
+      setCurrentUserId(uid)
+      // Instructors: resolve own Instructor record + permissions in one request
+      if (role === 'instructor' && t && uid) {
+        try {
+          const instructors = await api.franchise.instructors(studioId, t)
+          const mine = instructors.find(i => i.userId === uid)
+          if (mine) { setMyInstructorId(mine.id); setMyPermissions(mine.permissions) }
+        } catch { /* non-fatal */ }
+      }
     })
-  }, [])
+  }, [role, studioId])
 
   const refresh = useCallback(async () => {
     if (!token) return
@@ -290,7 +303,12 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
 
       {tab === 'calendar' && token && (
         <div className="flex-1 flex flex-col min-h-0">
-          <CalendarView studioId={studioId} token={token} />
+          <CalendarView
+            studioId={studioId}
+            token={token}
+            canCreateSchedules={role === 'instructor' ? (myPermissions?.canCreateSchedules ?? false) : true}
+            filterInstructorId={role === 'instructor' ? (myInstructorId ?? undefined) : undefined}
+          />
         </div>
       )}
 

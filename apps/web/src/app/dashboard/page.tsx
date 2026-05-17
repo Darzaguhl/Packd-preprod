@@ -22,6 +22,10 @@ export default async function DashboardPage() {
 
   if (role === 'fronthost') redirect('/fronthost')
 
-  // instructor and member land on schedule
+  if (role === 'instructor') {
+    return <StudioManagerDashboard studioId={STUDIO_ID} role="instructor" />
+  }
+
+  // members land on schedule
   redirect('/schedule')
 }
