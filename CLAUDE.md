@@ -251,6 +251,7 @@ Seed data lives in `packages/db/src/seed.ts`:
 - [ ] Nightly maintenance job — `nightly.maintenance` queue handler
 - [ ] Membership renewal reminders — `membership.renewal-reminder` queue handler
 - [ ] Multi-location support — location picker in schedule view
+- [ ] RLS Option B — true API-level tenant isolation: create a non-privileged `api_user` Postgres role (NOBYPASSRLS), change DATABASE_URL, add Prisma middleware using AsyncLocalStorage to wrap every query in a transaction with `SET LOCAL app.current_studio_id = studioId`. Protects against app bugs in the Fastify routes, not just direct DB access. See `packages/db/rls.sql` for context.
 - [ ] Instructor portal — view own schedule, attendance
 
 ## File map (key files only)
