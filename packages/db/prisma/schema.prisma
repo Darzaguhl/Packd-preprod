@@ -258,6 +258,7 @@ model Member {
   externalId String?  // e.g. Mariana Tek member ID (scoped per studio)
   source     String   @default("packd") // "packd" | "mariana_tek"
   staffRoles String[] @default([])  // [] = regular member; can hold both "fronthost" and "instructor"
+  studioIds  String[] @default([])  // all studios this staff member is assigned to (mirrors app_metadata.studioIds)
 
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   studio          Studio           @relation(fields: [studioId], references: [id], onDelete: Cascade)
