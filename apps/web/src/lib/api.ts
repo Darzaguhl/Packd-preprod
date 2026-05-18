@@ -38,6 +38,7 @@ export const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
 
 
 export interface FronthostPermissions {
+  canCheckInMembers: boolean
   canAdjustCredits: boolean
   canManageBookings: boolean
   canManageWaitlist: boolean
@@ -45,6 +46,7 @@ export interface FronthostPermissions {
 }
 
 export const DEFAULT_FRONTHOST_PERMISSIONS: FronthostPermissions = {
+  canCheckInMembers: true,
   canAdjustCredits: true,
   canManageBookings: true,
   canManageWaitlist: true,
@@ -71,7 +73,7 @@ export interface StudioSummary {
   currency: string
   memberCount: number
   todaySessionCount: number
-  instructorCount: number
+  staffCount: number
   fillRateToday: number
 }
 

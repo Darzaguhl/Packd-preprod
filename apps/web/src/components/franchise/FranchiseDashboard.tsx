@@ -305,11 +305,11 @@ export default function FranchiseDashboard() {
                     </div>
                     <div>
                       <p className="text-xl font-bold tabular-nums text-gray-900">{studio.todaySessionCount}</p>
-                      <p className="text-[10px] text-gray-400 font-medium mt-0.5">Today</p>
+                      <p className="text-[10px] text-gray-400 font-medium mt-0.5">Classes today</p>
                     </div>
                     <div>
-                      <p className="text-xl font-bold tabular-nums text-gray-900">{studio.instructorCount}</p>
-                      <p className="text-[10px] text-gray-400 font-medium mt-0.5">Instructors</p>
+                      <p className="text-xl font-bold tabular-nums text-gray-900">{studio.staffCount}</p>
+                      <p className="text-[10px] text-gray-400 font-medium mt-0.5">Staff</p>
                     </div>
                   </div>
 

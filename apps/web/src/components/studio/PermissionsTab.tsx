@@ -25,7 +25,7 @@ interface PermDef {
 }
 
 const ALL_PERMS: PermDef[] = [
-  { label: 'Check in members',        description: 'Scan or manually check in attendees at class',         instructor: 'canCheckInMembers' },
+  { label: 'Check in members',        description: 'Scan or manually check in attendees at class',         instructor: 'canCheckInMembers',     fronthost: 'canCheckInMembers' },
   { label: 'Manage waitlist',         description: 'Promote or remove members from the waitlist',           instructor: 'canManageWaitlist',     fronthost: 'canManageWaitlist' },
   { label: 'Manage bookings',         description: 'Cancel or modify member bookings',                      instructor: 'canManageBookings',     fronthost: 'canManageBookings' },
   { label: 'View member contact',     description: 'See member email addresses and phone numbers',          instructor: 'canViewMemberContact',  fronthost: 'canViewMemberContact' },
@@ -296,10 +296,10 @@ export default function PermissionsTab({ studioId, token }: Props) {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-4">
               {visiblePerms.map(def => {
                 const roles = selected.roles
-                // Determine toggle value
-                const val = def.instructor && roles.includes('instructor')
-                  ? perms.instructor[def.instructor]
-                  : def.fronthost ? perms.fronthost[def.fronthost!] : false
+                // Determine toggle value — OR across relevant roles so fronthost defaults show correctly
+                const instrVal = def.instructor && roles.includes('instructor') ? perms.instructor[def.instructor] : false
+                const fhVal    = def.fronthost  && roles.includes('fronthost')  ? perms.fronthost[def.fronthost]  : false
+                const val = instrVal || fhVal
 
                 return (
                   <label key={def.label} className="flex items-start gap-2.5 cursor-pointer">

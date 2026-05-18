@@ -26,6 +26,7 @@ const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
 
 
 interface FronthostPermissions {
+  canCheckInMembers: boolean
   canAdjustCredits: boolean
   canManageBookings: boolean
   canManageWaitlist: boolean
@@ -33,6 +34,7 @@ interface FronthostPermissions {
 }
 
 const DEFAULT_FRONTHOST_PERMISSIONS: FronthostPermissions = {
+  canCheckInMembers: true,
   canAdjustCredits: true,
   canManageBookings: true,
   canManageWaitlist: true,
@@ -72,16 +74,27 @@ export async function franchiseRoutes(app: FastifyInstance) {
       const tomorrowStart = new Date(todayStart)
       tomorrowStart.setDate(tomorrowStart.getDate() + 1)
 
-      const studios = await prisma.studio.findMany({
-        include: {
-          _count: {
-            select: {
-              members: true,
-              instructors: true,
+      const [studios, allStaff] = await Promise.all([
+        prisma.studio.findMany({
+          include: {
+            _count: {
+              select: { members: true },
             },
           },
-        },
-      })
+        }),
+        // Count staff per studio (instructors + fronthosts, deduped for dual-role)
+        prisma.member.findMany({
+          where: { staffRoles: { isEmpty: false } },
+          select: { studioIds: true },
+        }),
+      ])
+
+      const staffCountByStudio = new Map<string, number>()
+      for (const m of allStaff) {
+        for (const sid of m.studioIds) {
+          staffCountByStudio.set(sid, (staffCountByStudio.get(sid) ?? 0) + 1)
+        }
+      }
 
       const todaySessions = await prisma.classSession.findMany({
         where: {
@@ -136,7 +149,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
           currency: studio.currency,
           memberCount: studio._count.members,
           todaySessionCount: sessionStats?.count ?? 0,
-          instructorCount: studio._count.instructors,
+          staffCount: staffCountByStudio.get(studio.id) ?? 0,
           fillRateToday,
         }
       })
@@ -338,7 +351,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
       if (!member) return reply.code(404).send({ error: 'Fronthost not found' })
 
       const VALID_KEYS: (keyof FronthostPermissions)[] = [
-        'canAdjustCredits', 'canManageBookings', 'canManageWaitlist', 'canViewMemberContact',
+        'canCheckInMembers', 'canAdjustCredits', 'canManageBookings', 'canManageWaitlist', 'canViewMemberContact',
       ]
       const sanitized = Object.fromEntries(
         Object.entries(request.body).filter(([k, v]) =>
