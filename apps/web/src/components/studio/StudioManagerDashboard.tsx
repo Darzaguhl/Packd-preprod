@@ -360,7 +360,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
       {tab === 'permissions' && token && (
         <div className="max-w-3xl mx-auto w-full px-6 py-6">
           <p className="text-sm text-gray-500 mb-4">
-            Configure what each instructor is allowed to do within this studio.
+            Configure what each staff member is allowed to do within this studio.
           </p>
           <PermissionsTab studioId={studioId} token={token} />
         </div>

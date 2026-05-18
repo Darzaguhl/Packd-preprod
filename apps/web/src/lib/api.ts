@@ -53,7 +53,7 @@ export interface FronthostPermissions {
 
 export const DEFAULT_FRONTHOST_PERMISSIONS: FronthostPermissions = {
   canAdjustCredits: true,
-  canManageBookings: false,
+  canManageBookings: true,
   canManageWaitlist: true,
   canViewMemberContact: true,
 }
