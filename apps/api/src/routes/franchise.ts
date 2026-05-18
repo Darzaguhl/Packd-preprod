@@ -286,56 +286,71 @@ export async function franchiseRoutes(app: FastifyInstance) {
         const hasStudioRecord = m.user.instructors.some(i => i.studioId === studioId)
         if (!hasStudioRecord) {
           const any = m.user.instructors[0]
-          await prisma.instructor.create({
-            data: {
-              userId: m.userId,
-              studioId,
-              permissions: any?.permissions ?? {},
-            },
+          const created = await prisma.instructor.create({
+            data: { userId: m.userId, studioId, permissions: any?.permissions ?? {} },
           })
-          // Reload so the map below has fresh data
-          const fresh = await prisma.instructor.findUnique({ where: { userId_studioId: { userId: m.userId, studioId } } })
-          if (fresh) m.user.instructors.push(fresh)
+          m.user.instructors.push(created)
         }
       }
 
-      const instructorResult = instructorMembers.map((m) => {
+      // Build a map keyed by userId so dual-role members get a single merged entry
+      const byUserId = new Map<string, {
+        id: string
+        memberId: string | null
+        userId: string
+        name: string
+        email: string
+        roles: ('instructor' | 'fronthost')[]
+        instructorPermissions?: InstructorPermissions
+        fronthostPermissions?: FronthostPermissions
+      }>()
+
+      for (const m of instructorMembers) {
         const inst = m.user.instructors.find(i => i.studioId === studioId) ?? m.user.instructors[0]
-        if (!inst) return null
+        if (!inst) continue
         const raw = inst.permissions as Record<string, unknown>
         const hasKeys = raw && Object.keys(raw).length > 0
-        const permissions: InstructorPermissions = hasKeys
+        const instructorPermissions: InstructorPermissions = hasKeys
           ? { ...DEFAULT_INSTRUCTOR_PERMISSIONS, ...(raw as Partial<InstructorPermissions>) }
           : { ...DEFAULT_INSTRUCTOR_PERMISSIONS }
-        return {
+        byUserId.set(m.userId, {
           id: inst.id,
-          memberId: null as string | null,
-          userId: inst.userId,
-          name: `${m.user.firstName} ${m.user.lastName}`,
-          email: m.user.email,
-          role: 'instructor' as const,
-          permissions,
-        }
-      }).filter((x): x is NonNullable<typeof x> => x !== null)
-
-      const fronthostResult = fronthosts.map((m) => {
-        const raw = m.staffPermissions as Record<string, unknown> | null
-        const hasKeys = raw && Object.keys(raw).length > 0
-        const permissions: FronthostPermissions = hasKeys
-          ? { ...DEFAULT_FRONTHOST_PERMISSIONS, ...(raw as Partial<FronthostPermissions>) }
-          : { ...DEFAULT_FRONTHOST_PERMISSIONS }
-        return {
-          id: m.id,           // memberId used as the record id for fronthosts
-          memberId: m.id,
+          memberId: null,
           userId: m.userId,
           name: `${m.user.firstName} ${m.user.lastName}`,
           email: m.user.email,
-          role: 'fronthost' as const,
-          permissions,
-        }
-      })
+          roles: ['instructor'],
+          instructorPermissions,
+        })
+      }
 
-      return reply.send([...instructorResult, ...fronthostResult])
+      for (const m of fronthosts) {
+        const raw = m.staffPermissions as Record<string, unknown> | null
+        const hasKeys = raw && Object.keys(raw).length > 0
+        const fronthostPermissions: FronthostPermissions = hasKeys
+          ? { ...DEFAULT_FRONTHOST_PERMISSIONS, ...(raw as Partial<FronthostPermissions>) }
+          : { ...DEFAULT_FRONTHOST_PERMISSIONS }
+
+        const existing = byUserId.get(m.userId)
+        if (existing) {
+          // Dual-role: merge into existing instructor entry
+          existing.roles.push('fronthost')
+          existing.memberId = m.id
+          existing.fronthostPermissions = fronthostPermissions
+        } else {
+          byUserId.set(m.userId, {
+            id: m.id,
+            memberId: m.id,
+            userId: m.userId,
+            name: `${m.user.firstName} ${m.user.lastName}`,
+            email: m.user.email,
+            roles: ['fronthost'],
+            fronthostPermissions,
+          })
+        }
+      }
+
+      return reply.send(Array.from(byUserId.values()))
     },
   )
 
