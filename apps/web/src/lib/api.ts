@@ -58,9 +58,17 @@ export const DEFAULT_FRONTHOST_PERMISSIONS: FronthostPermissions = {
   canViewMemberContact: true,
 }
 
-export type StaffWithPermissions =
-  | { id: string; memberId: null; userId: string; name: string; email: string; role: 'instructor'; permissions: InstructorPermissions }
-  | { id: string; memberId: string; userId: string; name: string; email: string; role: 'fronthost'; permissions: FronthostPermissions }
+export interface StaffWithPermissions {
+  /** Instructor record id if they are an instructor, otherwise the member id */
+  id: string
+  memberId: string | null
+  userId: string
+  name: string
+  email: string
+  roles: ('instructor' | 'fronthost')[]
+  instructorPermissions?: InstructorPermissions
+  fronthostPermissions?: FronthostPermissions
+}
 
 export interface StudioSummary {
   id: string
