@@ -156,12 +156,12 @@ export async function staffRoutes(app: FastifyInstance) {
         })
       }
 
-      // Upsert Instructor record whenever instructor role is present
+      // Upsert Instructor record for this specific studio
       if (newRoles.includes('instructor')) {
         await prisma.instructor.upsert({
-          where: { userId: targetUser.id },
-          create: { userId: targetUser.id, studioId: primaryStudioId },
-          update: { studioId: primaryStudioId },
+          where: { userId_studioId: { userId: targetUser.id, studioId } },
+          create: { userId: targetUser.id, studioId },
+          update: {},
         })
       }
 
@@ -213,7 +213,7 @@ export async function staffRoutes(app: FastifyInstance) {
         await setSupabaseAppMeta(member.user.id, { role: 'member', roles: [], studioIds: [] })
         await prisma.member.update({ where: { id: memberId }, data: { staffRoles: [], studioIds: [] } })
         if (removingInstructor) {
-          await prisma.instructor.deleteMany({ where: { userId: member.user.id } })
+          await prisma.instructor.deleteMany({ where: { userId: member.user.id, studioId: studioToRemove } })
         }
       } else if (remainingRoles.length === 0) {
         // No roles left but still in other studios — revert to member
@@ -223,7 +223,7 @@ export async function staffRoutes(app: FastifyInstance) {
           data: { studioId: remainingStudios[0], staffRoles: [], studioIds: remainingStudios },
         })
         if (removingInstructor) {
-          await prisma.instructor.deleteMany({ where: { userId: member.user.id } })
+          await prisma.instructor.deleteMany({ where: { userId: member.user.id, studioId: studioToRemove } })
         }
       } else {
         // Still has roles — update accordingly
@@ -235,10 +235,10 @@ export async function staffRoutes(app: FastifyInstance) {
           data: { studioId: newStudios[0], staffRoles: remainingRoles, studioIds: newStudios },
         })
         if (removingInstructor) {
-          await prisma.instructor.deleteMany({ where: { userId: member.user.id } })
+          await prisma.instructor.deleteMany({ where: { userId: member.user.id, studioId: studioToRemove } })
         } else if (remainingRoles.includes('instructor')) {
           await prisma.instructor.updateMany({
-            where: { userId: member.user.id },
+            where: { userId: member.user.id, studioId: studioToRemove },
             data: { studioId: newStudios[0] },
           })
         }
