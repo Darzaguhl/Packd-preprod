@@ -14,14 +14,31 @@ interface InstructorPermissions {
   canCreateSchedules: boolean
 }
 
-const DEFAULT_PERMISSIONS: InstructorPermissions = {
-  canCheckInMembers: true,
+const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
+  canCheckInMembers: false,
   canManageBookings: false,
   canViewMemberContact: false,
   canManageWaitlist: true,
   canEditSessionDetails: false,
   canCancelSession: false,
   canCreateSchedules: false,
+}
+
+// Keep alias for existing code below
+const DEFAULT_PERMISSIONS = DEFAULT_INSTRUCTOR_PERMISSIONS
+
+interface FronthostPermissions {
+  canAdjustCredits: boolean
+  canManageBookings: boolean
+  canManageWaitlist: boolean
+  canViewMemberContact: boolean
+}
+
+const DEFAULT_FRONTHOST_PERMISSIONS: FronthostPermissions = {
+  canAdjustCredits: true,
+  canManageBookings: false,
+  canManageWaitlist: true,
+  canViewMemberContact: true,
 }
 
 async function assertStudioAccess(
@@ -236,6 +253,111 @@ export async function franchiseRoutes(app: FastifyInstance) {
       })
 
       return reply.send({ success: true, permissions: updated.permissions })
+    },
+  )
+
+  // GET /studios/:studioId/staff-permissions — all staff (instructors + fronthosts) with their permissions
+  app.get<{ Params: { studioId: string } }>(
+    '/studios/:studioId/staff-permissions',
+    { preHandler: requireRole('studio_admin') },
+    async (request, reply) => {
+      const { studioId } = request.params
+      const user = getUser(request)
+
+      const hasAccess = await assertStudioAccess(user.id, user.role, studioId, reply)
+      if (!hasAccess) return
+
+      const [instructors, fronthosts] = await Promise.all([
+        prisma.instructor.findMany({
+          where: { studioId },
+          include: { user: true },
+        }),
+        prisma.member.findMany({
+          where: { studioIds: { has: studioId }, staffRoles: { has: 'fronthost' } },
+          include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } },
+        }),
+      ])
+
+      const instructorResult = instructors.map((inst) => {
+        const raw = inst.permissions as Record<string, unknown>
+        const hasKeys = raw && Object.keys(raw).length > 0
+        const permissions: InstructorPermissions = hasKeys
+          ? { ...DEFAULT_INSTRUCTOR_PERMISSIONS, ...(raw as Partial<InstructorPermissions>) }
+          : { ...DEFAULT_INSTRUCTOR_PERMISSIONS }
+        return {
+          id: inst.id,
+          memberId: null as string | null,
+          userId: inst.userId,
+          name: `${inst.user.firstName} ${inst.user.lastName}`,
+          email: inst.user.email,
+          role: 'instructor' as const,
+          permissions,
+        }
+      })
+
+      const fronthostResult = fronthosts.map((m) => {
+        const raw = m.staffPermissions as Record<string, unknown> | null
+        const hasKeys = raw && Object.keys(raw).length > 0
+        const permissions: FronthostPermissions = hasKeys
+          ? { ...DEFAULT_FRONTHOST_PERMISSIONS, ...(raw as Partial<FronthostPermissions>) }
+          : { ...DEFAULT_FRONTHOST_PERMISSIONS }
+        return {
+          id: m.id,           // memberId used as the record id for fronthosts
+          memberId: m.id,
+          userId: m.userId,
+          name: `${m.user.firstName} ${m.user.lastName}`,
+          email: m.user.email,
+          role: 'fronthost' as const,
+          permissions,
+        }
+      })
+
+      return reply.send([...instructorResult, ...fronthostResult])
+    },
+  )
+
+  // PATCH /studios/:studioId/fronthosts/:memberId/permissions — update fronthost permissions
+  app.patch<{
+    Params: { studioId: string; memberId: string }
+    Body: Partial<FronthostPermissions>
+  }>(
+    '/studios/:studioId/fronthosts/:memberId/permissions',
+    { preHandler: requireRole('studio_admin') },
+    async (request, reply) => {
+      const { studioId, memberId } = request.params
+      const user = getUser(request)
+
+      const hasAccess = await assertStudioAccess(user.id, user.role, studioId, reply)
+      if (!hasAccess) return
+
+      const member = await prisma.member.findFirst({
+        where: { id: memberId, studioIds: { has: studioId }, staffRoles: { has: 'fronthost' } },
+      })
+
+      if (!member) return reply.code(404).send({ error: 'Fronthost not found' })
+
+      const VALID_KEYS: (keyof FronthostPermissions)[] = [
+        'canAdjustCredits', 'canManageBookings', 'canManageWaitlist', 'canViewMemberContact',
+      ]
+      const sanitized = Object.fromEntries(
+        Object.entries(request.body).filter(([k, v]) =>
+          VALID_KEYS.includes(k as keyof FronthostPermissions) && typeof v === 'boolean'
+        )
+      ) as Partial<FronthostPermissions>
+
+      const existing = member.staffPermissions as Record<string, unknown> | null
+      const current: FronthostPermissions = existing && Object.keys(existing).length > 0
+        ? { ...DEFAULT_FRONTHOST_PERMISSIONS, ...(existing as Partial<FronthostPermissions>) }
+        : { ...DEFAULT_FRONTHOST_PERMISSIONS }
+
+      const merged: FronthostPermissions = { ...current, ...sanitized }
+
+      await prisma.member.update({
+        where: { id: memberId },
+        data: { staffPermissions: merged as unknown as Prisma.InputJsonValue },
+      })
+
+      return reply.send({ success: true, permissions: merged })
     },
   )
 }
