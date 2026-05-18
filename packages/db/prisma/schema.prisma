@@ -257,7 +257,7 @@ model Member {
   notes      String?
   externalId String?  // e.g. Mariana Tek member ID (scoped per studio)
   source     String   @default("packd") // "packd" | "mariana_tek"
-  staffRole  String?  // null = regular member; "fronthost" = front-desk staff
+  staffRoles String[] @default([])  // [] = regular member; can hold both "fronthost" and "instructor"
 
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   studio          Studio           @relation(fields: [studioId], references: [id], onDelete: Cascade)

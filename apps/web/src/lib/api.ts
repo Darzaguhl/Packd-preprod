@@ -226,7 +226,7 @@ export interface StaffMember {
   userId: string
   name: string
   email: string
-  staffRole: string
+  staffRoles: string[]   // e.g. ['fronthost'] | ['instructor'] | ['fronthost','instructor']
   joinedAt: string
 }
 
@@ -435,8 +435,11 @@ export const api = {
         body: JSON.stringify({ studioId, email, staffRole }),
         token,
       }),
-    remove: (memberId: string, studioId: string, token: string) =>
-      apiFetch<{ success: boolean; remainingStudios: number }>(`/staff/${memberId}?studioId=${studioId}`, { method: 'DELETE', token }),
+    remove: (memberId: string, studioId: string, token: string, role?: string) =>
+      apiFetch<{ success: boolean; remainingRoles: string[]; remainingStudios: number }>(
+        `/staff/${memberId}?studioId=${studioId}${role ? `&role=${encodeURIComponent(role)}` : ''}`,
+        { method: 'DELETE', token },
+      ),
   },
   studios: {
     list: (token: string) =>

@@ -52,13 +52,17 @@ export default function StaffTab({ studioId, token, onOpenPermissions }: Props) 
     }
   }
 
-  async function handleRemove(member: StaffMember) {
-    if (!confirm(`Remove ${member.name} (${member.email}) from staff? Their account will revert to a regular member.`)) return
+  async function handleRemoveRole(member: StaffMember, role?: string) {
+    const label = role ? STAFF_ROLE_LABELS[role] ?? role : 'all roles'
+    const msg = role
+      ? `Remove the ${label} role from ${member.name}?`
+      : `Remove ${member.name} from staff entirely? Their account will revert to a regular member.`
+    if (!confirm(msg)) return
     setError(null)
     setSuccess(null)
     try {
-      await api.staff.remove(member.id, studioId, token)
-      setSuccess(`${member.name} removed from staff.`)
+      await api.staff.remove(member.id, studioId, token, role)
+      setSuccess(role ? `${label} role removed from ${member.name}.` : `${member.name} removed from staff.`)
       await load()
     } catch (err) {
       setError((err as Error).message)
@@ -71,7 +75,7 @@ export default function StaffTab({ studioId, token, onOpenPermissions }: Props) 
       <div className="bg-white rounded-2xl border border-gray-100 p-5">
         <h3 className="text-sm font-semibold text-gray-900 mb-1">Add staff member</h3>
         <p className="text-xs text-gray-400 mb-4">
-          The user must already have a Packd account. They'll receive the selected role immediately — no invite needed.
+          The user must already have a Packd account. Assigning a role is additive — existing staff can be given a second role (e.g. both Instructor and Front Desk).
         </p>
         <form onSubmit={handleAdd} className="flex gap-3 flex-wrap">
           <input
@@ -137,15 +141,31 @@ export default function StaffTab({ studioId, token, onOpenPermissions }: Props) 
                   <p className="text-xs text-gray-400 truncate">{member.email}</p>
                 </div>
 
-                <span className={`text-xs font-medium px-2.5 py-1 rounded-full shrink-0 ${
-                  member.staffRole === 'instructor'
-                    ? 'bg-violet-50 text-violet-700'
-                    : 'bg-blue-50 text-blue-700'
-                }`}>
-                  {STAFF_ROLE_LABELS[member.staffRole] ?? member.staffRole}
-                </span>
+                {/* Role badges */}
+                <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                  {member.staffRoles.map(r => (
+                    <span
+                      key={r}
+                      className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full ${
+                        r === 'instructor' ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700'
+                      }`}
+                    >
+                      {STAFF_ROLE_LABELS[r] ?? r}
+                      {/* Per-role remove button — only shown for dual-role members */}
+                      {member.staffRoles.length > 1 && (
+                        <button
+                          onClick={() => handleRemoveRole(member, r)}
+                          className="ml-0.5 opacity-50 hover:opacity-100 transition-opacity"
+                          title={`Remove ${STAFF_ROLE_LABELS[r] ?? r} role`}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
 
-                {member.staffRole === 'instructor' && onOpenPermissions && (
+                {member.staffRoles.includes('instructor') && onOpenPermissions && (
                   <button
                     onClick={onOpenPermissions}
                     className="text-xs text-gray-400 hover:text-violet-600 transition-colors shrink-0"
@@ -156,9 +176,9 @@ export default function StaffTab({ studioId, token, onOpenPermissions }: Props) 
                 )}
 
                 <button
-                  onClick={() => handleRemove(member)}
+                  onClick={() => handleRemoveRole(member)}
                   className="text-xs text-gray-400 hover:text-red-500 transition-colors shrink-0"
-                  title="Remove staff role"
+                  title="Remove from staff"
                 >
                   Remove
                 </button>

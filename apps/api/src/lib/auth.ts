@@ -21,9 +21,12 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
 
     // Role MUST come from app_metadata (server-controlled).
     // user_metadata is writable by the client and must never grant elevated access.
-    const appMeta = payload.app_metadata as { role?: string; studioId?: string; studioIds?: string[] } | undefined
+    const appMeta = payload.app_metadata as { role?: string; roles?: string[]; studioId?: string; studioIds?: string[] } | undefined
     const rawRole = appMeta?.role
     const role: UserRole = ELEVATED_ROLES.has(rawRole ?? '') ? (rawRole as UserRole) : 'member'
+
+    // All assigned roles (for dashboard routing); fall back to [role] if roles array not yet set
+    const roles: string[] = appMeta?.roles ?? (role !== 'member' ? [role] : [])
 
     // Support both legacy singular studioId and new studioIds array
     const studioIds: string[] = appMeta?.studioIds ?? (appMeta?.studioId ? [appMeta.studioId] : [])
@@ -33,6 +36,7 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
       id: payload.sub!,
       email: payload.email as string,
       role,
+      roles,
       studioId,
       studioIds,
     } satisfies AuthUser

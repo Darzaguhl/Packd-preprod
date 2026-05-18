@@ -13,6 +13,7 @@ type StaffRole = typeof VALID_STAFF_ROLES[number]
 
 interface SupabaseAppMeta {
   role?: string
+  roles?: string[]    // all assigned roles (e.g. ['instructor','fronthost'] for dual-role)
   studioIds?: string[]
 }
 
@@ -86,7 +87,7 @@ export async function staffRoutes(app: FastifyInstance) {
       if (!await assertStudioAccess(user.id, user.role, studioId, user.studioIds)) return reply.forbidden()
 
       const staff = await prisma.member.findMany({
-        where: { studioId, staffRole: { not: null } },
+        where: { studioId, staffRoles: { hasSome: [...VALID_STAFF_ROLES] } },
         include: { user: { select: { firstName: true, lastName: true, email: true } } },
         orderBy: { joinedAt: 'asc' },
       })
@@ -96,14 +97,13 @@ export async function staffRoutes(app: FastifyInstance) {
         userId: s.userId,
         name: `${s.user.firstName} ${s.user.lastName}`,
         email: s.user.email,
-        staffRole: s.staffRole,
+        staffRoles: s.staffRoles,
         joinedAt: s.joinedAt.toISOString(),
       }))
     },
   )
 
-  // POST /staff — assign a staff role to an existing user
-  // Appends studioId to the user's studioIds array in Supabase app_metadata.
+  // POST /staff — add a role to an existing user for this studio (additive — does not replace existing roles)
   app.post<{ Body: { studioId: string; email: string; staffRole: string } }>(
     '/',
     { preHandler: requireStudioAdmin },
@@ -131,24 +131,33 @@ export async function staffRoutes(app: FastifyInstance) {
       const existingIds: string[] = current.studioIds ?? []
       const newIds = [...new Set([...existingIds, studioId])]
 
-      await setSupabaseAppMeta(targetUser.id, { role: staffRole, studioIds: newIds })
+      // Merge new role into existing roles (additive — supports dual fronthost+instructor)
+      const existingRoles: string[] = current.roles ?? (current.role && current.role !== 'member' ? [current.role] : [])
+      const newRoles = [...new Set([...existingRoles, staffRole])]
+      // Primary role for auth: prefer instructor (has Instructor record), otherwise first role
+      const primaryRole = newRoles.includes('instructor') ? 'instructor' : newRoles[0]
 
-      // Upsert Member record so the user appears in StaffTab
+      await setSupabaseAppMeta(targetUser.id, { role: primaryRole, roles: newRoles, studioIds: newIds })
+
+      // Upsert Member record
       const primaryStudioId = newIds[0]
       const existingMember = await prisma.member.findUnique({ where: { userId: targetUser.id } })
       if (existingMember) {
         await prisma.member.update({
           where: { userId: targetUser.id },
-          data: { studioId: existingMember.studioId === primaryStudioId ? existingMember.studioId : primaryStudioId, staffRole },
+          data: {
+            studioId: existingMember.studioId === primaryStudioId ? existingMember.studioId : primaryStudioId,
+            staffRoles: newRoles,
+          },
         })
       } else {
         await prisma.member.create({
-          data: { userId: targetUser.id, studioId: primaryStudioId, staffRole, source: 'packd' },
+          data: { userId: targetUser.id, studioId: primaryStudioId, staffRoles: newRoles, source: 'packd' },
         })
       }
 
-      // For instructors also upsert the Instructor record (used for session assignments and permissions)
-      if (staffRole === 'instructor') {
+      // Upsert Instructor record whenever instructor role is present
+      if (newRoles.includes('instructor')) {
         await prisma.instructor.upsert({
           where: { userId: targetUser.id },
           create: { userId: targetUser.id, studioId: primaryStudioId },
@@ -156,18 +165,19 @@ export async function staffRoutes(app: FastifyInstance) {
         })
       }
 
-      return reply.send({ success: true, studioIds: newIds })
+      return reply.send({ success: true, staffRoles: newRoles, studioIds: newIds })
     },
   )
 
-  // DELETE /staff/:memberId — remove this studio from the user's assignments.
-  // If no studios remain, reverts role to 'member'.
-  app.delete<{ Params: { memberId: string }; Querystring: { studioId?: string } }>(
+  // DELETE /staff/:memberId?studioId=X&role=Y
+  // role param (optional): remove just that role. Omit to remove all roles from the studio.
+  // If no studios remain after removal, reverts the user to a regular member.
+  app.delete<{ Params: { memberId: string }; Querystring: { studioId?: string; role?: string } }>(
     '/:memberId',
     { preHandler: requireStudioAdmin },
     async (request, reply) => {
       const { memberId } = request.params
-      const callerStudioId = request.query.studioId
+      const { studioId: callerStudioId, role: roleToRemove } = request.query
 
       const member = await prisma.member.findUnique({
         where: { id: memberId },
@@ -182,34 +192,53 @@ export async function staffRoutes(app: FastifyInstance) {
       if (!SERVICE_ROLE_KEY) return reply.internalServerError('SUPABASE_SERVICE_ROLE_KEY not configured on server')
 
       const current = await getSupabaseAppMeta(member.user.id)
-      const remaining = (current.studioIds ?? [member.studioId]).filter(id => id !== studioToRemove)
+      const remainingStudios = (current.studioIds ?? [member.studioId]).filter(id => id !== studioToRemove)
 
-      if (remaining.length === 0) {
-        // No more studios — fully revoke staff role
-        await setSupabaseAppMeta(member.user.id, { role: 'member', studioIds: [] })
-        await prisma.member.update({ where: { id: memberId }, data: { staffRole: null } })
-        // Remove Instructor record if this was an instructor
-        if (member.staffRole === 'instructor') {
+      // Compute remaining roles after this removal
+      const currentRoles: string[] = current.roles ?? (member.staffRoles.length > 0 ? member.staffRoles : [])
+      const remainingRoles = roleToRemove
+        ? currentRoles.filter(r => r !== roleToRemove)
+        : [] // no role param = remove all roles from this studio
+
+      const removingInstructor = roleToRemove === 'instructor' || (!roleToRemove && currentRoles.includes('instructor'))
+
+      if (remainingRoles.length === 0 && remainingStudios.length === 0) {
+        // No roles, no studios — fully revert to member
+        await setSupabaseAppMeta(member.user.id, { role: 'member', roles: [], studioIds: [] })
+        await prisma.member.update({ where: { id: memberId }, data: { staffRoles: [] } })
+        if (removingInstructor) {
+          await prisma.instructor.deleteMany({ where: { userId: member.user.id } })
+        }
+      } else if (remainingRoles.length === 0) {
+        // No roles left but still in other studios — also revert to member there (edge case)
+        await setSupabaseAppMeta(member.user.id, { role: 'member', roles: [], studioIds: remainingStudios })
+        await prisma.member.update({
+          where: { id: memberId },
+          data: { studioId: remainingStudios[0], staffRoles: [] },
+        })
+        if (removingInstructor) {
           await prisma.instructor.deleteMany({ where: { userId: member.user.id } })
         }
       } else {
-        // Still assigned to other studios — keep role, update studioIds
-        await setSupabaseAppMeta(member.user.id, { role: current.role ?? member.staffRole!, studioIds: remaining })
-        // Update Member record to point to their next primary studio
+        // Still has roles — update accordingly
+        const primaryRole = remainingRoles.includes('instructor') ? 'instructor' : remainingRoles[0]
+        const newStudios = remainingStudios.length > 0 ? remainingStudios : [studioToRemove] // keep in studio if still has roles there
+        await setSupabaseAppMeta(member.user.id, { role: primaryRole, roles: remainingRoles, studioIds: newStudios })
         await prisma.member.update({
           where: { id: memberId },
-          data: { studioId: remaining[0], staffRole: member.staffRole },
+          data: { studioId: newStudios[0], staffRoles: remainingRoles },
         })
-        // Update Instructor record's primary studio if needed
-        if (member.staffRole === 'instructor') {
+        if (removingInstructor) {
+          await prisma.instructor.deleteMany({ where: { userId: member.user.id } })
+        } else if (remainingRoles.includes('instructor')) {
           await prisma.instructor.updateMany({
             where: { userId: member.user.id },
-            data: { studioId: remaining[0] },
+            data: { studioId: newStudios[0] },
           })
         }
       }
 
-      return reply.send({ success: true, remainingStudios: remaining.length })
+      return reply.send({ success: true, remainingRoles, remainingStudios: remainingStudios.length })
     },
   )
 }

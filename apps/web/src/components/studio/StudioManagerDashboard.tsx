@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { api, type AdminSession } from '@/lib/api'
 import { SPORT_CONFIG } from '@/components/schedule/constants'
@@ -31,7 +31,7 @@ interface Stats {
 
 const INSTRUCTOR_TABS: Tab[] = ['today', 'calendar', 'room']
 
-export default function StudioManagerDashboard({ studioId, studioName: initialStudioName, onBack, onStudioUpdate, role }: { studioId: string; studioName?: string; onBack?: () => void; onStudioUpdate?: (data: { name: string; timezone: string; currency: string }) => void; role?: string }) {
+export default function StudioManagerDashboard({ studioId, studioName: initialStudioName, onBack, onStudioUpdate, role, modeSwitch }: { studioId: string; studioName?: string; onBack?: () => void; onStudioUpdate?: (data: { name: string; timezone: string; currency: string }) => void; role?: string; modeSwitch?: React.ReactNode }) {
   const [studioName, setStudioName] = useState(initialStudioName)
   const [tab, setTab] = useState<Tab>('today')
   const [token, setToken] = useState<string | null>(null)
@@ -112,6 +112,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
       <NavBar
         title={studioName ?? 'Studio Dashboard'}
         subtitle="Studio management"
+        action={modeSwitch}
         leading={onBack ? (
           <button
             onClick={onBack}
