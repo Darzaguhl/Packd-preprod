@@ -301,27 +301,11 @@ export default function PermissionsTab({ studioId, token }: Props) {
                   ? perms.instructor[def.instructor]
                   : def.fronthost ? perms.fronthost[def.fronthost!] : false
 
-                // Role tag(s) — only shown for dual-role users where the permission isn't shared
-                const isDual = roles.length > 1
-                const belongsToInstructor = !!def.instructor && roles.includes('instructor')
-                const belongsToFronthost  = !!def.fronthost  && roles.includes('fronthost')
-                const isShared = belongsToInstructor && belongsToFronthost
-                const showTag = isDual && !isShared
-
                 return (
                   <label key={def.label} className="flex items-start gap-2.5 cursor-pointer">
                     <Toggle on={val} onToggle={() => togglePerm(selected.id, def, roles)} />
                     <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <p className="text-sm font-medium text-gray-800 leading-tight">{def.label}</p>
-                        {showTag && (
-                          <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full leading-none ${
-                            belongsToInstructor ? 'text-violet-600 bg-violet-50' : 'text-blue-600 bg-blue-50'
-                          }`}>
-                            {belongsToInstructor ? 'Instructor' : 'Front Desk'}
-                          </span>
-                        )}
-                      </div>
+                      <p className="text-sm font-medium text-gray-800 leading-tight">{def.label}</p>
                       <p className="text-xs text-gray-400 mt-0.5 leading-snug">{def.description}</p>
                     </div>
                   </label>
