@@ -62,8 +62,8 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  member     Member?
-  instructor Instructor?
+  member      Member?
+  instructors Instructor[]
 }
 
 // ─── Location & Rooms ────────────────────────────────────────────────────────
@@ -136,7 +136,7 @@ model Station {
 
 model Instructor {
   id          String  @id @default(cuid())
-  userId      String  @unique
+  userId      String
   studioId    String
   bio         String?
   photoUrl    String?
@@ -148,6 +148,8 @@ model Instructor {
   classSessions ClassSession[]
   schedules     ClassSchedule[]
   substituteFor ClassSession[] @relation("SubstituteInstructor")
+
+  @@unique([userId, studioId])
 }
 
 // ─── Class Templates & Sessions ──────────────────────────────────────────────
