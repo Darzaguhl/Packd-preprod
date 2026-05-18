@@ -192,13 +192,19 @@ export async function staffRoutes(app: FastifyInstance) {
       if (!SERVICE_ROLE_KEY) return reply.internalServerError('SUPABASE_SERVICE_ROLE_KEY not configured on server')
 
       const current = await getSupabaseAppMeta(member.user.id)
-      const remainingStudios = (current.studioIds ?? [member.studioId]).filter(id => id !== studioToRemove)
 
       // Compute remaining roles after this removal
       const currentRoles: string[] = current.roles ?? (member.staffRoles.length > 0 ? member.staffRoles : [])
       const remainingRoles = roleToRemove
         ? currentRoles.filter(r => r !== roleToRemove)
         : [] // no role param = remove all roles from this studio
+
+      // Only remove the studioId when stripping all roles — if a role remains, the member
+      // still belongs to this studio so keep it in the studioIds array
+      const allStudioIds = current.studioIds ?? [member.studioId]
+      const remainingStudios = remainingRoles.length > 0
+        ? allStudioIds                                          // still has roles here — keep studio
+        : allStudioIds.filter(id => id !== studioToRemove)     // no roles left — leave the studio
 
       const removingInstructor = roleToRemove === 'instructor' || (!roleToRemove && currentRoles.includes('instructor'))
 
