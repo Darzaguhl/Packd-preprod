@@ -24,8 +24,6 @@ const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
   canCreateSchedules: false,
 }
 
-// Keep alias for existing code below
-const DEFAULT_PERMISSIONS = DEFAULT_INSTRUCTOR_PERMISSIONS
 
 interface FronthostPermissions {
   canAdjustCredits: boolean
@@ -147,41 +145,6 @@ export async function franchiseRoutes(app: FastifyInstance) {
     },
   )
 
-  app.get<{ Params: { studioId: string } }>(
-    '/studios/:studioId/instructors',
-    { preHandler: requireRole('studio_admin') },
-    async (request, reply) => {
-      const { studioId } = request.params
-      const user = getUser(request)
-
-      const hasAccess = await assertStudioAccess(user.id, user.role, studioId, reply)
-      if (!hasAccess) return
-
-      const instructors = await prisma.instructor.findMany({
-        where: { studioId },
-        include: { user: true },
-      })
-
-      const result = instructors.map((instructor) => {
-        const raw = instructor.permissions as Record<string, unknown>
-        const hasKeys = raw && Object.keys(raw).length > 0
-        const permissions: InstructorPermissions = hasKeys
-          ? { ...DEFAULT_PERMISSIONS, ...(raw as Partial<InstructorPermissions>) }
-          : { ...DEFAULT_PERMISSIONS }
-
-        return {
-          id: instructor.id,
-          userId: instructor.userId,
-          name: `${instructor.user.firstName} ${instructor.user.lastName}`,
-          email: instructor.user.email,
-          permissions,
-        }
-      })
-
-      return reply.send(result)
-    },
-  )
-
   // Instructors fetch their own record (id + permissions) — lower role threshold
   app.get<{ Params: { studioId: string } }>(
     '/studios/:studioId/my-instructor',
@@ -201,8 +164,8 @@ export async function franchiseRoutes(app: FastifyInstance) {
       const raw = instructor.permissions as Record<string, unknown>
       const hasKeys = raw && Object.keys(raw).length > 0
       const permissions: InstructorPermissions = hasKeys
-        ? { ...DEFAULT_PERMISSIONS, ...(raw as Partial<InstructorPermissions>) }
-        : { ...DEFAULT_PERMISSIONS }
+        ? { ...DEFAULT_INSTRUCTOR_PERMISSIONS, ...(raw as Partial<InstructorPermissions>) }
+        : { ...DEFAULT_INSTRUCTOR_PERMISSIONS }
 
       return reply.send({ id: instructor.id, permissions })
     },
@@ -242,8 +205,8 @@ export async function franchiseRoutes(app: FastifyInstance) {
       const existing = instructor.permissions as Record<string, unknown>
       const hasKeys = existing && Object.keys(existing).length > 0
       const currentPermissions: InstructorPermissions = hasKeys
-        ? { ...DEFAULT_PERMISSIONS, ...(existing as Partial<InstructorPermissions>) }
-        : { ...DEFAULT_PERMISSIONS }
+        ? { ...DEFAULT_INSTRUCTOR_PERMISSIONS, ...(existing as Partial<InstructorPermissions>) }
+        : { ...DEFAULT_INSTRUCTOR_PERMISSIONS }
 
       const merged: InstructorPermissions = { ...currentPermissions, ...sanitized }
 

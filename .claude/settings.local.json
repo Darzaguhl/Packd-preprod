@@ -3,7 +3,30 @@
     "allow": [
       "Bash(git init *)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(git remote *)",
+      "Bash(git push *)",
+      "Bash(npm run *)",
+      "Bash(kill %1)",
+      "Bash(npm test *)",
+      "Bash(curl -s -X PUT https://ghayufxnbqubecgblvtg.supabase.co/auth/v1/admin/users/9ab7ddf5-b98f-4244-9e6c-f9c3ab053f2d -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdoYXl1ZnhuYnF1YmVjZ2JsdnRnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODc2NjgzNCwiZXhwIjoyMDk0MzQyODM0fQ.lSYq8KanwSRUqQs862_9S6e5IijTkIorYDE9BXpiKqQ' -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdoYXl1ZnhuYnF1YmVjZ2JsdnRnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODc2NjgzNCwiZXhwIjoyMDk0MzQyODM0fQ.lSYq8KanwSRUqQs862_9S6e5IijTkIorYDE9BXpiKqQ' -H 'Content-Type: application/json' -d '{\"app_metadata\": {\"role\": \"fronthost\", \"studioId\": \"cmp5ogcib0000lwtcb7dr7foj\"}}')",
+      "Bash(node node_modules/vite/node_modules/@esbuild/darwin-x64/bin/esbuild --version)",
+      "Bash(node -e \"const os = require\\('os'\\); console.log\\(os.arch\\(\\), os.platform\\(\\)\\)\")",
+      "Bash(npm_config_cpu=arm64 npm install @esbuild/darwin-arm64 --no-save --ignore-scripts --prefix node_modules/vite)",
+      "Bash(kill 80484 80482 80473 80471 80170 80156 80139 80137 89287 89284 88238 88236 88227 88225)",
+      "Bash(kill 54254 54385 54459 55414)",
+      "Bash(curl -s -X PUT https://ghayufxnbqubecgblvtg.supabase.co/auth/v1/admin/users/9ab7ddf5-b98f-4244-9e6c-f9c3ab053f2d -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdoYXl1ZnhuYnF1YmVjZ2JsdnRnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODc2NjgzNCwiZXhwIjoyMDk0MzQyODM0fQ.lSYq8KanwSRUqQs862_9S6e5IijTkIorYDE9BXpiKqQ' -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdoYXl1ZnhuYnF1YmVjZ2JsdnRnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODc2NjgzNCwiZXhwIjoyMDk0MzQyODM0fQ.lSYq8KanwSRUqQs862_9S6e5IijTkIorYDE9BXpiKqQ' -H 'Content-Type: application/json' -d '{\"app_metadata\": {\"role\": \"fronthost\", \"studioIds\": [\"cmp5ogcib0000lwtcb7dr7foj\"]}}')",
+      "Bash(npx tsc *)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(npx prisma *)",
+      "Bash(DATABASE_URL=\"postgresql://postgres.ghayufxnbqubecgblvtg:jofvex-fezni4-puVvan@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?pgbouncer=true\" DIRECT_URL=\"postgresql://postgres.ghayufxnbqubecgblvtg:jofvex-fezni4-puVvan@aws-0-eu-west-1.pooler.supabase.com:6543/postgres\" npx prisma db push)",
+      "Bash(DATABASE_URL=\"postgresql://postgres.ghayufxnbqubecgblvtg:jofvex-fezni4-puVvan@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?pgbouncer=true\" DIRECT_URL=\"postgresql://postgres.ghayufxnbqubecgblvtg:jofvex-fezni4-puVvan@aws-0-eu-west-1.pooler.supabase.com:6543/postgres\" npx prisma db push --accept-data-loss)",
+      "Bash(DATABASE_URL=\"postgresql://postgres.ghayufxnbqubecgblvtg:jofvex-fezni4-puVvan@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?pgbouncer=true\" DIRECT_URL=\"postgresql://postgres:jofvex-fezni4-puVvan@db.ghayufxnbqubecgblvtg.supabase.co:5432/postgres\" npx prisma db push --accept-data-loss)",
+      "Bash(git commit -m 'Document SUPABASE_URL and SERVICE_ROLE_KEY in .env.example *)",
+      "Bash(DIRECT_URL=\"postgresql://postgres.ghayufxnbqubecgblvtg:jofvex-fezni4-puVvan@aws-0-eu-west-1.pooler.supabase.com:6543/postgres\" npx prisma db push --schema packages/db/prisma/schema.prisma)",
+      "Bash(DATABASE_URL=\"postgresql://postgres.ghayufxnbqubecgblvtg:jofvex-fezni4-puVvan@aws-0-eu-west-1.pooler.supabase.com:6543/postgres\" DIRECT_URL=\"postgresql://postgres.ghayufxnbqubecgblvtg:jofvex-fezni4-puVvan@aws-0-eu-west-1.pooler.supabase.com:6543/postgres\" npx prisma db push --schema packages/db/prisma/schema.prisma)",
+      "Bash(git commit -m 'Remove role tags from permission items — they implied false restrictions *)",
+      "Bash(git commit -m 'Fix: remove stale instructor updateMany that caused unique constraint error *)"
     ]
   }
 }
