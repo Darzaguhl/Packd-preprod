@@ -267,10 +267,13 @@ export async function franchiseRoutes(app: FastifyInstance) {
       const hasAccess = await assertStudioAccess(user.id, user.role, studioId, reply)
       if (!hasAccess) return
 
-      const [instructors, fronthosts] = await Promise.all([
-        prisma.instructor.findMany({
-          where: { studioId },
-          include: { user: true },
+      // Find instructor members by their staff assignment (not by Instructor.studioId, which
+      // may point to a different studio for legacy records). For each, prefer the studio-scoped
+      // Instructor record; fall back to any record they have (carries their permissions).
+      const [instructorMembers, fronthosts] = await Promise.all([
+        prisma.member.findMany({
+          where: { studioIds: { has: studioId }, staffRoles: { has: 'instructor' } },
+          include: { user: { include: { instructors: true } } },
         }),
         prisma.member.findMany({
           where: { studioIds: { has: studioId }, staffRoles: { has: 'fronthost' } },
@@ -278,7 +281,27 @@ export async function franchiseRoutes(app: FastifyInstance) {
         }),
       ])
 
-      const instructorResult = instructors.map((inst) => {
+      // Ensure a studio-scoped Instructor record exists for any that only have a legacy record
+      for (const m of instructorMembers) {
+        const hasStudioRecord = m.user.instructors.some(i => i.studioId === studioId)
+        if (!hasStudioRecord) {
+          const any = m.user.instructors[0]
+          await prisma.instructor.create({
+            data: {
+              userId: m.userId,
+              studioId,
+              permissions: any?.permissions ?? {},
+            },
+          })
+          // Reload so the map below has fresh data
+          const fresh = await prisma.instructor.findUnique({ where: { userId_studioId: { userId: m.userId, studioId } } })
+          if (fresh) m.user.instructors.push(fresh)
+        }
+      }
+
+      const instructorResult = instructorMembers.map((m) => {
+        const inst = m.user.instructors.find(i => i.studioId === studioId) ?? m.user.instructors[0]
+        if (!inst) return null
         const raw = inst.permissions as Record<string, unknown>
         const hasKeys = raw && Object.keys(raw).length > 0
         const permissions: InstructorPermissions = hasKeys
@@ -288,12 +311,12 @@ export async function franchiseRoutes(app: FastifyInstance) {
           id: inst.id,
           memberId: null as string | null,
           userId: inst.userId,
-          name: `${inst.user.firstName} ${inst.user.lastName}`,
-          email: inst.user.email,
+          name: `${m.user.firstName} ${m.user.lastName}`,
+          email: m.user.email,
           role: 'instructor' as const,
           permissions,
         }
-      })
+      }).filter((x): x is NonNullable<typeof x> => x !== null)
 
       const fronthostResult = fronthosts.map((m) => {
         const raw = m.staffPermissions as Record<string, unknown> | null
