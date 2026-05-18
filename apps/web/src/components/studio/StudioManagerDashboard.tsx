@@ -369,7 +369,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
       {tab === 'staff' && token && (
         <div className="max-w-3xl mx-auto w-full px-6 py-6">
           <p className="text-sm text-gray-500 mb-4">
-            Manage front-desk staff for this studio. Staff members can check in members and handle credit adjustments.
+            Manage staff for this studio. Assign instructor and front-desk roles — staff can hold both.
           </p>
           <StaffTab studioId={studioId} token={token} onOpenPermissions={() => setTab('permissions')} />
         </div>
