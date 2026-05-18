@@ -110,6 +110,7 @@ Key additions:
 - `RoomLayout` — named layout with `widthM`, `lengthM`, `isActive`; linked to `Room`
 - `Station` — positioned equipment (`type: StationType`, `xM`, `yM`, `rotation`, `label`); linked to `RoomLayout`
 - `Booking.stationId` — links a confirmed booking to a specific station for spot assignment
+- `Member.staffRoles String[] @default([])` — all staff roles for this member (replaces old `staffRole String?`); multi-studio: member can appear in multiple studios' staff lists via `studioIds` in `app_metadata`
 
 Seed data lives in `packages/db/src/seed.ts`:
 - 1 studio: Packd Demo Studio
@@ -125,6 +126,8 @@ Seed data lives in `packages/db/src/seed.ts`:
 - **Role source**: Role is read exclusively from `app_metadata` in the Supabase JWT (server-controlled). `user_metadata` is never trusted for access control.
 - **Role allowlist**: `'admin' | 'franchise_admin' | 'studio_admin' | 'instructor' | 'fronthost'` get elevated roles — anything else defaults to `'member'`.
 - **Role ranks**: `admin=5`, `franchise_admin=4`, `studio_admin=3`, `instructor=2`, `fronthost=2`, `member=1`. `fronthost` and `instructor` share rank 2 — both pass `requireRole('instructor')` guards but not `requireRole('studio_admin')`.
+- **Dual-role staff**: A user can hold both `fronthost` and `instructor` roles simultaneously. `app_metadata.roles` (string array) tracks all assigned roles; `app_metadata.role` (string) is the primary/highest role (instructor wins over fronthost). `AuthUser.roles` is populated from this array. Dashboard routing checks `roles.includes('fronthost') && roles.includes('instructor')` and renders `DualRoleDashboard` with a mode switcher.
+- **Multi-studio staff**: A staff member can work at multiple studios. `app_metadata.studioIds` (string array) accumulates all studios they're assigned to. `Member.staffRoles` tracks their roles at their home studio.
 - **fronthost permissions**: Can check in members, handle payments (credit adjustments), and access daily session/stats views. Cannot edit layouts, manage schedules, or access franchise-level data. Instructors default `canCheckInMembers: false`.
 - **Instructor permissions** (`InstructorPermissions` JSON on `Instructor` model): `canCheckInMembers`, `canManageWaitlist` (true by default), `canManageBookings`, `canViewMemberContact`, `canEditSessionDetails`, `canCancelSession`, `canCreateSchedules` (all false by default). Managed via PermissionsTab; `canCreateSchedules` gates schedule creation/edit/delete UI in CalendarView.
 - **Tenant isolation**: All admin routes call `assertStudioAccess(userId, studioId)` which checks `Member.studioId === studioId`. An admin from studio A cannot access studio B's data.
@@ -167,7 +170,7 @@ Seed data lives in `packages/db/src/seed.ts`:
   - `GET /schedules/orphaned?studioId=` — unique session patterns with no schedule link *(instructor+ role)*
   - `DELETE /schedules/orphaned` — delete future unbooked orphaned sessions by pattern
   - Read-only GETs require `instructor` (rank 2); mutating POST/PATCH/DELETE require `studio_admin` (rank 3)
-- `staff.ts` — `GET/POST /staff`, `DELETE /staff/:memberId`; valid roles: `fronthost`, `instructor`; creating instructor role also upserts `Instructor` DB record; deleting removes `Instructor` record if present
+- `staff.ts` — `GET/POST /staff`, `DELETE /staff/:memberId[?role=]`; valid roles: `fronthost`, `instructor`; role assignment is **additive** — POST merges new role with existing `staffRoles`; DELETE with `?role=X` removes a single role from dual-role member; DELETE without role param removes all roles; creating instructor role upserts `Instructor` DB record; deleting instructor role removes it
 - `franchise.ts` — multi-studio management
   - `GET /franchise/studios` — all studios summary
   - `GET /franchise/studios/:id/instructors` — instructors with permissions (studio_admin+)
@@ -197,11 +200,12 @@ Seed data lives in `packages/db/src/seed.ts`:
 
 ### Franchise / studio management components
 - `franchise/FranchiseDashboard.tsx` — multi-studio overview cards, drill into per-studio management; `onStudioUpdate` callback keeps cards in sync after settings save without reload
-- `studio/StudioManagerDashboard.tsx` — tabbed per-studio view; role-aware: instructors see Today + Calendar only; clicking a session opens room map directly; `myClassesOnly` filter defaults ON for instructors; loads own `Instructor` record to pass `myInstructorId` + `myPermissions` to CalendarView; studio name shown in NavBar for all roles
+- `studio/StudioManagerDashboard.tsx` — tabbed per-studio view; role-aware: instructors see Today + Calendar only; clicking a session opens room map directly; `myClassesOnly` filter defaults ON for instructors; loads own `Instructor` record to pass `myInstructorId` + `myPermissions` to CalendarView; studio name shown in NavBar for all roles; accepts `modeSwitch?: React.ReactNode` prop passed to NavBar `action` slot (used by DualRoleDashboard)
+- `dual/DualRoleDashboard.tsx` — renders for users with both `fronthost` + `instructor` roles; inline `ModeSwitcher` toggle (Front Desk / Instructor) injected into the NavBar `action` slot via the `modeSwitch` prop; defaults to Front Desk mode
 - `studio/RoomsTab.tsx` — room list + layout editor (editor-only, no session features)
 - `studio/PermissionsTab.tsx` — per-instructor permission toggles with accordion UI; toggle fix: explicit `left-1 translate-x-0/translate-x-4` anchoring required; includes `canCreateSchedules` permission
 - `studio/SettingsTab.tsx` — studio name, timezone (grouped optgroup, ~80 zones), currency (34 options); calls `onStudioUpdate` on save
-- `studio/StaffTab.tsx` — manage fronthosts and instructors; violet badge for instructors; shortcut to Permissions tab for instructor rows; creating an instructor role upserts an `Instructor` DB record; removing it deletes the record
+- `studio/StaffTab.tsx` — manage fronthosts and instructors; violet badge for instructors, blue for front desk; additive role assignment — help text explains users can hold both roles; dual-role members show per-role `×` remove button on each badge; single "Remove" button removes all roles entirely; shortcut to Permissions tab for instructor rows
 
 ### Calendar components (`components/calendar/`)
 - `CalendarView.tsx` — three views: `week` (time grid with overlap layout), `month` (sport-dot grid), `schedules` (master recurring + orphaned sessions)
@@ -219,7 +223,7 @@ Seed data lives in `packages/db/src/seed.ts`:
 - `constants.ts` — `STATION_META` (icon, color, physical size in metres per type), `GRID_STEP`, `snapToGrid`
 
 ### Fronthost components (`components/fronthost/`)
-- `FronthostDashboard.tsx` — full-screen layout: session sidebar (w-72) with today's sessions, LIVE badge, fill bar, date picker; clicking a session loads `<RoomMapView variant="checkin" />`; "+ Credits" button opens CreditModal
+- `FronthostDashboard.tsx` — full-screen layout: session sidebar (w-72) with today's sessions, LIVE badge, fill bar, date picker; clicking a session loads `<RoomMapView variant="checkin" />`; "+ Credits" button opens CreditModal; accepts `modeSwitch?: React.ReactNode` prop passed to NavBar `action` slot
 - `CreditModal.tsx` — member search via `api.admin.searchMembers`; preset amounts (+5, +10, +20, +30) with deduct toggle; manual amount + optional note; calls `api.admin.adjustCredits`
 
 ### Tests
@@ -277,6 +281,7 @@ apps/
         studio/           # StudioManagerDashboard, RoomsTab, PermissionsTab, SettingsTab
         room/             # RoomMapView, RoomMapEditor, SessionRoomMap, constants
         fronthost/        # FronthostDashboard, CreditModal
+        dual/             # DualRoleDashboard (fronthost+instructor mode switcher)
         onboarding/       # Onboarding wizard steps
       lib/
         api.ts            # Typed API client

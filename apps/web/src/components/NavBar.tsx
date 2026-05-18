@@ -9,6 +9,8 @@ interface Props {
   subtitle?: string
   /** Element rendered left of the title (e.g. back button) */
   leading?: React.ReactNode
+  /** Element rendered between the title and the nav links (e.g. mode switcher) */
+  action?: React.ReactNode
   /** Extra content rendered below the title+nav row (e.g. day tabs, filters) */
   children?: React.ReactNode
 }
@@ -16,7 +18,7 @@ interface Props {
 const ELEVATED = new Set(['admin', 'franchise_admin', 'studio_admin', 'instructor'])
 const FRONTHOST = new Set(['fronthost'])
 
-export default function NavBar({ title, subtitle, leading, children }: Props) {
+export default function NavBar({ title, subtitle, leading, action, children }: Props) {
   const [role, setRole] = useState<string | undefined>()
   const [displayName, setDisplayName] = useState<string | undefined>()
   const router = useRouter()
@@ -61,6 +63,8 @@ export default function NavBar({ title, subtitle, leading, children }: Props) {
               {subtitle && <p className="text-sm text-gray-400">{subtitle}</p>}
             </div>
           </div>
+
+          {action && <div className="flex-1 flex justify-center">{action}</div>}
 
           <nav className="flex items-center gap-5">
             {navLinks.map(({ label, href }) => {

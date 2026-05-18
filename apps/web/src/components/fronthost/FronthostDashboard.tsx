@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { api, type AdminSession } from '@/lib/api'
 import NavBar from '@/components/NavBar'
@@ -17,7 +17,7 @@ function isoDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export default function FronthostDashboard({ defaultStudioId }: { defaultStudioId?: string }) {
+export default function FronthostDashboard({ defaultStudioId, modeSwitch }: { defaultStudioId?: string; modeSwitch?: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null)
   const [studios, setStudios] = useState<Studio[]>([])
   const [studioId, setStudioId] = useState<string | null>(defaultStudioId ?? null)
@@ -67,7 +67,7 @@ export default function FronthostDashboard({ defaultStudioId }: { defaultStudioI
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">
-      <NavBar title="Front Desk" subtitle={currentStudio?.name ?? 'Check-in & customer management'}>
+      <NavBar title="Front Desk" subtitle={currentStudio?.name ?? 'Check-in & customer management'} action={modeSwitch}>
         <div className="flex items-center gap-3 pb-3 flex-wrap">
           {/* Studio switcher — only shown when assigned to more than one studio */}
           {studios.length > 1 && (

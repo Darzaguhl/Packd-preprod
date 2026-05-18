@@ -21,9 +21,10 @@ export const ROLE_RANK: Record<UserRole, number> = {
 export interface AuthUser {
   id: string
   email: string
-  role: UserRole
-  studioId?: string     // first assigned studio (backward compat)
-  studioIds?: string[]  // all studios this user is assigned to (staff only)
+  role: UserRole          // primary role (highest rank) — used for requireRole() checks
+  roles: string[]         // all assigned roles — used for dashboard routing (e.g. dual fronthost+instructor)
+  studioId?: string       // first assigned studio (backward compat)
+  studioIds?: string[]    // all studios this user is assigned to (staff only)
 }
 
 // ─── Schedule ─────────────────────────────────────────────────────────────────
