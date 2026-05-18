@@ -5,6 +5,13 @@ let boss: PgBoss
 
 export async function setupJobs() {
   boss = new PgBoss(process.env.PGBOSS_DATABASE_URL ?? process.env.DATABASE_URL!)
+
+  // pg-boss requires an error listener — without one Node will throw an unhandled
+  // exception and kill the entire process on any DB connectivity blip.
+  boss.on('error', (err: Error) => {
+    console.error('[pg-boss]', err.message)
+  })
+
   await boss.start()
 
   // Create all queues first (required in pg-boss v10 — sequential to avoid DDL deadlocks)
