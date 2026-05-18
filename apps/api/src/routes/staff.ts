@@ -236,12 +236,8 @@ export async function staffRoutes(app: FastifyInstance) {
         })
         if (removingInstructor) {
           await prisma.instructor.deleteMany({ where: { userId: member.user.id, studioId: studioToRemove } })
-        } else if (remainingRoles.includes('instructor')) {
-          await prisma.instructor.updateMany({
-            where: { userId: member.user.id, studioId: studioToRemove },
-            data: { studioId: newStudios[0] },
-          })
         }
+        // If instructor role is kept, the per-studio Instructor record stays as-is
       }
 
       return reply.send({ success: true, remainingRoles, remainingStudios: remainingStudios.length })
