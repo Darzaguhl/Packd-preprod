@@ -10,65 +10,75 @@ import {
   DEFAULT_FRONTHOST_PERMISSIONS,
 } from '@/lib/api'
 
-// ─── Permission metadata ────────────────────────────────────────────────────
+// ─── Merged permission definition ────────────────────────────────────────────
+// Each entry maps to one or both roles. For dual-role users, shared permissions
+// show a single toggle that controls both simultaneously.
 
-const INSTRUCTOR_PERMISSION_META: { key: keyof InstructorPermissions; label: string; description: string }[] = [
-  { key: 'canCheckInMembers',     label: 'Check in members',        description: 'Scan or manually check in attendees at class' },
-  { key: 'canManageWaitlist',     label: 'Manage waitlist',         description: 'Promote or remove members from the waitlist' },
-  { key: 'canManageBookings',     label: 'Manage bookings',         description: 'Cancel or modify member bookings' },
-  { key: 'canViewMemberContact',  label: 'View member contact',     description: 'See member email addresses and phone numbers' },
-  { key: 'canEditSessionDetails', label: 'Edit session details',    description: 'Change capacity, credits required, or timing' },
-  { key: 'canCancelSession',      label: 'Cancel a session',        description: 'Mark a session as cancelled' },
-  { key: 'canCreateSchedules',    label: 'Create & edit schedules', description: 'Add recurring schedules and modify existing ones' },
+type RoleKey = 'instructor' | 'fronthost'
+
+interface PermDef {
+  label: string
+  description: string
+  // Which role(s) this permission belongs to and the field name in each
+  instructor?: keyof InstructorPermissions
+  fronthost?: keyof FronthostPermissions
+}
+
+const ALL_PERMS: PermDef[] = [
+  { label: 'Check in members',        description: 'Scan or manually check in attendees at class',         instructor: 'canCheckInMembers' },
+  { label: 'Manage waitlist',         description: 'Promote or remove members from the waitlist',           instructor: 'canManageWaitlist',     fronthost: 'canManageWaitlist' },
+  { label: 'Manage bookings',         description: 'Cancel or modify member bookings',                      instructor: 'canManageBookings',     fronthost: 'canManageBookings' },
+  { label: 'View member contact',     description: 'See member email addresses and phone numbers',          instructor: 'canViewMemberContact',  fronthost: 'canViewMemberContact' },
+  { label: 'Adjust credits',          description: 'Add or deduct credits from member accounts',            fronthost: 'canAdjustCredits' },
+  { label: 'Edit session details',    description: 'Change capacity, credits required, or timing',          instructor: 'canEditSessionDetails' },
+  { label: 'Cancel a session',        description: 'Mark a session as cancelled',                           instructor: 'canCancelSession' },
+  { label: 'Create & edit schedules', description: 'Add recurring schedules and modify existing ones',      instructor: 'canCreateSchedules' },
 ]
 
-const FRONTHOST_PERMISSION_META: { key: keyof FronthostPermissions; label: string; description: string }[] = [
-  { key: 'canAdjustCredits',     label: 'Adjust credits',      description: 'Add or deduct credits from member accounts' },
-  { key: 'canManageWaitlist',    label: 'Manage waitlist',     description: 'Promote or remove members from the waitlist' },
-  { key: 'canManageBookings',    label: 'Manage bookings',     description: 'Cancel or modify member bookings' },
-  { key: 'canViewMemberContact', label: 'View member contact', description: 'See member email addresses and phone numbers' },
-]
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function initials(name: string) {
   return name.split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()
 }
 
-function roleLabel(role: 'instructor' | 'fronthost') {
+function roleLabel(role: RoleKey) {
   return role === 'instructor' ? 'Instructor' : 'Front Desk'
 }
 
-function roleColor(role: 'instructor' | 'fronthost', selected = false) {
-  if (selected) return 'bg-white/20 text-white'
-  return role === 'instructor' ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'
+function badgeClass(role: RoleKey) {
+  return role === 'instructor'
+    ? 'text-violet-600 bg-violet-50'
+    : 'text-blue-600 bg-blue-50'
 }
 
-function badgeColor(role: 'instructor' | 'fronthost') {
-  return role === 'instructor' ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700'
+function avatarClass(roles: RoleKey[]) {
+  if (roles.length > 1) return 'bg-gray-200 text-gray-600'
+  return roles[0] === 'instructor' ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'
 }
 
-// ─── Local permission state ──────────────────────────────────────────────────
+// ─── Local permission state ───────────────────────────────────────────────────
 
 interface LocalPerms {
-  instructor?: InstructorPermissions
-  fronthost?: FronthostPermissions
+  instructor: InstructorPermissions
+  fronthost: FronthostPermissions
 }
 
 function buildLocal(s: StaffWithPermissions): LocalPerms {
   return {
-    instructor: s.instructorPermissions ? { ...DEFAULT_INSTRUCTOR_PERMISSIONS, ...s.instructorPermissions } : undefined,
-    fronthost: s.fronthostPermissions ? { ...DEFAULT_FRONTHOST_PERMISSIONS, ...s.fronthostPermissions } : undefined,
+    instructor: { ...DEFAULT_INSTRUCTOR_PERMISSIONS, ...s.instructorPermissions },
+    fronthost:  { ...DEFAULT_FRONTHOST_PERMISSIONS,  ...s.fronthostPermissions  },
   }
 }
 
 function isDirty(s: StaffWithPermissions, local: LocalPerms): boolean {
-  if (local.instructor && JSON.stringify(local.instructor) !== JSON.stringify({ ...DEFAULT_INSTRUCTOR_PERMISSIONS, ...s.instructorPermissions })) return true
-  if (local.fronthost && JSON.stringify(local.fronthost) !== JSON.stringify({ ...DEFAULT_FRONTHOST_PERMISSIONS, ...s.fronthostPermissions })) return true
+  const origI = JSON.stringify({ ...DEFAULT_INSTRUCTOR_PERMISSIONS, ...s.instructorPermissions })
+  const origF = JSON.stringify({ ...DEFAULT_FRONTHOST_PERMISSIONS,  ...s.fronthostPermissions  })
+  if (s.roles.includes('instructor') && JSON.stringify(local.instructor) !== origI) return true
+  if (s.roles.includes('fronthost')  && JSON.stringify(local.fronthost)  !== origF) return true
   return false
 }
 
-// ─── Toggle switch ────────────────────────────────────────────────────────────
+// ─── Toggle ───────────────────────────────────────────────────────────────────
 
 function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   return (
@@ -76,58 +86,26 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
       role="switch"
       aria-checked={on}
       onClick={onToggle}
-      className={`w-10 h-6 rounded-full transition-colors shrink-0 relative ${on ? 'bg-gray-900' : 'bg-gray-200'}`}
+      className={`w-9 h-5 rounded-full transition-colors shrink-0 relative mt-0.5 ${on ? 'bg-gray-900' : 'bg-gray-200'}`}
     >
-      <span className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${on ? 'translate-x-4' : 'translate-x-0'}`} />
+      <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${on ? 'translate-x-4' : 'translate-x-0'}`} />
     </button>
   )
 }
 
-// ─── Permission section ───────────────────────────────────────────────────────
-
-function PermSection<T extends Record<string, boolean>>({
-  role, meta, perms, onToggle,
-}: {
-  role: 'instructor' | 'fronthost'
-  meta: { key: keyof T; label: string; description: string }[]
-  perms: T
-  onToggle: (key: keyof T) => void
-}) {
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-3">
-        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${badgeColor(role)}`}>
-          {roleLabel(role)}
-        </span>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {meta.map(({ key, label, description }) => (
-          <label key={String(key)} className="flex items-start gap-3 cursor-pointer">
-            <Toggle on={perms[key as string] ?? false} onToggle={() => onToggle(key)} />
-            <div className="pt-0.5">
-              <p className="text-sm font-medium text-gray-800 leading-tight">{label}</p>
-              <p className="text-xs text-gray-400 mt-0.5 leading-snug">{description}</p>
-            </div>
-          </label>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ─── Main component ──────────────────────────────────────────────────────────
+// ─── Main component ───────────────────────────────────────────────────────────
 
 interface Props { studioId: string; token: string }
 
 export default function PermissionsTab({ studioId, token }: Props) {
-  const [staff, setStaff] = useState<StaffWithPermissions[]>([])
-  const [loading, setLoading] = useState(true)
+  const [staff, setStaff]           = useState<StaffWithPermissions[]>([])
+  const [loading, setLoading]       = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
-  const [roleFilter, setRoleFilter] = useState<'all' | 'instructor' | 'fronthost'>('all')
-  const [local, setLocal] = useState<Record<string, LocalPerms>>({})
-  const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
+  const [search, setSearch]         = useState('')
+  const [roleFilter, setRoleFilter] = useState<'all' | RoleKey>('all')
+  const [local, setLocal]           = useState<Record<string, LocalPerms>>({})
+  const [saving, setSaving]         = useState(false)
+  const [toast, setToast]           = useState<{ msg: string; ok: boolean } | null>(null)
 
   useEffect(() => {
     api.franchise.staffPermissions(studioId, token)
@@ -146,26 +124,46 @@ export default function PermissionsTab({ studioId, token }: Props) {
     setTimeout(() => setToast(null), 3000)
   }
 
+  function togglePerm(staffId: string, def: PermDef, roles: RoleKey[]) {
+    setLocal(prev => {
+      const cur = prev[staffId]
+      // Determine current value (OR across relevant roles)
+      const currentVal = (def.instructor && roles.includes('instructor'))
+        ? cur.instructor[def.instructor]
+        : def.fronthost ? cur.fronthost[def.fronthost] : false
+      const next = !currentVal
+      return {
+        ...prev,
+        [staffId]: {
+          instructor: def.instructor && roles.includes('instructor')
+            ? { ...cur.instructor, [def.instructor]: next }
+            : cur.instructor,
+          fronthost: def.fronthost && roles.includes('fronthost')
+            ? { ...cur.fronthost, [def.fronthost]: next }
+            : cur.fronthost,
+        },
+      }
+    })
+  }
+
   async function save() {
     if (!selectedId) return
     const s = staff.find(x => x.id === selectedId)
     if (!s) return
-    const perms = local[selectedId]
+    const p = local[selectedId]
     setSaving(true)
     try {
       await Promise.all([
-        perms.instructor && s.id !== s.memberId
-          ? api.franchise.updatePermissions(studioId, s.id, perms.instructor, token)
+        s.roles.includes('instructor')
+          ? api.franchise.updatePermissions(studioId, s.id, p.instructor, token)
           : null,
-        perms.fronthost && s.memberId
-          ? api.franchise.updateFronthostPermissions(studioId, s.memberId, perms.fronthost, token)
+        s.roles.includes('fronthost') && s.memberId
+          ? api.franchise.updateFronthostPermissions(studioId, s.memberId, p.fronthost, token)
           : null,
       ])
-      setStaff(prev => prev.map(x => x.id === selectedId ? {
-        ...x,
-        instructorPermissions: perms.instructor ?? x.instructorPermissions,
-        fronthostPermissions: perms.fronthost ?? x.fronthostPermissions,
-      } : x))
+      setStaff(prev => prev.map(x => x.id === selectedId
+        ? { ...x, instructorPermissions: p.instructor, fronthostPermissions: p.fronthost }
+        : x))
       showToast('Permissions saved')
     } catch {
       showToast('Failed to save', false)
@@ -184,8 +182,18 @@ export default function PermissionsTab({ studioId, token }: Props) {
   }, [staff, search, roleFilter])
 
   const selected = staff.find(s => s.id === selectedId) ?? null
-  const perms = selectedId ? local[selectedId] : null
-  const dirty = selected && perms ? isDirty(selected, perms) : false
+  const perms    = selectedId ? local[selectedId] : null
+  const dirty    = selected && perms ? isDirty(selected, perms) : false
+
+  // Build the visible permission rows for the selected staff member
+  const visiblePerms = useMemo(() => {
+    if (!selected) return []
+    const roles = selected.roles
+    return ALL_PERMS.filter(d =>
+      (d.instructor && roles.includes('instructor')) ||
+      (d.fronthost  && roles.includes('fronthost'))
+    )
+  }, [selected])
 
   if (loading) {
     return (
@@ -219,57 +227,42 @@ export default function PermissionsTab({ studioId, token }: Props) {
             className="w-full pl-8 pr-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
           />
         </div>
-
         <div className="flex gap-1">
           {(['all', 'instructor', 'fronthost'] as const).map(r => (
-            <button
-              key={r}
-              onClick={() => setRoleFilter(r)}
+            <button key={r} onClick={() => setRoleFilter(r)}
               className={`flex-1 text-[10px] font-medium py-1 rounded-md transition-colors ${
                 roleFilter === r ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-              }`}
-            >
+              }`}>
               {r === 'all' ? 'All' : r === 'instructor' ? 'Instructors' : 'Front Desk'}
             </button>
           ))}
         </div>
-
         <div className="flex-1 overflow-y-auto space-y-1 pr-0.5" style={{ maxHeight: '480px' }}>
-          {filtered.length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-6">No results</p>
-          ) : filtered.map(s => {
-            const isSelected = selectedId === s.id
-            // Avatar color: violet if instructor-only, blue if fronthost-only, gray if dual
-            const avatarClass = isSelected
-              ? 'bg-white/20 text-white'
-              : s.roles.length > 1 ? 'bg-gray-200 text-gray-600'
-              : roleColor(s.roles[0], false)
-
-            return (
-              <button
-                key={s.id}
-                onClick={() => setSelectedId(s.id)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition-colors ${
-                  isSelected ? 'bg-gray-900 text-white' : 'bg-white border border-gray-100 hover:bg-gray-50'
-                }`}
-              >
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${avatarClass}`}>
-                  {initials(s.name)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-xs font-semibold truncate ${isSelected ? 'text-white' : 'text-gray-900'}`}>
-                    {s.name}
-                  </p>
-                  <p className={`text-[10px] truncate ${isSelected ? 'text-gray-300' : 'text-gray-400'}`}>
-                    {s.roles.map(roleLabel).join(' · ')}
-                  </p>
-                </div>
-                {local[s.id] && isDirty(s, local[s.id]) && (
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isSelected ? 'bg-amber-300' : 'bg-amber-400'}`} />
-                )}
-              </button>
-            )
-          })}
+          {filtered.length === 0
+            ? <p className="text-xs text-gray-400 text-center py-6">No results</p>
+            : filtered.map(s => {
+              const isSel = selectedId === s.id
+              return (
+                <button key={s.id} onClick={() => setSelectedId(s.id)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition-colors ${
+                    isSel ? 'bg-gray-900' : 'bg-white border border-gray-100 hover:bg-gray-50'
+                  }`}>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${
+                    isSel ? 'bg-white/20 text-white' : avatarClass(s.roles)
+                  }`}>
+                    {initials(s.name)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-xs font-semibold truncate ${isSel ? 'text-white' : 'text-gray-900'}`}>{s.name}</p>
+                    <p className={`text-[10px] truncate ${isSel ? 'text-gray-300' : 'text-gray-400'}`}>{s.roles.map(roleLabel).join(' · ')}</p>
+                  </div>
+                  {local[s.id] && isDirty(s, local[s.id]) && (
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isSel ? 'bg-amber-300' : 'bg-amber-400'}`} />
+                  )}
+                </button>
+              )
+            })
+          }
         </div>
       </div>
 
@@ -283,9 +276,7 @@ export default function PermissionsTab({ studioId, token }: Props) {
           <div className="bg-white border border-gray-100 rounded-2xl p-6 flex flex-col gap-5">
             {/* Header */}
             <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
-                selected.roles.length > 1 ? 'bg-gray-200 text-gray-600' : roleColor(selected.roles[0])
-              }`}>
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${avatarClass(selected.roles)}`}>
                 {initials(selected.name)}
               </div>
               <div className="flex-1 min-w-0">
@@ -294,62 +285,58 @@ export default function PermissionsTab({ studioId, token }: Props) {
               </div>
               <div className="flex gap-1.5">
                 {selected.roles.map(r => (
-                  <span key={r} className={`text-[10px] font-semibold px-2.5 py-1 rounded-full ${badgeColor(r)}`}>
+                  <span key={r} className={`text-[10px] font-semibold px-2.5 py-1 rounded-full ${badgeClass(r)}`}>
                     {roleLabel(r)}
                   </span>
                 ))}
               </div>
             </div>
 
-            {/* Instructor permissions section */}
-            {perms.instructor && (
-              <PermSection
-                role="instructor"
-                meta={INSTRUCTOR_PERMISSION_META}
-                perms={perms.instructor}
-                onToggle={(key) => setLocal(prev => ({
-                  ...prev,
-                  [selected.id]: {
-                    ...prev[selected.id],
-                    instructor: { ...prev[selected.id].instructor!, [key]: !prev[selected.id].instructor![key] },
-                  },
-                }))}
-              />
-            )}
+            {/* Permission grid — 3 columns */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-4">
+              {visiblePerms.map(def => {
+                const roles = selected.roles
+                // Determine toggle value
+                const val = def.instructor && roles.includes('instructor')
+                  ? perms.instructor[def.instructor]
+                  : def.fronthost ? perms.fronthost[def.fronthost!] : false
 
-            {/* Divider between sections for dual-role */}
-            {perms.instructor && perms.fronthost && (
-              <div className="border-t border-gray-100" />
-            )}
+                // Role tag(s) — only shown for dual-role users where the permission isn't shared
+                const isDual = roles.length > 1
+                const belongsToInstructor = !!def.instructor && roles.includes('instructor')
+                const belongsToFronthost  = !!def.fronthost  && roles.includes('fronthost')
+                const isShared = belongsToInstructor && belongsToFronthost
+                const showTag = isDual && !isShared
 
-            {/* Front Desk permissions section */}
-            {perms.fronthost && (
-              <PermSection
-                role="fronthost"
-                meta={FRONTHOST_PERMISSION_META}
-                perms={perms.fronthost}
-                onToggle={(key) => setLocal(prev => ({
-                  ...prev,
-                  [selected.id]: {
-                    ...prev[selected.id],
-                    fronthost: { ...prev[selected.id].fronthost!, [key]: !prev[selected.id].fronthost![key] },
-                  },
-                }))}
-              />
-            )}
+                return (
+                  <label key={def.label} className="flex items-start gap-2.5 cursor-pointer">
+                    <Toggle on={val} onToggle={() => togglePerm(selected.id, def, roles)} />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="text-sm font-medium text-gray-800 leading-tight">{def.label}</p>
+                        {showTag && (
+                          <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full leading-none ${
+                            belongsToInstructor ? 'text-violet-600 bg-violet-50' : 'text-blue-600 bg-blue-50'
+                          }`}>
+                            {belongsToInstructor ? 'Instructor' : 'Front Desk'}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5 leading-snug">{def.description}</p>
+                    </div>
+                  </label>
+                )
+              })}
+            </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-between pt-2 border-t border-gray-50">
-              {dirty ? (
-                <span className="text-xs text-amber-500 font-medium">Unsaved changes</span>
-              ) : (
-                <span className="text-xs text-gray-300">All changes saved</span>
-              )}
-              <button
-                onClick={save}
-                disabled={saving || !dirty}
-                className="text-xs font-medium bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors"
-              >
+            <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+              {dirty
+                ? <span className="text-xs text-amber-500 font-medium">Unsaved changes</span>
+                : <span className="text-xs text-gray-300">All changes saved</span>
+              }
+              <button onClick={save} disabled={saving || !dirty}
+                className="text-xs font-medium bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors">
                 {saving ? 'Saving…' : 'Save permissions'}
               </button>
             </div>
