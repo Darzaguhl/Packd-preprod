@@ -44,6 +44,24 @@ export interface InstructorWithPermissions {
   permissions: InstructorPermissions
 }
 
+export interface FronthostPermissions {
+  canAdjustCredits: boolean
+  canManageBookings: boolean
+  canManageWaitlist: boolean
+  canViewMemberContact: boolean
+}
+
+export const DEFAULT_FRONTHOST_PERMISSIONS: FronthostPermissions = {
+  canAdjustCredits: true,
+  canManageBookings: false,
+  canManageWaitlist: true,
+  canViewMemberContact: true,
+}
+
+export type StaffWithPermissions =
+  | { id: string; memberId: null; userId: string; name: string; email: string; role: 'instructor'; permissions: InstructorPermissions }
+  | { id: string; memberId: string; userId: string; name: string; email: string; role: 'fronthost'; permissions: FronthostPermissions }
+
 export interface StudioSummary {
   id: string
   name: string
@@ -331,6 +349,13 @@ export const api = {
     updatePermissions: (studioId: string, instructorId: string, permissions: Partial<InstructorPermissions>, token: string) =>
       apiFetch<{ success: boolean; permissions: InstructorPermissions }>(
         `/franchise/studios/${studioId}/instructors/${instructorId}/permissions`,
+        { method: 'PATCH', body: JSON.stringify(permissions), token },
+      ),
+    staffPermissions: (studioId: string, token: string) =>
+      apiFetch<StaffWithPermissions[]>(`/franchise/studios/${studioId}/staff-permissions`, { token }),
+    updateFronthostPermissions: (studioId: string, memberId: string, permissions: Partial<FronthostPermissions>, token: string) =>
+      apiFetch<{ success: boolean; permissions: FronthostPermissions }>(
+        `/franchise/studios/${studioId}/fronthosts/${memberId}/permissions`,
         { method: 'PATCH', body: JSON.stringify(permissions), token },
       ),
   },
