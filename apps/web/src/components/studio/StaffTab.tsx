@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { api, type StaffMember } from '@/lib/api'
+import PhotosTab from './PhotosTab'
 
 interface Props {
   studioId: string
@@ -30,6 +31,9 @@ export default function StaffTab({ studioId, token, onOpenPermissions }: Props) 
 
   // Per-member adding-role state  { memberId: roleBeingAdded }
   const [addingRole, setAddingRole] = useState<Record<string, string>>({})
+
+  // Photo gallery drawer: which instructor's photos to show
+  const [photoMember, setPhotoMember] = useState<StaffMember | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -245,15 +249,32 @@ export default function StaffTab({ studioId, token, onOpenPermissions }: Props) 
                     ))}
                   </div>
 
-                  {/* Permissions shortcut for instructors */}
-                  {member.staffRoles.includes('instructor') && onOpenPermissions && (
-                    <button
-                      onClick={onOpenPermissions}
-                      className="text-xs text-gray-400 hover:text-violet-600 transition-colors shrink-0"
-                      title="Edit instructor permissions"
-                    >
-                      Permissions
-                    </button>
+                  {/* Instructor shortcuts */}
+                  {member.staffRoles.includes('instructor') && (
+                    <div className="flex items-center gap-2 shrink-0">
+                      {member.instructorId && (
+                        <button
+                          onClick={() => setPhotoMember(photoMember?.id === member.id ? null : member)}
+                          className={`text-xs font-medium transition-colors shrink-0 ${
+                            photoMember?.id === member.id
+                              ? 'text-violet-600'
+                              : 'text-gray-400 hover:text-violet-600'
+                          }`}
+                          title="Manage photo repository"
+                        >
+                          Photos
+                        </button>
+                      )}
+                      {onOpenPermissions && (
+                        <button
+                          onClick={onOpenPermissions}
+                          className="text-xs text-gray-400 hover:text-violet-600 transition-colors shrink-0"
+                          title="Edit instructor permissions"
+                        >
+                          Permissions
+                        </button>
+                      )}
+                    </div>
                   )}
 
                   {/* Remove all */}
@@ -270,6 +291,27 @@ export default function StaffTab({ studioId, token, onOpenPermissions }: Props) 
           </div>
         )}
       </div>
+      {/* ── Photo gallery drawer ── */}
+      {photoMember && photoMember.instructorId && (
+        <div className="bg-white rounded-2xl border border-violet-100 p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">{photoMember.name} — Photos</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Upload photos or mark existing ones as approved for social media.</p>
+            </div>
+            <button
+              onClick={() => setPhotoMember(null)}
+              className="text-gray-400 hover:text-gray-700 transition-colors p-1"
+              title="Close"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          </div>
+          <PhotosTab instructorId={photoMember.instructorId} token={token} isManager={true} />
+        </div>
+      )}
     </div>
   )
 }

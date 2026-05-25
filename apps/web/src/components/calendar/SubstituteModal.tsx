@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import { api, type CalendarSession, type CalendarInstructor } from '@/lib/api'
+import { useTimeFormat } from '@/lib/time-format-context'
+import { fmtTime } from '@/lib/fmt-time'
 
 interface Props {
   session: CalendarSession
@@ -13,6 +15,7 @@ interface Props {
 }
 
 export default function SubstituteModal({ session, studioId, token, instructors, onSave, onClose }: Props) {
+  const timeFormat = useTimeFormat()
   const [selectedId, setSelectedId] = useState<string>(session.substituteInstructorId ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -62,7 +65,7 @@ export default function SubstituteModal({ session, studioId, token, instructors,
           <div className="text-xs text-gray-500">
             <span className="font-medium text-gray-700">{session.templateName}</span>
             {' '}· {new Date(session.startsAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-            {' '}at {new Date(session.startsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+            {' '}at {fmtTime(session.startsAt, timeFormat)}
           </div>
 
           <div className="text-xs text-gray-400">

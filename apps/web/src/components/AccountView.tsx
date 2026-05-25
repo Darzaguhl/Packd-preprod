@@ -7,13 +7,11 @@ import { api, type UpcomingBooking } from '@/lib/api'
 import type { MemberProfile } from '@packd/types'
 import { sportConfig } from '@/components/schedule/constants'
 import NavBar from '@/components/NavBar'
+import { useTimeFormat } from '@/lib/time-format-context'
+import { fmtTime } from '@/lib/fmt-time'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-}
-
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
 
 function durationMin(startsAt: string, endsAt: string) {
@@ -40,6 +38,7 @@ const ROLE_LABELS: Record<string, string> = {
 
 
 export default function AccountView() {
+  const timeFormat = useTimeFormat()
   const [authUser, setAuthUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<MemberProfile | null>(null)
   const [bookings, setBookings] = useState<UpcomingBooking[]>([])
@@ -195,7 +194,7 @@ export default function AccountView() {
                       <div className="flex-1 px-4 py-3 flex items-center gap-4">
                         <div className="shrink-0 w-24">
                           <p className="text-xs font-medium text-gray-500">{formatDate(b.startsAt)}</p>
-                          <p className="text-sm font-semibold text-gray-900 tabular-nums">{formatTime(b.startsAt)}</p>
+                          <p className="text-sm font-semibold text-gray-900 tabular-nums">{fmtTime(b.startsAt, timeFormat)}</p>
                           <p className="text-xs text-gray-400">{durationMin(b.startsAt, b.endsAt)}m</p>
                         </div>
 

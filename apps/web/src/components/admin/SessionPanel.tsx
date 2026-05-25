@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { api, type AdminSession, type AdminBooking } from '@/lib/api'
+import { useTimeFormat } from '@/lib/time-format-context'
+import { fmtTime } from '@/lib/fmt-time'
 
 interface Props {
   session: AdminSession
@@ -50,8 +52,9 @@ export default function SessionPanel({ session, token, onClose, onSessionUpdate,
     }
   }
 
+  const timeFormat = useTimeFormat()
   const checkedInCount = bookings.filter(b => b.checkedIn).length
-  const startTime = new Date(session.startsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  const startTime = fmtTime(session.startsAt, timeFormat)
   const isCancelled = session.status === 'CANCELLED'
 
   return (

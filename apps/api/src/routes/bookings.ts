@@ -1,15 +1,18 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma, Prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
+import { ROLE_RANK } from '@packd/types'
 import { enqueueLateCancelCheck } from '../jobs/index.js'
 
 export async function bookingRoutes(app: FastifyInstance) {
   // POST /bookings — create booking
-  app.post<{ Body: { sessionId: string } }>(
+  // Privileged roles (studio_admin, fronthost, instructor, etc.) may pass a
+  // memberId in the body to book on behalf of another member (walk-in flow).
+  app.post<{ Body: { sessionId: string; memberId?: string } }>(
     '/',
     { preHandler: requireAuth },
     async (request, reply) => {
-      const { sessionId } = request.body
+      const { sessionId, memberId: targetMemberId } = request.body
 
       // Fix #12: validate required body fields
       if (!sessionId || typeof sessionId !== 'string') {
@@ -18,9 +21,11 @@ export async function bookingRoutes(app: FastifyInstance) {
 
       const user = getUser(request)
 
-      const member = await prisma.member.findUniqueOrThrow({
-        where: { userId: user.id },
-      })
+      // Privileged roles can book on behalf of any member by passing memberId
+      const isPrivileged = ROLE_RANK[user.role] >= ROLE_RANK['fronthost']
+      const member = isPrivileged && targetMemberId
+        ? await prisma.member.findUniqueOrThrow({ where: { id: targetMemberId } })
+        : await prisma.member.findUniqueOrThrow({ where: { userId: user.id } })
 
       // Run capacity check + balance check + booking creation inside a single
       // transaction. Both the session and credit balance are read inside the

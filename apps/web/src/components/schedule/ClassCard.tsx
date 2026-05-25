@@ -5,6 +5,8 @@ import { CSS } from '@dnd-kit/utilities'
 import type { SessionSlot } from '@packd/types'
 import CapacityBar from './CapacityBar'
 import { sportConfig } from './constants'
+import { useTimeFormat } from '@/lib/time-format-context'
+import { fmtTime } from '@/lib/fmt-time'
 
 interface ClassCardProps {
   session: SessionSlot
@@ -25,6 +27,7 @@ export default function ClassCard({
     disabled: !draggable,
   })
 
+  const timeFormat = useTimeFormat()
   const cfg = sportConfig(s.sport)
   const isFull = s.bookedCount >= s.capacity
   const isBooked = !!s.userBookingId
@@ -32,10 +35,7 @@ export default function ClassCard({
   const durationMin = Math.round(
     (new Date(s.endsAt).getTime() - new Date(s.startsAt).getTime()) / 60000,
   )
-  const startTime = new Date(s.startsAt).toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-  })
+  const startTime = fmtTime(s.startsAt, timeFormat)
 
   const style = {
     transform: CSS.Transform.toString(transform),

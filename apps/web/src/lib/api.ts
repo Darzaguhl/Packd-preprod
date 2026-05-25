@@ -65,6 +65,29 @@ export interface StaffWithPermissions {
   fronthostPermissions?: FronthostPermissions
 }
 
+export interface Product {
+  id: string
+  studioId: string
+  name: string
+  category: string
+  priceInCents: number
+  creditsRequired: number
+  imageUrl: string | null
+  inStock: boolean
+}
+
+export interface InstructorPhoto {
+  id: string
+  instructorId: string
+  studioId: string
+  storageKey: string
+  url: string
+  fileName: string
+  approvedForSocial: boolean
+  uploadedBy: string
+  createdAt: string
+}
+
 export interface StudioSummary {
   id: string
   name: string
@@ -92,6 +115,7 @@ export interface StudioDetail {
   slug: string
   timezone: string
   currency: string
+  timeFormat: string
   locations: StudioLocation[]
 }
 
@@ -147,6 +171,10 @@ export interface RoomLayout {
   stations: Station[]
 }
 
+export interface LayoutTemplate extends RoomLayout {
+  roomName: string
+}
+
 export interface SpotAssignment {
   bookingId: string
   memberId: string
@@ -179,6 +207,24 @@ export interface CalendarSession {
   capacity: number
   creditsRequired: number
   status: string
+}
+
+export interface ClassTemplate {
+  id: string
+  studioId: string
+  name: string
+  sport: string
+  durationMin: number
+  description?: string | null
+  color: string
+  defaultInstructorId?: string | null
+  defaultRoomId?: string | null
+  defaultCapacity?: number | null
+  defaultCreditsRequired?: number | null
+  defaultStartTime?: string | null
+  defaultStartTime2?: string | null
+  defaultDaysOfWeek?: number[]
+  defaultIntervalWeeks?: number
 }
 
 export interface CalendarTemplate {
@@ -249,6 +295,7 @@ export interface StaffMember {
   email: string
   staffRoles: string[]   // e.g. ['fronthost'] | ['instructor'] | ['fronthost','instructor']
   joinedAt: string
+  instructorId: string | null  // Instructor record id for this studio (null for fronthost-only)
 }
 
 export interface AdminBooking {
@@ -290,13 +337,13 @@ async function apiFetch<T>(
 export const api = {
   schedule: {
     list: (studioId: string, from: string, to: string, token: string) =>
-      apiFetch<SessionSlot[]>(`/schedule/${studioId}?from=${from}&to=${to}`, { token }),
+      apiFetch<{ timeFormat: string; sessions: SessionSlot[] }>(`/schedule/${studioId}?from=${from}&to=${to}`, { token }),
   },
   bookings: {
-    create: (sessionId: string, token: string) =>
+    create: (sessionId: string, token: string, memberId?: string) =>
       apiFetch<ApiResponse<{ id: string }>>('/bookings', {
         method: 'POST',
-        body: JSON.stringify({ sessionId }),
+        body: JSON.stringify({ sessionId, ...(memberId ? { memberId } : {}) }),
         token,
       }),
     cancel: (bookingId: string, token: string) =>
@@ -319,7 +366,7 @@ export const api = {
   },
   admin: {
     stats: (studioId: string, token: string) =>
-      apiFetch<{ studioName: string | null; todaySessions: number; totalMembers: number; totalBookingsToday: number; waitlistToday: number }>(
+      apiFetch<{ studioName: string | null; timeFormat: string; currency: string; todaySessions: number; totalMembers: number; totalBookingsToday: number; waitlistToday: number }>(
         `/admin/stats?studioId=${studioId}`, { token }),
     sessions: (studioId: string, date: string, token: string) =>
       apiFetch<AdminSession[]>(`/admin/sessions?studioId=${studioId}&date=${date}`, { token }),
@@ -360,9 +407,49 @@ export const api = {
         { method: 'PATCH', body: JSON.stringify(permissions), token },
       ),
   },
+  photos: {
+    list: (instructorId: string, token: string) =>
+      apiFetch<InstructorPhoto[]>(`/photos/instructors/${instructorId}`, { token }),
+    upload: (instructorId: string, body: { base64: string; fileName: string; contentType: string }, token: string) =>
+      apiFetch<InstructorPhoto>(`/photos/instructors/${instructorId}/upload`, {
+        method: 'POST', body: JSON.stringify(body), token,
+      }),
+    toggleApproval: (instructorId: string, photoId: string, approvedForSocial: boolean, token: string) =>
+      apiFetch<InstructorPhoto>(`/photos/instructors/${instructorId}/${photoId}`, {
+        method: 'PATCH', body: JSON.stringify({ approvedForSocial }), token,
+      }),
+    delete: (instructorId: string, photoId: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/photos/instructors/${instructorId}/${photoId}`, {
+        method: 'DELETE', token,
+      }),
+    approvedByStudio: (studioId: string, token: string) =>
+      apiFetch<(InstructorPhoto & { instructorName: string })[]>(`/photos/studios/${studioId}/approved`, { token }),
+  },
+  templates: {
+    list: (studioId: string, token: string) =>
+      apiFetch<ClassTemplate[]>(`/templates?studioId=${studioId}`, { token }),
+    create: (body: Omit<ClassTemplate, 'id'>, token: string) =>
+      apiFetch<ClassTemplate>('/templates', { method: 'POST', body: JSON.stringify(body), token }),
+    update: (id: string, body: Partial<Omit<ClassTemplate, 'id' | 'studioId'>>, token: string) =>
+      apiFetch<ClassTemplate>(`/templates/${id}`, { method: 'PATCH', body: JSON.stringify(body), token }),
+    delete: (id: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/templates/${id}`, { method: 'DELETE', token }),
+  },
   rooms: {
     layout: (roomId: string, token: string) =>
       apiFetch<RoomLayout | null>(`/rooms/${roomId}/layout`, { token }),
+    layouts: (roomId: string, token: string) =>
+      apiFetch<RoomLayout[]>(`/rooms/${roomId}/layouts`, { token }),
+    activateLayout: (roomId: string, layoutId: string, token: string) =>
+      apiFetch<RoomLayout>(`/rooms/${roomId}/layouts/${layoutId}/activate`, { method: 'POST', token }),
+    updateLayout: (
+      roomId: string,
+      layoutId: string,
+      body: { name?: string; widthM: number; lengthM: number; stations: Omit<Station, 'id' | 'layoutId'>[] },
+      token: string,
+    ) => apiFetch<RoomLayout>(`/rooms/${roomId}/layouts/${layoutId}`, { method: 'PATCH', body: JSON.stringify(body), token }),
+    deleteLayout: (roomId: string, layoutId: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/rooms/${roomId}/layouts/${layoutId}`, { method: 'DELETE', token }),
     saveLayout: (
       roomId: string,
       body: { name?: string; widthM: number; lengthM: number; stations: Omit<Station, 'id' | 'layoutId'>[] },
@@ -429,9 +516,9 @@ export const api = {
       apiFetch<{ success: boolean }>(`/schedules/${scheduleId}?studioId=${studioId}`, {
         method: 'DELETE', token,
       }),
-    month: (studioId: string, year: number, month: number, token: string) =>
+    month: (studioId: string, year: number, month: number, token: string, instructorId?: string) =>
       apiFetch<{ year: number; month: number; days: Record<string, { sport: string; count: number }[]> }>(
-        `/schedules/month?studioId=${studioId}&year=${year}&month=${month}`, { token },
+        `/schedules/month?studioId=${studioId}&year=${year}&month=${month}${instructorId ? `&instructorId=${instructorId}` : ''}`, { token },
       ),
     orphaned: (studioId: string, token: string) =>
       apiFetch<OrphanedPattern[]>(`/schedules/orphaned?studioId=${studioId}`, { token }),
@@ -475,7 +562,7 @@ export const api = {
     update: (
       studioId: string,
       body: {
-        name?: string; slug?: string; timezone?: string; currency?: string
+        name?: string; slug?: string; timezone?: string; currency?: string; timeFormat?: string
         location?: { id: string; name?: string; address?: string; city?: string; country?: string }
       },
       token: string,
@@ -507,6 +594,8 @@ export const api = {
       }),
     deleteRoom: (studioId: string, roomId: string, token: string) =>
       apiFetch<{ success: boolean }>(`/studios/${studioId}/rooms/${roomId}`, { method: 'DELETE', token }),
+    layouts: (studioId: string, token: string) =>
+      apiFetch<LayoutTemplate[]>(`/studios/${studioId}/layouts`, { token }),
     onboard: (
       body: {
         name: string
@@ -524,5 +613,15 @@ export const api = {
         body: JSON.stringify(body),
         token,
       }),
+  },
+  products: {
+    list: (studioId: string, token: string, all = false) =>
+      apiFetch<Product[]>(`/products?studioId=${studioId}${all ? '&all=true' : ''}`, { token }),
+    create: (body: { studioId: string; name: string; category?: string; priceInCents: number; creditsRequired?: number }, token: string) =>
+      apiFetch<Product>('/products', { method: 'POST', body: JSON.stringify(body), token }),
+    update: (id: string, body: Partial<Omit<Product, 'id' | 'studioId'>>, token: string) =>
+      apiFetch<Product>(`/products/${id}`, { method: 'PATCH', body: JSON.stringify(body), token }),
+    delete: (id: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/products/${id}`, { method: 'DELETE', token }),
   },
 }

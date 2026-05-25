@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useRef, useId } from 'react'
-import type { RoomLayout, Station, StationType } from '@/lib/api'
+import { useState, useRef, useId, useEffect } from 'react'
+import type { RoomLayout, LayoutTemplate, Station, StationType } from '@/lib/api'
 import { STATION_META, STATION_TYPES, snapToGrid } from './constants'
 
 interface EditorStation extends Omit<Station, 'id' | 'layoutId'> {
@@ -11,7 +11,15 @@ interface EditorStation extends Omit<Station, 'id' | 'layoutId'> {
 interface Props {
   roomId: string
   initial: RoomLayout | null
-  onSave: (layout: { name: string; widthM: number; lengthM: number; stations: Omit<Station, 'id' | 'layoutId'>[] }) => Promise<void>
+  /** All saved layouts for this room (active + inactive) */
+  roomLayouts?: RoomLayout[]
+  /** Active layouts from other rooms in the studio */
+  studioTemplates?: LayoutTemplate[]
+  onSave: (layout: { name: string; widthM: number; lengthM: number; stations: Omit<Station, 'id' | 'layoutId'>[] }, layoutId?: string) => Promise<RoomLayout>
+  /** Called when user clicks Activate on a saved layout — makes it live immediately */
+  onActivateLayout?: (layoutId: string) => Promise<void>
+  /** Called when user clicks Delete on a saved layout */
+  onDeleteLayout?: (layoutId: string) => Promise<void>
 }
 
 // Ghost that follows the cursor while dragging from the palette
@@ -22,7 +30,28 @@ interface PaletteGhost {
   overCanvas: boolean
 }
 
-export default function RoomMapEditor({ roomId: _roomId, initial, onSave }: Props) {
+// Stable key for comparing station lists (ignores tempId)
+function stationsKey(ss: EditorStation[]): string {
+  return JSON.stringify(ss.map(({ tempId: _, ...s }) => s))
+}
+
+interface SavedSnapshot {
+  name: string
+  widthM: number
+  lengthM: number
+  stationsKey: string
+}
+
+function snapshotFrom(layout: RoomLayout): SavedSnapshot {
+  return {
+    name: layout.name,
+    widthM: layout.widthM,
+    lengthM: layout.lengthM,
+    stationsKey: JSON.stringify(layout.stations.map(({ id: _, layoutId: __, ...s }) => s)),
+  }
+}
+
+export default function RoomMapEditor({ roomId: _roomId, initial, roomLayouts = [], studioTemplates = [], onSave, onActivateLayout, onDeleteLayout }: Props) {
   const uid = useId()
   const [name, setName] = useState(initial?.name ?? 'Default')
   const [widthM, setWidthM] = useState(initial?.widthM ?? 10)
@@ -34,6 +63,35 @@ export default function RoomMapEditor({ roomId: _roomId, initial, onSave }: Prop
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editLabel, setEditLabel] = useState('')
   const [ghost, setGhost] = useState<PaletteGhost | null>(null)
+  const [showTemplates, setShowTemplates] = useState(false)
+  const [loadedId, setLoadedId] = useState<string | null>(initial?.id ?? null)
+  const [renamingLayout, setRenamingLayout] = useState(false)
+  const [savedSnapshot, setSavedSnapshot] = useState<SavedSnapshot | null>(
+    () => initial ? snapshotFrom(initial) : null
+  )
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!showTemplates) return
+    function handler(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowTemplates(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showTemplates])
+
+  function applyTemplate(tmpl: RoomLayout) {
+    setName(tmpl.name)
+    setWidthM(tmpl.widthM)
+    setLengthM(tmpl.lengthM)
+    setStations(tmpl.stations.map(s => ({ ...s, tempId: s.id })))
+    setLoadedId(tmpl.id)
+    setSavedSnapshot(snapshotFrom(tmpl))
+    setShowTemplates(false)
+  }
 
   const canvasRef = useRef<HTMLDivElement>(null)
   // Moving an existing station
@@ -153,36 +211,241 @@ export default function RoomMapEditor({ roomId: _roomId, initial, onSave }: Prop
   async function handleSave() {
     setSaving(true)
     try {
-      await onSave({ name, widthM, lengthM, stations: stations.map(({ tempId: _, ...s }) => s) })
+      const saved = await onSave(
+        { name, widthM, lengthM, stations: stations.map(({ tempId: _, ...s }) => s) },
+        loadedId ?? undefined,
+      )
+      // After creating a new layout, switch into "update" mode for this record
+      if (!loadedId) setLoadedId(saved.id)
+      // Record the snapshot so the button goes back to "up to date"
+      setSavedSnapshot(snapshotFrom(saved))
     } finally {
       setSaving(false)
     }
   }
 
+  // Derive state about the currently loaded layout
+  const loadedLayout = roomLayouts.find(l => l.id === loadedId) ?? null
+  const isUnsaved = !loadedId  // no saved record yet → new layout
+  const otherTemplates = studioTemplates.filter(t => t.roomId !== _roomId)
+
+  // Dirty check — compare current editor state against last saved snapshot
+  const hasChanges = isUnsaved || !savedSnapshot || (
+    name !== savedSnapshot.name ||
+    widthM !== savedSnapshot.widthM ||
+    lengthM !== savedSnapshot.lengthM ||
+    stationsKey(stations) !== savedSnapshot.stationsKey
+  )
+
   return (
     <div className="flex flex-col gap-4 select-none">
       {/* Toolbar */}
       <div className="flex items-center gap-3 flex-wrap">
-        <input
-          value={name}
-          onChange={e => setName(e.target.value)}
-          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 w-36 focus:outline-none focus:ring-1 focus:ring-gray-400"
-          placeholder="Layout name"
-        />
-        <span className="text-xs text-gray-400">Room size</span>
+
+        {/* ── Integrated layout selector ── */}
+        <div className="relative" ref={dropdownRef}>
+          {/* Pill: [dot · name (editable) · chevron] */}
+          <div className={`flex items-center border rounded-lg overflow-hidden transition-colors ${showTemplates ? 'border-gray-400' : 'border-gray-200 hover:border-gray-300'}`}>
+            {/* Status dot */}
+            <div className="pl-2.5 pr-1.5 flex items-center">
+              <span
+                title={loadedLayout?.isActive ? 'Active layout' : isUnsaved ? 'New (unsaved)' : 'Inactive'}
+                className={`w-2 h-2 rounded-full shrink-0 ${
+                  loadedLayout?.isActive ? 'bg-green-500' :
+                  isUnsaved ? 'bg-gray-300' :
+                  'bg-amber-400'
+                }`}
+              />
+            </div>
+
+            {/* Name — click to rename inline */}
+            {renamingLayout ? (
+              <input
+                value={name}
+                onChange={e => setName(e.target.value)}
+                onBlur={() => setRenamingLayout(false)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === 'Escape') {
+                    e.preventDefault()
+                    setRenamingLayout(false)
+                  }
+                }}
+                autoFocus
+                className="text-sm font-medium text-gray-900 py-1.5 w-36 focus:outline-none bg-transparent"
+                placeholder="Layout name"
+              />
+            ) : (
+              <button
+                onClick={() => { setRenamingLayout(true); setShowTemplates(false) }}
+                title="Click to rename"
+                className="text-sm font-medium text-gray-800 py-1.5 text-left w-36 truncate hover:text-gray-900 transition-colors"
+              >
+                {name || <span className="text-gray-400 italic">Untitled</span>}
+              </button>
+            )}
+
+            {/* Divider + chevron — opens the dropdown */}
+            <button
+              onClick={() => { setShowTemplates(v => !v); setRenamingLayout(false) }}
+              className="border-l border-gray-200 px-2 py-1.5 hover:bg-gray-50 transition-colors flex items-center"
+            >
+              <svg
+                className={`w-3.5 h-3.5 text-gray-400 transition-transform ${showTemplates ? 'rotate-180' : ''}`}
+                fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 16 16"
+              >
+                <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </div>
+
+          {/* Dropdown */}
+          {showTemplates && (
+            <div className="absolute left-0 top-full mt-1 z-30 bg-white border border-gray-200 rounded-xl shadow-lg min-w-[260px] py-1.5 overflow-hidden">
+
+              {/* This room's saved layouts */}
+              {roomLayouts.length > 0 && (
+                <>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider px-3 pt-1 pb-1.5">This room</p>
+                  <div className="max-h-52 overflow-y-auto">
+                    {roomLayouts.map(l => {
+                      const isLoaded = l.id === loadedId
+                      return (
+                        <div
+                          key={l.id}
+                          className={`flex items-center gap-2 px-3 py-2 transition-colors ${isLoaded ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
+                        >
+                          {/* Load into editor (row click) */}
+                          <button
+                            onClick={() => applyTemplate(l as LayoutTemplate)}
+                            className="flex items-center gap-2.5 flex-1 min-w-0 text-left"
+                          >
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${
+                              l.isActive ? 'bg-green-500' :
+                              isLoaded ? 'bg-blue-400' :
+                              'bg-gray-200'
+                            }`} />
+                            <div className="min-w-0">
+                              <p className={`text-sm font-medium truncate ${isLoaded ? 'text-gray-900' : 'text-gray-600'}`}>{l.name}</p>
+                              <p className="text-[11px] text-gray-400 leading-tight">
+                                {l.widthM}m × {l.lengthM}m · {l.stations.length} stations
+                                {l.isActive && <span className="text-green-600 ml-1">· active</span>}
+                              </p>
+                            </div>
+                          </button>
+
+                          {/* Actions: activate + delete (only for inactive) */}
+                          {!l.isActive && (
+                            <div className="flex items-center gap-1 shrink-0">
+                              {onActivateLayout && (
+                                <button
+                                  onClick={async e => { e.stopPropagation(); await onActivateLayout(l.id) }}
+                                  title="Set as active layout"
+                                  className="text-[10px] font-semibold text-green-600 hover:text-green-800 border border-green-200 hover:border-green-400 px-1.5 py-0.5 rounded transition-colors"
+                                >Activate</button>
+                              )}
+                              {onDeleteLayout && (
+                                <button
+                                  onClick={async e => { e.stopPropagation(); await onDeleteLayout(l.id) }}
+                                  title="Delete layout"
+                                  className="p-0.5 text-gray-300 hover:text-red-500 transition-colors"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 16 16">
+                                    <path d="M3 4h10M6 4V2h4v2M5 4l.5 9h5L11 4" strokeLinecap="round" strokeLinejoin="round"/>
+                                  </svg>
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+
+              {/* Other rooms */}
+              {otherTemplates.length > 0 && (
+                <>
+                  <div className={`${roomLayouts.length > 0 ? 'border-t border-gray-100 mt-1' : ''}`} />
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider px-3 pt-2 pb-1.5">Copy from other room</p>
+                  {otherTemplates.map(tmpl => (
+                    <button
+                      key={tmpl.id}
+                      onClick={() => { applyTemplate(tmpl); setLoadedId(null); setSavedSnapshot(null) }}
+                      className="w-full text-left px-3 py-2 hover:bg-gray-50 transition-colors flex items-center gap-2.5"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-gray-200 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-700 truncate">{tmpl.name}</p>
+                        <p className="text-[11px] text-gray-400">{tmpl.roomName} · {tmpl.widthM}m × {tmpl.lengthM}m · {tmpl.stations.length} stations</p>
+                      </div>
+                    </button>
+                  ))}
+                </>
+              )}
+
+              {/* New layout */}
+              <div className="border-t border-gray-100 mt-1 pt-1">
+                <button
+                  onClick={() => {
+                    setName('New layout')
+                    setWidthM(10)
+                    setLengthM(15)
+                    setStations([])
+                    setLoadedId(null)
+                    setSavedSnapshot(null)
+                    setShowTemplates(false)
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 transition-colors flex items-center gap-2.5"
+                >
+                  <span className="w-4 h-4 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center shrink-0">
+                    <svg className="w-2 h-2 text-gray-400" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 16 16">
+                      <path d="M8 3v10M3 8h10" strokeLinecap="round"/>
+                    </svg>
+                  </span>
+                  <span className="text-sm font-medium text-gray-500">New layout</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Room size */}
+        <span className="text-xs text-gray-400">Size</span>
         <input type="number" value={widthM} onChange={e => setWidthM(Number(e.target.value))} min={3} max={30} step={0.5}
           className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 w-16 text-center focus:outline-none focus:ring-1 focus:ring-gray-400" />
         <span className="text-xs text-gray-400">×</span>
         <input type="number" value={lengthM} onChange={e => setLengthM(Number(e.target.value))} min={3} max={40} step={0.5}
           className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 w-16 text-center focus:outline-none focus:ring-1 focus:ring-gray-400" />
-        <span className="text-xs text-gray-400">metres</span>
+        <span className="text-xs text-gray-400">m</span>
+
         <div className="flex-1" />
+
+        {/* Status hint */}
+        {!isUnsaved && !loadedLayout?.isActive && (
+          <span className="text-xs text-amber-500 font-medium">Not active</span>
+        )}
+
+        {/* Save */}
         <button
           onClick={handleSave}
-          disabled={saving}
-          className="text-xs font-medium bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors"
+          disabled={saving || !hasChanges}
+          className={`text-xs font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5 ${
+            saving
+              ? 'bg-gray-900 text-white opacity-50'
+              : hasChanges
+              ? 'bg-gray-900 text-white hover:bg-gray-700'
+              : 'bg-gray-100 text-gray-400 cursor-default'
+          }`}
         >
-          {saving ? 'Saving…' : 'Save layout'}
+          {saving ? 'Saving…' : !hasChanges ? (
+            <>
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 16 16">
+                <path d="M3 8l4 4 6-7" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Saved
+            </>
+          ) : loadedId ? 'Update layout' : 'Save as new'}
         </button>
       </div>
 

@@ -15,6 +15,9 @@ import { roomRoutes } from './routes/rooms.js'
 import { integrationRoutes } from './routes/integrations.js'
 import { webhookRoutes } from './routes/webhooks.js'
 import { staffRoutes } from './routes/staff.js'
+import { photoRoutes } from './routes/photos.js'
+import { templateRoutes } from './routes/templates.js'
+import { productRoutes } from './routes/products.js'
 import { setupJobs } from './jobs/index.js'
 
 const app = Fastify({ logger: true })
@@ -40,6 +43,9 @@ await app.register(classScheduleRoutes, { prefix: '/schedules' })
 await app.register(integrationRoutes, { prefix: '/integrations' })
 await app.register(webhookRoutes, { prefix: '/webhooks' })
 await app.register(staffRoutes, { prefix: '/staff' })
+await app.register(photoRoutes, { prefix: '/photos' })
+await app.register(templateRoutes, { prefix: '/templates' })
+await app.register(productRoutes, { prefix: '/products' })
 
 app.get('/health', async () => ({ ok: true }))
 

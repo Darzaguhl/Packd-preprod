@@ -5,6 +5,9 @@ import { api, type CalendarWeek, type CalendarSession, type ClassSchedule, type 
 import { SPORT_CONFIG } from '@/components/schedule/constants'
 import ScheduleModal from './ScheduleModal'
 import SubstituteModal from './SubstituteModal'
+import ClassTemplatesSection from '@/components/studio/ClassTemplatesSection'
+import { useTimeFormat } from '@/lib/time-format-context'
+import { fmtTime, fmtHHMM } from '@/lib/fmt-time'
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const HOUR_START = 6
@@ -78,12 +81,28 @@ interface Props {
 
 type ViewMode = 'week' | 'month' | 'schedules'
 
+function scheduleUntilStyle(validFrom: string, validUntil: string | null): {
+  cls: string; label: string
+} {
+  if (!validUntil) return { cls: 'bg-gray-100 text-gray-400', label: 'no end date' }
+  const from = new Date(validFrom).getTime()
+  const until = new Date(validUntil).getTime()
+  const now = Date.now()
+  const progress = Math.min(1, Math.max(0, (now - from) / (until - from)))
+  const date = new Date(validUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  if (progress >= 0.90) return { cls: 'bg-red-50 text-red-600', label: `until ${date}` }
+  if (progress >= 0.75) return { cls: 'bg-amber-50 text-amber-600', label: `until ${date}` }
+  if (progress >= 0.50) return { cls: 'bg-amber-50 text-amber-500', label: `until ${date}` }
+  return { cls: 'bg-green-50 text-green-600', label: `until ${date}` }
+}
+
 type Modal =
   | { type: 'new-schedule'; prefill?: Partial<OrphanedPattern> }
   | { type: 'edit-schedule'; schedule: ClassSchedule }
   | { type: 'substitute'; session: CalendarSession }
 
 export default function CalendarView({ studioId, token, canCreateSchedules = true, filterInstructorId }: Props) {
+  const timeFormat = useTimeFormat()
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
   const [monthYear, setMonthYear] = useState(() => {
     const n = new Date(); return { year: n.getFullYear(), month: n.getMonth() + 1 }
@@ -99,16 +118,24 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
   const [deletingOrphanKey, setDeletingOrphanKey] = useState<string | null>(null)
   // Instructor filter — default on when filterInstructorId is provided
   const [myClassesOnly, setMyClassesOnly] = useState(!!filterInstructorId)
+  // Schedules tab filtering / bulk-select
+  const [schedSearch, setSchedSearch] = useState('')
+  const [schedSport, setSchedSport] = useState('')
+  const [schedInstructor, setSchedInstructor] = useState('')
+  const [schedDay, setSchedDay] = useState<number | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   const load = useCallback(async () => {
     if (!token) return
     setLoading(true)
     try {
+      const instructorFilter = myClassesOnly ? filterInstructorId : undefined
       const [week, schedules, orphanedData, mData] = await Promise.all([
         api.schedules.week(studioId, isoDate(weekStart), token),
         api.schedules.all(studioId, token),
         api.schedules.orphaned(studioId, token),
-        api.schedules.month(studioId, monthYear.year, monthYear.month, token),
+        api.schedules.month(studioId, monthYear.year, monthYear.month, token, instructorFilter),
       ])
       setData(week)
       setAllSchedules(schedules)
@@ -119,7 +146,7 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
     } finally {
       setLoading(false)
     }
-  }, [studioId, token, weekStart, monthYear])
+  }, [studioId, token, weekStart, monthYear, myClassesOnly, filterInstructorId])
 
   useEffect(() => { load() }, [load])
 
@@ -143,6 +170,79 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
   const visibleSessions = myClassesOnly && filterInstructorId
     ? (data?.sessions ?? []).filter(s => s.instructorId === filterInstructorId || s.substituteInstructorId === filterInstructorId)
     : (data?.sessions ?? [])
+
+  const visibleSchedules = myClassesOnly && filterInstructorId
+    ? allSchedules.filter(s => s.instructorId === filterInstructorId)
+    : allSchedules
+
+  const visibleOrphaned = myClassesOnly && filterInstructorId
+    ? orphaned.filter(p => p.instructorId === filterInstructorId)
+    : orphaned
+
+  // Schedules tab: filtered list
+  const filteredSchedules = visibleSchedules.filter(s => {
+    if (schedSearch) {
+      const q = schedSearch.toLowerCase()
+      const haystack = [
+        s.templateName,
+        s.instructorName,
+        s.startTime,                       // e.g. "07:30"
+        `${s.durationMin}`,                // e.g. "60"
+        `${s.durationMin}m`,               // e.g. "60m"
+        `${s.durationMin} min`,            // e.g. "60 min"
+        s.roomName ?? '',
+      ].join(' ').toLowerCase()
+      if (!haystack.includes(q)) return false
+    }
+    if (schedSport && s.sport !== schedSport) return false
+    if (schedInstructor && s.instructorId !== schedInstructor) return false
+    if (schedDay !== null && !s.daysOfWeek.includes(schedDay)) return false
+    return true
+  })
+
+  // Group by day (Mon=1..Sat=6, Sun=0 displayed last)
+  const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
+  const DAY_FULL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  const schedsByDay: Array<{ dayNum: number; label: string; items: ClassSchedule[] }> = DAY_ORDER.map(d => ({
+    dayNum: d,
+    label: DAY_FULL[d],
+    items: filteredSchedules
+      .filter(s => s.daysOfWeek.includes(d))
+      .sort((a, b) => a.startTime.localeCompare(b.startTime)),
+  })).filter(g => g.items.length > 0 && (schedDay === null || g.dayNum === schedDay))
+
+  // Unique sports / instructors for filter dropdowns
+  const uniqueSports = Array.from(new Set(visibleSchedules.map(s => s.sport)))
+  const uniqueInstructors = Array.from(
+    new Map(visibleSchedules.map(s => [s.instructorId, { id: s.instructorId, name: s.instructorName }])).values()
+  )
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === filteredSchedules.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filteredSchedules.map(s => s.id)))
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return
+    setBulkDeleting(true)
+    try {
+      await Promise.all(Array.from(selectedIds).map(id => api.schedules.delete(id, studioId, token)))
+      setSelectedIds(new Set())
+      await load()
+    } catch { /* silent */ }
+    finally { setBulkDeleting(false) }
+  }
 
   const sessionsByDay: Record<number, CalendarSession[]> = {}
   for (let i = 0; i < 7; i++) sessionsByDay[i] = []
@@ -271,7 +371,7 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
                 {days.map((d, i) => {
                   const isToday = d.getTime() === today.getTime()
                   return (
-                    <div key={i} className="h-10 flex flex-col items-center justify-center border-l border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"
+                    <div key={i} className="h-10 flex flex-col items-center justify-center border-l border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors"
                       onClick={() => setModal({ type: 'new-schedule' })}>
                       <span className={`text-[10px] font-medium uppercase tracking-wide ${isToday ? 'text-gray-900' : 'text-gray-400'}`}>{DAY_LABELS[i]}</span>
                       <span className={`text-sm font-bold leading-none ${isToday ? 'text-blue-600' : 'text-gray-700'}`}>{d.getDate()}</span>
@@ -283,9 +383,11 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
               {/* Time grid */}
               <div className="relative grid grid-cols-[48px_repeat(7,1fr)]" style={{ height: TOTAL_HOURS * HOUR_PX }}>
                 {Array.from({ length: TOTAL_HOURS }, (_, h) => (
-                  <div key={h} className="absolute left-0 right-0 border-t border-gray-100" style={{ top: h * HOUR_PX }}>
-                    <span className="absolute left-0 w-10 text-right pr-2 text-[10px] text-gray-300 -translate-y-2">
-                      {String(HOUR_START + h).padStart(2, '0')}
+                  <div key={h} className="absolute left-0 right-0 border-t border-gray-200" style={{ top: h * HOUR_PX }}>
+                    <span className={`absolute left-0 w-10 text-right pr-2 text-xs font-semibold text-gray-500 ${h === 0 ? 'translate-y-0.5' : '-translate-y-2.5'}`}>
+                      {timeFormat === '12h'
+                        ? (() => { const hr = HOUR_START + h; return hr === 12 ? '12pm' : hr > 12 ? `${hr - 12}pm` : `${hr}am` })()
+                        : String(HOUR_START + h).padStart(2, '0')}
                     </span>
                   </div>
                 ))}
@@ -293,7 +395,7 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
                 {days.map((_, colIdx) => {
                   const laid = layoutSessions(sessionsByDay[colIdx])
                   return (
-                    <div key={colIdx} className={`relative border-l border-gray-100 ${colIdx === 0 ? 'col-start-2' : ''}`}>
+                    <div key={colIdx} className={`relative border-l border-gray-200 ${colIdx === 0 ? 'col-start-2' : ''}`}>
                       {laid.map(({ session: s, leftFrac, widthFrac }) => {
                         const startMin = minutesSinceMidnight(s.startsAt)
                         const endMin = minutesSinceMidnight(s.endsAt)
@@ -305,6 +407,9 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
                         const hasSubstitute = !!s.substituteInstructorId
                         const isCancelled = s.status === 'CANCELLED'
 
+                        const durationMin = Math.round((new Date(s.endsAt).getTime() - new Date(s.startsAt).getTime()) / 60000)
+                        const startLabel = fmtTime(s.startsAt, timeFormat)
+
                         return (
                           <div
                             key={s.id}
@@ -313,14 +418,22 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
                             onClick={() => setModal({ type: 'substitute', session: s })}
                           >
                             <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${cfg.accent}`} />
-                            <div className="pl-2 pr-1 py-0.5 h-full flex flex-col justify-start overflow-hidden">
+                            <div className="pl-2 pr-1 py-0.5 h-full flex flex-col justify-start overflow-hidden gap-px">
                               <p className={`text-[10px] font-semibold truncate leading-tight ${cfg.color}`}>{s.templateName}</p>
-                              {height > 28 && (
+                              {height > 22 && (
+                                <p className="text-[9px] text-gray-500 leading-tight tabular-nums">
+                                  {startLabel} · {durationMin}m
+                                </p>
+                              )}
+                              {height > 42 && (
                                 <p className="text-[9px] text-gray-500 truncate leading-tight">
                                   {hasSubstitute
                                     ? <span className="inline-flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />{s.substituteInstructorName}</span>
                                     : s.instructorName}
                                 </p>
+                              )}
+                              {height > 68 && s.roomName && (
+                                <p className="text-[9px] text-gray-400 truncate leading-tight">{s.roomName}</p>
                               )}
                             </div>
                           </div>
@@ -356,96 +469,257 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
 
       {/* ── SCHEDULES TAB ── */}
       {view === 'schedules' && (
-        <div className="flex-1 overflow-auto px-6 py-6 space-y-8 max-w-2xl">
-          {/* Recurring schedules */}
-          <section>
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Recurring schedules</h3>
-            {allSchedules.length === 0 ? (
-              <p className="text-sm text-gray-400">No recurring schedules yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {allSchedules.map(sched => {
-                  const cfg = SPORT_CONFIG[sched.sport] ?? SPORT_CONFIG.OTHER
-                  const dayStr = sched.daysOfWeek.map(d => ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'][d]).join(', ')
-                  return (
-                    <div key={sched.id} className="bg-white border border-gray-100 rounded-xl px-4 py-3 flex items-center gap-4">
-                      <div className={`w-1 self-stretch rounded-full ${cfg.accent}`} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-semibold text-gray-900">{sched.templateName}</p>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${cfg.bg} ${cfg.color}`}>{cfg.label ?? sched.sport}</span>
-                          {sched.intervalWeeks > 1 && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-blue-50 text-blue-600">Every {sched.intervalWeeks} weeks</span>
-                          )}
-                        </div>
-                        <p className="text-xs text-gray-500 mt-0.5">{dayStr} · {sched.startTime} · {sched.durationMin}m · {sched.instructorName} · {sched.roomName}</p>
+        <div className="flex-1 overflow-hidden">
+          <div className="flex h-full">
+
+            {/* ── Left: schedules list ── */}
+            <div className="flex-1 min-w-0 px-6 py-6 space-y-8 pb-24 overflow-auto">
+
+            {/* Recurring schedules */}
+            <section>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Recurring schedules</h3>
+                {selectedIds.size > 0 && canCreateSchedules && (
+                  <span className="text-xs text-gray-500">{selectedIds.size} selected</span>
+                )}
+              </div>
+
+              {visibleSchedules.length > 0 && (
+                <div className="space-y-3 mb-4">
+                  {/* Filter bar */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Text search */}
+                    <div className="relative">
+                      <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4"/><path d="M11 11l3 3" strokeLinecap="round"/></svg>
+                      <input
+                        value={schedSearch}
+                        onChange={e => setSchedSearch(e.target.value)}
+                        placeholder="Name, time, duration…"
+                        className="pl-7 pr-3 py-1 text-xs border border-gray-200 rounded-lg w-44 focus:outline-none focus:ring-1 focus:ring-gray-300 bg-white"
+                      />
+                    </div>
+
+                    {/* Sport pills */}
+                    {uniqueSports.map(sport => {
+                      const cfg = SPORT_CONFIG[sport] ?? SPORT_CONFIG.OTHER
+                      const active = schedSport === sport
+                      return (
+                        <button key={sport}
+                          onClick={() => setSchedSport(active ? '' : sport)}
+                          className={`text-[10px] font-medium px-2 py-0.5 rounded-full border transition-colors ${
+                            active ? `${cfg.accent.replace('bg-', 'bg-')} bg-gray-900 text-white border-gray-900` : `border-gray-200 text-gray-500 hover:border-gray-400`
+                          }`}
+                        >{cfg.label ?? sport}</button>
+                      )
+                    })}
+
+                    {/* Instructor filter */}
+                    {uniqueInstructors.length > 1 && (
+                      <select
+                        value={schedInstructor}
+                        onChange={e => setSchedInstructor(e.target.value)}
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-gray-300 text-gray-600"
+                      >
+                        <option value="">All instructors</option>
+                        {uniqueInstructors.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                      </select>
+                    )}
+
+                    {/* Day pills */}
+                    {DAY_ORDER.map(d => {
+                      const active = schedDay === d
+                      return (
+                        <button key={d}
+                          onClick={() => setSchedDay(active ? null : d)}
+                          className={`text-[10px] font-medium w-7 h-7 rounded-full border transition-colors ${
+                            active ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 text-gray-500 hover:border-gray-400'
+                          }`}
+                        >{DAY_FULL[d].slice(0, 2)}</button>
+                      )
+                    })}
+
+                    {/* Clear filters */}
+                    {(schedSearch || schedSport || schedInstructor || schedDay !== null) && (
+                      <button
+                        onClick={() => { setSchedSearch(''); setSchedSport(''); setSchedInstructor(''); setSchedDay(null) }}
+                        className="text-[10px] text-gray-400 hover:text-gray-700 underline underline-offset-2"
+                      >Clear</button>
+                    )}
+
+                    {/* Select all checkbox */}
+                    {canCreateSchedules && filteredSchedules.length > 0 && (
+                      <label className="ml-auto flex items-center gap-1.5 cursor-pointer text-xs text-gray-400 select-none">
+                        <input
+                          type="checkbox"
+                          className="w-3.5 h-3.5 rounded accent-gray-900"
+                          checked={selectedIds.size === filteredSchedules.length && filteredSchedules.length > 0}
+                          onChange={toggleSelectAll}
+                        />
+                        Select all
+                      </label>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {filteredSchedules.length === 0 && visibleSchedules.length > 0 ? (
+                <p className="text-sm text-gray-400">No schedules match your filters.</p>
+              ) : visibleSchedules.length === 0 ? (
+                <p className="text-sm text-gray-400">No recurring schedules yet.</p>
+              ) : (
+                <div className="space-y-5">
+                  {schedsByDay.map(({ dayNum, label, items }) => (
+                    <div key={dayNum}>
+                      <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">{label}</p>
+                      <div className="space-y-1">
+                        {items.map(sched => {
+                          const cfg = SPORT_CONFIG[sched.sport] ?? SPORT_CONFIG.OTHER
+                          const isSelected = selectedIds.has(sched.id)
+                          const allDayStr = sched.daysOfWeek.map(d => DAY_FULL[d].slice(0, 2)).join(' ')
+                          return (
+                            <div
+                              key={`${dayNum}-${sched.id}`}
+                              className={`flex items-center gap-3 px-3 py-2 rounded-lg border transition-colors ${
+                                isSelected ? 'bg-gray-50 border-gray-300' : 'bg-white border-gray-100 hover:border-gray-200'
+                              }`}
+                            >
+                              {/* Checkbox */}
+                              {canCreateSchedules && (
+                                <input
+                                  type="checkbox"
+                                  className="w-3.5 h-3.5 rounded accent-gray-900 shrink-0"
+                                  checked={isSelected}
+                                  onChange={() => toggleSelect(sched.id)}
+                                />
+                              )}
+
+                              {/* Sport bar */}
+                              <div className={`w-0.5 self-stretch rounded-full shrink-0 ${cfg.accent}`} />
+
+                              {/* Info */}
+                              <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-medium text-gray-900 truncate">{sched.templateName}</p>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${cfg.bg} ${cfg.color}`}>{cfg.label ?? sched.sport}</span>
+                                <span className="text-xs text-gray-400 shrink-0">{fmtHHMM(sched.startTime, timeFormat)} · {sched.durationMin}m</span>
+                                <span className="text-xs text-gray-400 truncate">{sched.instructorName}</span>
+                                {sched.roomName && <span className="text-xs text-gray-300 shrink-0">· {sched.roomName}</span>}
+                                {sched.intervalWeeks > 1 && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-blue-50 text-blue-500 shrink-0">Every {sched.intervalWeeks}w</span>
+                                )}
+                                {sched.daysOfWeek.length > 1 && (
+                                  <span className="text-[10px] text-gray-300 shrink-0">{allDayStr}</span>
+                                )}
+                                {(() => {
+                                  const { cls, label } = scheduleUntilStyle(sched.validFrom, sched.validUntil)
+                                  return (
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${cls}`}>
+                                      {label}
+                                    </span>
+                                  )
+                                })()}
+                              </div>
+
+                              {/* Actions */}
+                              {canCreateSchedules && (
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button onClick={() => setModal({ type: 'edit-schedule', schedule: sched })}
+                                    className="text-xs text-gray-400 hover:text-gray-700 px-2 py-0.5 rounded hover:bg-gray-100 transition-colors">Edit</button>
+                                  <button onClick={() => handleDeleteSchedule(sched.id)} disabled={deletingId === sched.id}
+                                    className="text-xs text-red-400 hover:text-red-600 px-2 py-0.5 rounded hover:bg-red-50 transition-colors disabled:opacity-40">
+                                    {deletingId === sched.id ? '…' : 'Del'}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
-                      {canCreateSchedules && (
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button onClick={() => setModal({ type: 'edit-schedule', schedule: sched })}
-                            className="text-xs text-gray-400 hover:text-gray-700 border border-gray-200 rounded-md px-2.5 py-1 transition-colors">Edit</button>
-                          <button onClick={() => handleDeleteSchedule(sched.id)} disabled={deletingId === sched.id}
-                            className="text-xs text-red-400 hover:text-red-600 border border-red-100 rounded-md px-2.5 py-1 transition-colors disabled:opacity-40">
-                            {deletingId === sched.id ? '…' : 'Delete'}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* Orphaned sessions — not yet linked to a schedule */}
+            {visibleOrphaned.length > 0 && (
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Unscheduled sessions</h3>
+                <p className="text-xs text-gray-400 mb-3">These sessions exist in the calendar but are not linked to a recurring schedule. Create a schedule to manage them as a group.</p>
+                <div className="space-y-1">
+                  {visibleOrphaned.map((p, i) => {
+                    const cfg = SPORT_CONFIG[p.sport] ?? SPORT_CONFIG.OTHER
+                    const dayStr = p.daysOfWeek.map(d => DAY_FULL[d].slice(0, 2)).join(' ')
+                    return (
+                      <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg border border-dashed border-gray-200 bg-white hover:border-gray-300 transition-colors">
+                        <div className={`w-0.5 self-stretch rounded-full opacity-50 shrink-0 ${cfg.accent}`} />
+                        <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-medium text-gray-700 truncate">{p.templateName}</p>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${cfg.bg} ${cfg.color}`}>{cfg.label ?? p.sport}</span>
+                          <span className="text-xs text-gray-400 shrink-0">{fmtHHMM(p.startTime, timeFormat)} · {p.durationMin}m</span>
+                          <span className="text-xs text-gray-400 truncate">{p.instructorName}</span>
+                          <span className="text-[10px] text-gray-300 shrink-0">{dayStr}</span>
+                          <span className="text-[10px] text-gray-300 shrink-0">{p.sessionCount} upcoming</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {canCreateSchedules && (
+                            <button
+                              onClick={() => setModal({ type: 'new-schedule', prefill: p })}
+                              className="text-xs font-medium text-gray-600 px-2 py-0.5 rounded border border-gray-200 hover:border-gray-500 hover:text-gray-900 transition-colors"
+                            >Make recurring</button>
+                          )}
+                          <button
+                            onClick={() => handleDeleteOrphaned(p)}
+                            disabled={deletingOrphanKey === `${p.templateId}|${p.instructorId}|${p.startTime}`}
+                            className="text-xs text-red-400 hover:text-red-600 px-2 py-0.5 rounded hover:bg-red-50 transition-colors disabled:opacity-40"
+                          >
+                            {deletingOrphanKey === `${p.templateId}|${p.instructorId}|${p.startTime}` ? '…' : 'Delete all'}
                           </button>
                         </div>
-                      )}
-                    </div>
-                  )
-                })}
+                      </div>
+                    )
+                  })}
+                </div>
+              </section>
+            )}
+
+            {visibleSchedules.length === 0 && visibleOrphaned.length === 0 && (
+              <div className="text-center py-16 text-gray-400 text-sm">
+                No sessions or schedules yet.{' '}
+                {canCreateSchedules && (
+                  <button className="text-gray-700 underline underline-offset-2" onClick={() => setModal({ type: 'new-schedule' })}>Create a schedule</button>
+                )}
               </div>
             )}
-          </section>
+            </div>{/* end left column */}
 
-          {/* Orphaned sessions — not yet linked to a schedule */}
-          {orphaned.length > 0 && (
-            <section>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Unscheduled sessions</h3>
-              <p className="text-xs text-gray-400 mb-3">These sessions exist in the calendar but are not linked to a recurring schedule. Create a schedule to manage them as a group.</p>
-              <div className="space-y-2">
-                {orphaned.map((p, i) => {
-                  const cfg = SPORT_CONFIG[p.sport] ?? SPORT_CONFIG.OTHER
-                  const dayStr = p.daysOfWeek.map(d => ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'][d]).join(', ')
-                  return (
-                    <div key={i} className="bg-white border border-dashed border-gray-200 rounded-xl px-4 py-3 flex items-center gap-4">
-                      <div className={`w-1 self-stretch rounded-full opacity-50 ${cfg.accent}`} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-gray-700">{p.templateName}</p>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${cfg.bg} ${cfg.color}`}>{cfg.label ?? p.sport}</span>
-                        </div>
-                        <p className="text-xs text-gray-400 mt-0.5">{dayStr} · {p.startTime} · {p.durationMin}m · {p.instructorName} · {p.roomName} · {p.sessionCount} sessions upcoming</p>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {canCreateSchedules && (
-                          <button
-                            onClick={() => setModal({ type: 'new-schedule', prefill: p })}
-                            className="text-xs font-medium text-gray-600 border border-gray-300 rounded-md px-2.5 py-1 hover:border-gray-600 hover:text-gray-900 transition-colors"
-                          >
-                            Make recurring
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleDeleteOrphaned(p)}
-                          disabled={deletingOrphanKey === `${p.templateId}|${p.instructorId}|${p.startTime}`}
-                          className="text-xs text-red-400 hover:text-red-600 border border-red-100 rounded-md px-2.5 py-1 transition-colors disabled:opacity-40"
-                        >
-                          {deletingOrphanKey === `${p.templateId}|${p.instructorId}|${p.startTime}` ? '…' : 'Delete all'}
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
+            {/* ── Right: class templates sidebar ── */}
+            {canCreateSchedules && (
+              <div className="w-[28rem] shrink-0 border-l border-gray-100 px-6 py-6 overflow-auto bg-gray-50/50">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Class templates</h3>
+                <p className="text-xs text-gray-400 mb-4">Define the class types offered at this studio. Templates pre-fill the schedule form when selected.</p>
+                <ClassTemplatesSection
+                  studioId={studioId}
+                  token={token}
+                  instructors={data?.instructors ?? []}
+                  rooms={data?.rooms ?? []}
+                />
               </div>
-            </section>
-          )}
+            )}
+          </div>{/* end flex row */}
 
-          {allSchedules.length === 0 && orphaned.length === 0 && (
-            <div className="text-center py-16 text-gray-400 text-sm">
-              No sessions or schedules yet.{' '}
-              {canCreateSchedules && (
-                <button className="text-gray-700 underline underline-offset-2" onClick={() => setModal({ type: 'new-schedule' })}>Create a schedule</button>
-              )}
+          {/* Bulk delete floating bar */}
+          {selectedIds.size > 0 && canCreateSchedules && (
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-gray-900 text-white px-5 py-3 rounded-2xl shadow-xl z-50">
+              <span className="text-sm font-medium">{selectedIds.size} schedule{selectedIds.size > 1 ? 's' : ''} selected</span>
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="text-xs text-gray-400 hover:text-white transition-colors"
+              >Cancel</button>
+              <button
+                onClick={handleBulkDelete}
+                disabled={bulkDeleting}
+                className="text-sm font-medium bg-red-500 hover:bg-red-400 px-4 py-1.5 rounded-xl transition-colors disabled:opacity-50"
+              >{bulkDeleting ? 'Deleting…' : `Delete ${selectedIds.size}`}</button>
             </div>
           )}
         </div>

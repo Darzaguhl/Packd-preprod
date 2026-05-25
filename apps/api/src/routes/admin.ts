@@ -160,7 +160,7 @@ export async function adminRoutes(app: FastifyInstance) {
       tomorrow.setDate(tomorrow.getDate() + 1)
 
       const [studio, todaySessions, totalMembers, totalBookingsToday, waitlistToday] = await Promise.all([
-        prisma.studio.findUnique({ where: { id: studioId }, select: { name: true } }),
+        prisma.studio.findUnique({ where: { id: studioId }, select: { name: true, timeFormat: true, currency: true } }),
         prisma.classSession.count({ where: { studioId, startsAt: { gte: today, lt: tomorrow } } }),
         prisma.member.count({ where: { studioId } }),
         prisma.booking.count({
@@ -171,7 +171,7 @@ export async function adminRoutes(app: FastifyInstance) {
         }),
       ])
 
-      return { studioName: studio?.name ?? null, todaySessions, totalMembers, totalBookingsToday, waitlistToday }
+      return { studioName: studio?.name ?? null, timeFormat: studio?.timeFormat ?? '24h', currency: studio?.currency ?? 'USD', todaySessions, totalMembers, totalBookingsToday, waitlistToday }
     },
   )
 

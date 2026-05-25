@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { api, type AdminSession } from '@/lib/api'
 import { SPORT_CONFIG } from '@/components/schedule/constants'
@@ -9,11 +10,16 @@ import PermissionsTab from './PermissionsTab'
 import StaffTab from './StaffTab'
 import RoomsTab from './RoomsTab'
 import SettingsTab from './SettingsTab'
+import PhotosTab from './PhotosTab'
+import SocialPhotosTab from './SocialPhotosTab'
+import ProductsTab from './ProductsTab'
 import NavBar from '@/components/NavBar'
 import RoomMapView from '@/components/room/RoomMapView'
 import CalendarView from '@/components/calendar/CalendarView'
+import { TimeFormatProvider } from '@/lib/time-format-context'
+import { fmtTime, type TimeFormat } from '@/lib/fmt-time'
 
-type Tab = 'today' | 'calendar' | 'rooms' | 'room' | 'permissions' | 'staff' | 'settings'
+type Tab = 'today' | 'calendar' | 'rooms' | 'room' | 'permissions' | 'staff' | 'settings' | 'photos' | 'social' | 'products'
 
 function toIsoDate(d: Date) {
   const y = d.getFullYear()
@@ -29,11 +35,27 @@ interface Stats {
   waitlistToday: number
 }
 
-const INSTRUCTOR_TABS: Tab[] = ['today', 'calendar', 'room']
+const INSTRUCTOR_TABS: Tab[] = ['today', 'calendar', 'room', 'photos']
 
-export default function StudioManagerDashboard({ studioId, studioName: initialStudioName, onBack, onStudioUpdate, role, modeSwitch }: { studioId: string; studioName?: string; onBack?: () => void; onStudioUpdate?: (data: { name: string; timezone: string; currency: string }) => void; role?: string; modeSwitch?: React.ReactNode }) {
+export default function StudioManagerDashboard({ studioId, studioName: initialStudioName, onBack, onStudioUpdate, role, modeSwitch }: { studioId: string; studioName?: string; onBack?: () => void; onStudioUpdate?: (data: { name: string; timezone: string; currency: string; timeFormat: string }) => void; role?: string; modeSwitch?: React.ReactNode }) {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
   const [studioName, setStudioName] = useState(initialStudioName)
-  const [tab, setTab] = useState<Tab>('today')
+  const [timeFormat, setTimeFormat] = useState<TimeFormat>('24h')
+  const [currency, setCurrency] = useState('USD')
+  const VALID_TABS: Tab[] = ['today', 'calendar', 'rooms', 'room', 'permissions', 'staff', 'settings', 'photos', 'social', 'products']
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = searchParams.get('tab') as Tab
+    return VALID_TABS.includes(t) ? t : 'today'
+  })
+
+  function changeTab(next: Tab) {
+    setTab(next)
+    const p = new URLSearchParams(searchParams.toString())
+    p.set('tab', next)
+    router.replace(`?${p.toString()}`)
+  }
   const [token, setToken] = useState<string | null>(null)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
@@ -41,8 +63,18 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
   const [selectedDate, setSelectedDate] = useState(toIsoDate(new Date()))
   const [selectedSession, setSelectedSession] = useState<AdminSession | null>(null)
   const [loading, setLoading] = useState(true)
-  // Instructors default to seeing only their own classes; can toggle off
-  const [myClassesOnly, setMyClassesOnly] = useState(role === 'instructor')
+  // Instructors default to seeing only their own classes; persisted in URL so tab switches don't reset it
+  const [myClassesOnly, setMyClassesOnly] = useState<boolean>(() => {
+    const param = searchParams.get('myClasses')
+    return param !== null ? param === '1' : role === 'instructor'
+  })
+
+  function toggleMyClasses(next: boolean) {
+    setMyClassesOnly(next)
+    const p = new URLSearchParams(searchParams.toString())
+    p.set('myClasses', next ? '1' : '0')
+    router.replace(`?${p.toString()}`)
+  }
   // For instructors: own Instructor record ID + resolved permissions
   const [myInstructorId, setMyInstructorId] = useState<string | null>(null)
   const [myPermissions, setMyPermissions] = useState<import('@/lib/api').InstructorPermissions | null>(null)
@@ -53,8 +85,17 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
       const uid = session?.user?.id ?? null
       setToken(t)
       setCurrentUserId(uid)
+      if (!t) return
+      // Always load studio settings (name, timeFormat, currency) on mount —
+      // not just when the Today tab is active — so all tabs have the right values.
+      try {
+        const st = await api.admin.stats(studioId, t)
+        if (!initialStudioName && st.studioName) setStudioName(st.studioName)
+        setTimeFormat((st.timeFormat ?? '24h') as TimeFormat)
+        setCurrency(st.currency ?? 'USD')
+      } catch { /* non-fatal */ }
       // Instructors: resolve own Instructor record + permissions
-      if (role === 'instructor' && t) {
+      if (role === 'instructor') {
         try {
           const mine = await api.franchise.myInstructor(studioId, t)
           setMyInstructorId(mine.id)
@@ -74,8 +115,10 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
       ])
       setSessions(s)
       setStats(st)
-      // Populate studio name from stats if not already set
+      // Populate studio name and timeFormat from stats if not already set
       if (!studioName && st.studioName) setStudioName(st.studioName)
+      setTimeFormat((st.timeFormat ?? '24h') as TimeFormat)
+      setCurrency(st.currency ?? 'USD')
     } catch {
       // network/auth failure — leave existing data
     } finally {
@@ -86,7 +129,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
   useEffect(() => { if (tab === 'today') refresh() }, [refresh, tab])
 
   function formatTime(iso: string) {
-    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    return fmtTime(iso, timeFormat)
   }
 
   function fillPct(s: AdminSession) {
@@ -100,14 +143,19 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
     { id: 'room', label: 'Room map' },
     { id: 'permissions', label: 'Permissions' },
     { id: 'staff', label: 'Staff' },
+    { id: 'social', label: 'Social Photos' },
+    { id: 'products', label: 'Products' },
     { id: 'settings', label: 'Settings' },
+    // 'photos' is instructor-only — not in the admin tab bar
+    { id: 'photos', label: 'My Photos' },
   ]
-  // Instructors only see Today and Calendar (Room map tab is accessed via session click, not the tab bar)
+  // Instructors see Today, Calendar, Photos. Room map is a hidden tab opened via session click.
   const TABS = role === 'instructor'
     ? ALL_TABS.filter(t => INSTRUCTOR_TABS.includes(t.id) && t.id !== 'room')
-    : ALL_TABS.filter(t => t.id !== 'room') // room is always a hidden tab opened via session click
+    : ALL_TABS.filter(t => t.id !== 'room' && t.id !== 'photos')
 
   return (
+    <TimeFormatProvider value={timeFormat}>
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <NavBar
         title={studioName ?? 'Studio Dashboard'}
@@ -130,7 +178,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
           {TABS.map(t => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => changeTab(t.id)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                 tab === t.id
                   ? 'border-gray-900 text-gray-900'
@@ -177,7 +225,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
             {role === 'instructor' && (
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setMyClassesOnly(v => !v)}
+                  onClick={() => toggleMyClasses(!myClassesOnly)}
                   className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
                     myClassesOnly
                       ? 'bg-gray-900 text-white border-gray-900'
@@ -194,7 +242,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
                   ) : 'My classes'}
                 </button>
                 {myClassesOnly && (
-                  <button onClick={() => setMyClassesOnly(false)} className="text-xs text-gray-400 hover:text-gray-700 underline underline-offset-2">
+                  <button onClick={() => toggleMyClasses(false)} className="text-xs text-gray-400 hover:text-gray-700 underline underline-offset-2">
                     Show all
                   </button>
                 )}
@@ -231,12 +279,12 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
                         role="button"
                         tabIndex={0}
                         onClick={() => {
-                          if (role === 'instructor') { setSelectedSession(s); setTab('room') }
+                          if (role === 'instructor') { setSelectedSession(s); changeTab('room') }
                           else setSelectedSession(isSelected ? null : s)
                         }}
                         onKeyDown={e => {
                           if (e.key !== 'Enter') return
-                          if (role === 'instructor') { setSelectedSession(s); setTab('room') }
+                          if (role === 'instructor') { setSelectedSession(s); changeTab('room') }
                           else setSelectedSession(isSelected ? null : s)
                         }}
                         className={`w-full text-left flex items-stretch bg-white border rounded-2xl overflow-hidden transition-all duration-150 cursor-pointer ${
@@ -322,7 +370,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
       {tab === 'room' && token && (
         <div className="max-w-5xl mx-auto w-full px-6 py-6 space-y-4">
           <button
-            onClick={() => { setTab('today'); setSelectedSession(null) }}
+            onClick={() => { changeTab('today'); setSelectedSession(null) }}
             className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors"
           >
             <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none">
@@ -371,7 +419,28 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
           <p className="text-sm text-gray-500 mb-4">
             Manage staff for this studio. Assign instructor and front-desk roles — staff can hold both.
           </p>
-          <StaffTab studioId={studioId} token={token} onOpenPermissions={() => setTab('permissions')} />
+          <StaffTab studioId={studioId} token={token} onOpenPermissions={() => changeTab('permissions')} />
+        </div>
+      )}
+
+      {tab === 'photos' && token && myInstructorId && (
+        <div className="max-w-5xl mx-auto w-full px-6 py-6">
+          <p className="text-sm text-gray-500 mb-4">
+            Your photo repository. Mark photos as approved for social media so the studio can use them for promotions.
+          </p>
+          <PhotosTab instructorId={myInstructorId} token={token} isManager={false} />
+        </div>
+      )}
+
+      {tab === 'social' && token && (
+        <div className="max-w-5xl mx-auto w-full px-6 py-6">
+          <SocialPhotosTab studioId={studioId} token={token} />
+        </div>
+      )}
+
+      {tab === 'products' && token && (
+        <div className="max-w-3xl mx-auto w-full px-6 py-6">
+          <ProductsTab studioId={studioId} token={token} currency={currency} />
         </div>
       )}
 
@@ -381,11 +450,16 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
             studioId={studioId}
             token={token}
             onNameChange={setStudioName}
-            onStudioUpdate={onStudioUpdate}
+            onStudioUpdate={data => {
+              setTimeFormat((data.timeFormat ?? '24h') as TimeFormat)
+              setCurrency(data.currency ?? 'USD')
+              onStudioUpdate?.(data)
+            }}
           />
         </div>
       )}
     </div>
+    </TimeFormatProvider>
   )
 }
 

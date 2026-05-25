@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import FronthostDashboard from '@/components/fronthost/FronthostDashboard'
 import StudioManagerDashboard from '@/components/studio/StudioManagerDashboard'
 
@@ -34,9 +34,19 @@ function ModeSwitcher({ mode, onSwitch }: { mode: Mode; onSwitch: (m: Mode) => v
 }
 
 export default function DualRoleDashboard({ studioId }: Props) {
-  const [mode, setMode] = useState<Mode>('frontdesk')
+  const router = useRouter()
+  const searchParams = useSearchParams()
 
-  const switcher = <ModeSwitcher mode={mode} onSwitch={setMode} />
+  const mode: Mode = searchParams.get('mode') === 'instructor' ? 'instructor' : 'frontdesk'
+
+  function switchMode(next: Mode) {
+    // Preserve existing params but reset view-specific ones that don't carry across modes
+    const params = new URLSearchParams()
+    params.set('mode', next)
+    router.replace(`?${params.toString()}`)
+  }
+
+  const switcher = <ModeSwitcher mode={mode} onSwitch={switchMode} />
 
   return (
     <>

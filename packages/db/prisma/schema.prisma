@@ -18,6 +18,7 @@ model Studio {
   primaryColor String  @default("#000000")
   timezone    String   @default("UTC")
   currency    String   @default("USD")
+  timeFormat  String   @default("24h")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -148,8 +149,28 @@ model Instructor {
   classSessions ClassSession[]
   schedules     ClassSchedule[]
   substituteFor ClassSession[] @relation("SubstituteInstructor")
+  photos        InstructorPhoto[]
 
   @@unique([userId, studioId])
+}
+
+// ─── Instructor Photos ────────────────────────────────────────────────────────
+
+model InstructorPhoto {
+  id                String   @id @default(cuid())
+  instructorId      String
+  studioId          String
+  storageKey        String   // path within the Supabase Storage bucket
+  url               String   // full public URL
+  fileName          String
+  approvedForSocial Boolean  @default(false)
+  uploadedBy        String   // userId of uploader (instructor or manager)
+  createdAt         DateTime @default(now())
+
+  instructor Instructor @relation(fields: [instructorId], references: [id], onDelete: Cascade)
+
+  @@index([instructorId])
+  @@index([studioId])
 }
 
 // ─── Class Templates & Sessions ──────────────────────────────────────────────
@@ -163,6 +184,16 @@ model ClassTemplate {
   sport       SportType
   color       String   @default("#6366f1")
   imageUrl    String?
+
+  // Optional schedule defaults — pre-fill values when creating a schedule
+  defaultInstructorId    String?
+  defaultRoomId          String?
+  defaultCapacity        Int?
+  defaultCreditsRequired Int?
+  defaultStartTime       String?   // "HH:MM"
+  defaultStartTime2      String?   // optional second daily slot
+  defaultDaysOfWeek      Int[]     @default([])
+  defaultIntervalWeeks   Int       @default(1)
 
   studio        Studio         @relation(fields: [studioId], references: [id], onDelete: Cascade)
   classSessions ClassSession[]
@@ -419,12 +450,14 @@ model CancellationPolicy {
 // ─── Products (retail) ───────────────────────────────────────────────────────
 
 model Product {
-  id           String  @id @default(cuid())
-  studioId     String
-  name         String
-  priceInCents Int
-  imageUrl     String?
-  inStock      Boolean @default(true)
+  id              String  @id @default(cuid())
+  studioId        String
+  name            String
+  category        String  @default("Other")   // e.g. "Drinks", "Food", "Merchandise"
+  priceInCents    Int
+  creditsRequired Int     @default(0)
+  imageUrl        String?
+  inStock         Boolean @default(true)
 
   studio Studio @relation(fields: [studioId], references: [id], onDelete: Cascade)
 }

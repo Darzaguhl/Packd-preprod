@@ -19,6 +19,8 @@ import DayTabs, { type DayTab } from './schedule/DayTabs'
 import FilterBar from './schedule/FilterBar'
 import MiniCalendar from './schedule/MiniCalendar'
 import NavBar from './NavBar'
+import { TimeFormatProvider } from '@/lib/time-format-context'
+import { type TimeFormat } from '@/lib/fmt-time'
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -51,6 +53,7 @@ function weekStart(date: Date): Date {
 export default function ScheduleView({ studioId }: { studioId: string }) {
   const [sessions, setSessions] = useState<SessionSlot[]>([])
   const [token, setToken] = useState<string | null>(null)
+  const [timeFormat, setTimeFormat] = useState<TimeFormat>('24h')
   const [userRole, setUserRole] = useState<string>('member')
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -86,7 +89,12 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
         const to = new Date(base.getTime() + WEEK_MS)
         return api.schedule.list(studioId, base.toISOString(), to.toISOString(), t)
       })
-      .then((data) => { if (data) setSessions(data) })
+      .then((data) => {
+        if (data) {
+          setSessions(data.sessions)
+          setTimeFormat((data.timeFormat ?? '24h') as TimeFormat)
+        }
+      })
       .finally(() => setLoading(false))
   }, [studioId, weekOffset])
 
@@ -229,6 +237,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   }
 
   return (
+    <TimeFormatProvider value={timeFormat}>
     <div className="min-h-screen bg-gray-50">
       <NavBar title="Schedule" subtitle={subtitle}>
         <div className="flex gap-5 items-start">
@@ -329,5 +338,6 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
       )}
 
     </div>
+    </TimeFormatProvider>
   )
 }

@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { api, type StudioSummary } from '@/lib/api'
 import PermissionsTab from '@/components/studio/PermissionsTab'
-import StudioManagerDashboard from '@/components/studio/StudioManagerDashboard'
+import AdminShell from '@/components/admin/AdminShell'
 import NavBar from '@/components/NavBar'
 
 type Tab = 'studios' | 'permissions'
@@ -51,7 +52,10 @@ const EMPTY_FORM: AddStudioForm = {
 }
 
 export default function FranchiseDashboard() {
-  const [tab, setTab] = useState<Tab>('studios')
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
+  const [tab, setTab] = useState<Tab>(() => (searchParams.get('tab') as Tab) ?? 'studios')
   const [token, setToken] = useState<string | null>(null)
   const [studios, setStudios] = useState<StudioSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -59,6 +63,16 @@ export default function FranchiseDashboard() {
 
   // Drill-in state: when set, renders StudioManagerDashboard for this studio
   const [activeStudio, setActiveStudio] = useState<StudioSummary | null>(null)
+  // Restore activeStudio from URL after studios load
+  const [pendingStudioId] = useState<string | null>(() => searchParams.get('studio'))
+
+  function changeTab(next: Tab, studioId?: string) {
+    setTab(next)
+    const p = new URLSearchParams()
+    p.set('tab', next)
+    if (studioId) p.set('studio', studioId)
+    router.replace(`?${p.toString()}`)
+  }
 
   // Add studio modal
   const [showAdd, setShowAdd] = useState(false)
@@ -85,7 +99,16 @@ export default function FranchiseDashboard() {
         if (!t) return
         return api.franchise.studios(t)
       })
-      .then(data => { if (data) setStudios(data) })
+      .then(data => {
+        if (data) {
+          setStudios(data)
+          // Restore drilled-in studio from URL on refresh
+          if (pendingStudioId) {
+            const match = data.find(s => s.id === pendingStudioId)
+            if (match) setActiveStudio(match)
+          }
+        }
+      })
       .finally(() => setLoading(false))
   }, [])
 
@@ -131,7 +154,7 @@ export default function FranchiseDashboard() {
     try {
       await api.studios.delete(studioId, token)
       setStudios(prev => prev.filter(s => s.id !== studioId))
-      if (activeStudio?.id === studioId) setActiveStudio(null)
+      if (activeStudio?.id === studioId) { setActiveStudio(null); changeTab('studios') }
       showToast('Studio deleted')
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Failed to delete studio', false)
@@ -140,13 +163,13 @@ export default function FranchiseDashboard() {
     }
   }
 
-  // If a studio is active (drilled in), show StudioManagerDashboard
+  // If a studio is active (drilled in), show the admin shell with mode switcher
   if (activeStudio && token) {
     return (
-      <StudioManagerDashboard
+      <AdminShell
         studioId={activeStudio.id}
         studioName={activeStudio.name}
-        onBack={() => setActiveStudio(null)}
+        onBack={() => { setActiveStudio(null); changeTab('studios') }}
         onStudioUpdate={(data) => {
           setStudios(prev => prev.map(s =>
             s.id === activeStudio.id ? { ...s, ...data } : s
@@ -169,7 +192,7 @@ export default function FranchiseDashboard() {
           {TABS.map(t => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => changeTab(t.id)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                 tab === t.id
                   ? 'border-gray-900 text-gray-900'
@@ -325,13 +348,13 @@ export default function FranchiseDashboard() {
                   {/* Actions */}
                   <div className="flex gap-2 pt-1">
                     <button
-                      onClick={() => setActiveStudio(studio)}
+                      onClick={() => { setActiveStudio(studio); changeTab('studios', studio.id) }}
                       className="flex-1 text-xs font-medium text-white bg-gray-900 rounded-lg px-3 py-2 hover:bg-gray-700 transition-colors"
                     >
                       Manage studio
                     </button>
                     <button
-                      onClick={() => { setPermStudio(studio); setTab('permissions') }}
+                      onClick={() => { setPermStudio(studio); changeTab('permissions') }}
                       className="text-xs font-medium text-gray-500 border border-gray-200 rounded-lg px-3 py-2 hover:border-gray-400 hover:text-gray-800 transition-colors"
                     >
                       Permissions

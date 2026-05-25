@@ -52,7 +52,7 @@ interface Props {
   studioId: string
   token: string
   onNameChange?: (name: string) => void
-  onStudioUpdate?: (data: { name: string; timezone: string; currency: string }) => void
+  onStudioUpdate?: (data: { name: string; timezone: string; currency: string; timeFormat: string }) => void
 }
 
 export default function SettingsTab({ studioId, token, onNameChange, onStudioUpdate }: Props) {
@@ -66,6 +66,7 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
   const [slug, setSlug] = useState('')
   const [timezone, setTimezone] = useState('')
   const [currency, setCurrency] = useState('')
+  const [timeFormat, setTimeFormat] = useState<'12h' | '24h'>('24h')
 
   // Location fields (first location)
   const [locName, setLocName] = useState('')
@@ -85,6 +86,7 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
       setSlug(s.slug)
       setTimezone(s.timezone)
       setCurrency(s.currency)
+      setTimeFormat((s.timeFormat ?? '24h') as '12h' | '24h')
       const loc = s.locations[0]
       if (loc) {
         setLocName(loc.name)
@@ -114,6 +116,7 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
         slug: slug !== studio.slug ? slug : undefined,
         timezone: timezone !== studio.timezone ? timezone : undefined,
         currency: currency !== studio.currency ? currency : undefined,
+        timeFormat: timeFormat !== (studio.timeFormat ?? '24h') ? timeFormat : undefined,
         location: loc ? {
           id: loc.id,
           name: locName !== loc.name ? locName : undefined,
@@ -124,7 +127,7 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
       }, token)
       setStudio(res.studio)
       onNameChange?.(res.studio.name)
-      onStudioUpdate?.({ name: res.studio.name, timezone: res.studio.timezone, currency: res.studio.currency })
+      onStudioUpdate?.({ name: res.studio.name, timezone: res.studio.timezone, currency: res.studio.currency, timeFormat: res.studio.timeFormat ?? '24h' })
       showToast('Settings saved')
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Failed to save', false)
@@ -138,6 +141,7 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
     slug !== studio.slug ||
     timezone !== studio.timezone ||
     currency !== studio.currency ||
+    timeFormat !== (studio.timeFormat ?? '24h') ||
     locName !== (studio.locations[0]?.name ?? '') ||
     address !== (studio.locations[0]?.address ?? '') ||
     city !== (studio.locations[0]?.city ?? '') ||
@@ -203,6 +207,25 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
             </select>
           </div>
         </div>
+
+        <div className="space-y-1">
+          <label className="text-xs text-gray-500 font-medium">Time format</label>
+          <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">
+            {(['24h', '12h'] as const).map(fmt => (
+              <button
+                key={fmt}
+                onClick={() => setTimeFormat(fmt)}
+                className={`text-sm px-4 py-1.5 rounded-md font-medium transition-colors ${
+                  timeFormat === fmt
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {fmt === '24h' ? '24h (14:30)' : '12h (2:30 PM)'}
+              </button>
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* Location */}
@@ -264,6 +287,7 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
               if (!studio) return
               setName(studio.name); setSlug(studio.slug)
               setTimezone(studio.timezone); setCurrency(studio.currency)
+              setTimeFormat((studio.timeFormat ?? '24h') as '12h' | '24h')
               const loc = studio.locations[0]
               if (loc) { setLocName(loc.name); setAddress(loc.address); setCity(loc.city); setCountry(loc.country) }
             }}

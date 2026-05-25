@@ -7,6 +7,8 @@ import type { SessionSlot } from '@packd/types'
 import SpotPicker from '@/components/room/SpotPicker'
 import CapacityBar from './CapacityBar'
 import { sportConfig } from './constants'
+import { useTimeFormat } from '@/lib/time-format-context'
+import { fmtTime } from '@/lib/fmt-time'
 
 interface Props {
   session: SessionSlot
@@ -37,6 +39,7 @@ export default function SessionDetailView({
   const [spotsLoading, setSpotsLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
 
+  const timeFormat = useTimeFormat()
   const cfg = sportConfig(s.sport)
   const isBooked = !!s.userBookingId
   const isWaitlisted = !!s.userWaitlistPosition
@@ -48,8 +51,8 @@ export default function SessionDetailView({
   const durationMin = Math.round(
     (new Date(s.endsAt).getTime() - new Date(s.startsAt).getTime()) / 60000,
   )
-  const startTime = new Date(s.startsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  const endTime = new Date(s.endsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  const startTime = fmtTime(s.startsAt, timeFormat)
+  const endTime = fmtTime(s.endsAt, timeFormat)
 
   async function refreshSpots() {
     const t = await getFreshToken()

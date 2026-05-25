@@ -2,23 +2,28 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { api, type RoomLayout, type SessionSpots, type AdminSession } from '@/lib/api'
+import { api, type RoomLayout, type LayoutTemplate, type SessionSpots, type AdminSession } from '@/lib/api'
 import RoomMapEditor from './RoomMapEditor'
 import SessionRoomMap from './SessionRoomMap'
 
 interface Props {
   roomId: string
+  studioId?: string
   token: string
   session?: AdminSession | null
   /** 'checkin' = session spots only (Room map tab)
    *  'editor'  = layout editor only (Rooms tab)
    *  undefined = both with toggle (legacy) */
   variant?: 'checkin' | 'editor'
+  /** Called whenever the active layout changes so parent can update room card */
+  onLayoutChange?: (layout: RoomLayout) => void
 }
 
-export default function RoomMapView({ roomId, token, session, variant }: Props) {
+export default function RoomMapView({ roomId, studioId, token, session, variant, onLayoutChange }: Props) {
   const [layout, setLayout] = useState<RoomLayout | null>(null)
   const [spots, setSpots] = useState<SessionSpots | null>(null)
+  const [roomLayouts, setRoomLayouts] = useState<RoomLayout[]>([])
+  const [studioTemplates, setStudioTemplates] = useState<LayoutTemplate[]>([])
   const [loading, setLoading] = useState(true)
   const [mode, setMode] = useState<'map' | 'edit'>(variant === 'editor' ? 'edit' : 'map')
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
@@ -39,30 +44,57 @@ export default function RoomMapView({ roomId, token, session, variant }: Props) 
     setLoading(true)
     try {
       const t = await getFreshToken()
-      if (session) {
-        const s = await api.rooms.spots(roomId, session.id, t)
-        setSpots(s)
-        setLayout(s.layout)
-      } else {
-        const l = await api.rooms.layout(roomId, t)
-        setLayout(l)
-      }
+      await Promise.all([
+        session
+          ? api.rooms.spots(roomId, session.id, t).then(s => { setSpots(s); setLayout(s.layout) })
+          : api.rooms.layout(roomId, t).then(l => setLayout(l)),
+        api.rooms.layouts(roomId, t).then(ls => setRoomLayouts(ls)).catch(() => {}),
+        studioId ? api.studios.layouts(studioId, t).then(ls => setStudioTemplates(ls)).catch(() => {}) : Promise.resolve(),
+      ])
     } catch {
       // leave existing
     } finally {
       setLoading(false)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, session])
+  }, [roomId, studioId, session])
 
   useEffect(() => { load() }, [load])
 
-  async function handleSaveLayout(body: Parameters<typeof api.rooms.saveLayout>[1]) {
+  async function handleSaveLayout(body: Parameters<typeof api.rooms.saveLayout>[1], layoutId?: string): Promise<RoomLayout> {
     const t = await getFreshToken()
-    const saved = await api.rooms.saveLayout(roomId, body, t)
+    const saved = layoutId
+      ? await api.rooms.updateLayout(roomId, layoutId, body, t)
+      : await api.rooms.saveLayout(roomId, body, t)
     setLayout(saved)
+    onLayoutChange?.(saved)
+    api.rooms.layouts(roomId, t).then(ls => setRoomLayouts(ls)).catch(() => {})
     showToast('Layout saved')
-    setMode('map')
+    return saved
+  }
+
+  async function handleActivateLayout(layoutId: string) {
+    try {
+      const t = await getFreshToken()
+      const activated = await api.rooms.activateLayout(roomId, layoutId, t)
+      setLayout(activated)
+      onLayoutChange?.(activated)
+      setRoomLayouts(prev => prev.map(l => ({ ...l, isActive: l.id === layoutId })))
+      showToast('Layout activated')
+    } catch {
+      showToast('Failed to activate layout', false)
+    }
+  }
+
+  async function handleDeleteLayout(layoutId: string) {
+    try {
+      const t = await getFreshToken()
+      await api.rooms.deleteLayout(roomId, layoutId, t)
+      setRoomLayouts(prev => prev.filter(l => l.id !== layoutId))
+      showToast('Layout deleted')
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Failed to delete layout', false)
+    }
   }
 
   async function handleCheckin(bookingId: string) {
@@ -120,7 +152,15 @@ export default function RoomMapView({ roomId, token, session, variant }: Props) 
         {layout && (
           <span className="text-xs text-gray-400">{layout.widthM}m × {layout.lengthM}m · {layout.stations.length} stations</span>
         )}
-        <RoomMapEditor roomId={roomId} initial={layout} onSave={handleSaveLayout} />
+        <RoomMapEditor
+          roomId={roomId}
+          initial={layout}
+          roomLayouts={roomLayouts}
+          studioTemplates={studioTemplates}
+          onSave={handleSaveLayout}
+          onActivateLayout={handleActivateLayout}
+          onDeleteLayout={handleDeleteLayout}
+        />
         {toast && (
           <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg ${
             toast.ok ? 'bg-gray-900 text-white' : 'bg-red-500 text-white'
@@ -188,7 +228,15 @@ export default function RoomMapView({ roomId, token, session, variant }: Props) 
       </div>
 
       {mode === 'edit' ? (
-        <RoomMapEditor roomId={roomId} initial={layout} onSave={handleSaveLayout} />
+        <RoomMapEditor
+          roomId={roomId}
+          initial={layout}
+          roomLayouts={roomLayouts}
+          studioTemplates={studioTemplates}
+          onSave={handleSaveLayout}
+          onActivateLayout={handleActivateLayout}
+          onDeleteLayout={handleDeleteLayout}
+        />
       ) : session && spots ? (
         spots.layout ? (
           <SessionRoomMap

@@ -62,9 +62,10 @@ const mockSession = (overrides = {}) => ({
   ...overrides,
 })
 
-const mockMember = () => ({
+const mockMember = (overrides = {}) => ({
   id: 'member-1',
   userId: 'user-1',
+  ...overrides,
 })
 
 describe('POST /bookings', () => {
@@ -246,6 +247,73 @@ describe('DELETE /bookings/:id', () => {
       expect.objectContaining({
         data: expect.objectContaining({ stationId: null }),
       }),
+    )
+  })
+})
+
+describe('POST /bookings — on-behalf booking (walk-in)', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('fronthost can book on behalf of another member via memberId', async () => {
+    vi.mocked(getUser).mockReturnValue({ id: 'staff-user', email: 'desk@packd.test', role: 'fronthost' } as never)
+    vi.mocked(prisma.classSession.findUniqueOrThrow).mockResolvedValue(mockSession() as never)
+    // On-behalf: member looked up by ID, not by userId
+    vi.mocked(prisma.member.findUniqueOrThrow).mockResolvedValue(mockMember({ id: 'member-99', userId: 'other-user' }) as never)
+    vi.mocked(prisma.creditBalance.findUnique).mockResolvedValue({ balance: 5 } as never)
+    vi.mocked(prisma.booking.create).mockResolvedValue({ id: 'booking-99' } as never)
+
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/bookings',
+      body: { sessionId: 'session-1', memberId: 'member-99' },
+    })
+
+    expect(res.statusCode).toBe(201)
+    // Should have looked up member by { id: 'member-99' }, not by userId
+    expect(vi.mocked(prisma.member.findUniqueOrThrow)).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'member-99' } }),
+    )
+  })
+
+  it('studio_admin can book on behalf of another member', async () => {
+    vi.mocked(getUser).mockReturnValue({ id: 'admin-user', email: 'admin@packd.test', role: 'studio_admin' } as never)
+    vi.mocked(prisma.classSession.findUniqueOrThrow).mockResolvedValue(mockSession() as never)
+    vi.mocked(prisma.member.findUniqueOrThrow).mockResolvedValue(mockMember({ id: 'member-99', userId: 'other-user' }) as never)
+    vi.mocked(prisma.creditBalance.findUnique).mockResolvedValue({ balance: 5 } as never)
+    vi.mocked(prisma.booking.create).mockResolvedValue({ id: 'booking-99' } as never)
+
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/bookings',
+      body: { sessionId: 'session-1', memberId: 'member-99' },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(vi.mocked(prisma.member.findUniqueOrThrow)).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'member-99' } }),
+    )
+  })
+
+  it('member role cannot use memberId override — books for themselves instead', async () => {
+    vi.mocked(getUser).mockReturnValue({ id: 'user-1', email: 'member@packd.test', role: 'member' } as never)
+    vi.mocked(prisma.classSession.findUniqueOrThrow).mockResolvedValue(mockSession() as never)
+    vi.mocked(prisma.member.findUniqueOrThrow).mockResolvedValue(mockMember() as never)
+    vi.mocked(prisma.creditBalance.findUnique).mockResolvedValue({ balance: 5 } as never)
+    vi.mocked(prisma.booking.create).mockResolvedValue({ id: 'booking-1' } as never)
+
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/bookings',
+      body: { sessionId: 'session-1', memberId: 'member-99' },
+    })
+
+    expect(res.statusCode).toBe(201)
+    // Member role: memberId is ignored — should look up by userId, not by id
+    expect(vi.mocked(prisma.member.findUniqueOrThrow)).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: 'user-1' } }),
     )
   })
 })

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { api, type RoomSummary } from '@/lib/api'
+import { api, type RoomSummary, type RoomLayout } from '@/lib/api'
 import RoomMapView from '@/components/room/RoomMapView'
 
 interface Props {
@@ -88,7 +88,19 @@ export default function RoomsTab({ studioId, token }: Props) {
           <span className="text-sm font-semibold text-gray-900">{selectedRoom.name}</span>
           <span className="text-xs text-gray-400 ml-1">·  {selectedRoom.capacity} spots</span>
         </div>
-        <RoomMapView roomId={selectedRoom.id} token={token} variant="editor" />
+        <RoomMapView
+          roomId={selectedRoom.id}
+          studioId={studioId}
+          token={token}
+          variant="editor"
+          onLayoutChange={(layout: RoomLayout) => {
+            setRooms(prev => prev.map(r =>
+              r.id === selectedRoom.id
+                ? { ...r, activeLayout: { id: layout.id, name: layout.name, widthM: layout.widthM, lengthM: layout.lengthM, _count: { stations: layout.stations.length } } }
+                : r
+            ))
+          }}
+        />
       </div>
     )
   }

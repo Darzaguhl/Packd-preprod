@@ -1,11 +1,16 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { api, type AdminSession } from '@/lib/api'
 import NavBar from '@/components/NavBar'
 import RoomMapView from '@/components/room/RoomMapView'
 import CreditModal from './CreditModal'
+import PhotosTab from '@/components/studio/PhotosTab'
+import MemberDrawer from './MemberDrawer'
+import { TimeFormatProvider } from '@/lib/time-format-context'
+import { fmtTime, type TimeFormat } from '@/lib/fmt-time'
 
 interface Studio {
   id: string
@@ -18,14 +23,46 @@ function isoDate(d: Date) {
 }
 
 export default function FronthostDashboard({ defaultStudioId, modeSwitch }: { defaultStudioId?: string; modeSwitch?: React.ReactNode }) {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
   const [token, setToken] = useState<string | null>(null)
   const [studios, setStudios] = useState<Studio[]>([])
-  const [studioId, setStudioId] = useState<string | null>(defaultStudioId ?? null)
+  const [studioId, setStudioId] = useState<string | null>(
+    searchParams.get('studio') ?? defaultStudioId ?? null,
+  )
   const [sessions, setSessions] = useState<AdminSession[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedSession, setSelectedSession] = useState<AdminSession | null>(null)
   const [creditModal, setCreditModal] = useState(false)
-  const [date, setDate] = useState(isoDate(new Date()))
+  const [date, setDate] = useState(searchParams.get('date') ?? isoDate(new Date()))
+  const [showPhotos, setShowPhotos] = useState(searchParams.get('view') === 'photos')
+  const [showDrawer, setShowDrawer] = useState(false)
+  // Set if this user also has an instructor record (dual-role)
+  const [myInstructorId, setMyInstructorId] = useState<string | null>(null)
+  const [timeFormat, setTimeFormat] = useState<TimeFormat>('24h')
+  const [currency, setCurrency] = useState('USD')
+
+  // Push current view state into the URL so browser refresh restores it
+  function updateUrl(opts: { studio?: string | null; date?: string; view?: 'photos' | null }) {
+    const params = new URLSearchParams(searchParams.toString())
+    if (opts.studio !== undefined) {
+      if (opts.studio) params.set('studio', opts.studio)
+      else params.delete('studio')
+    }
+    if (opts.date !== undefined) params.set('date', opts.date)
+    if (opts.view !== undefined) {
+      if (opts.view) params.set('view', opts.view)
+      else params.delete('view')
+    }
+    router.replace(`?${params.toString()}`)
+  }
+
+  function togglePhotos() {
+    const next = !showPhotos
+    setShowPhotos(next)
+    updateUrl({ view: next ? 'photos' : null })
+  }
 
   // Load token, then fetch assigned studios
   useEffect(() => {
@@ -38,7 +75,10 @@ export default function FronthostDashboard({ defaultStudioId, modeSwitch }: { de
         const list = await api.staff.myStudios(t)
         setStudios(list)
         // If we don't have a studioId yet, pick the first assigned studio
-        if (!studioId && list.length > 0) setStudioId(list[0].id)
+        if (!studioId && list.length > 0) {
+          setStudioId(list[0].id)
+          updateUrl({ studio: list[0].id })
+        }
       } catch {
         // Fallback: keep defaultStudioId if provided
       }
@@ -46,17 +86,30 @@ export default function FronthostDashboard({ defaultStudioId, modeSwitch }: { de
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Try to resolve instructor record — succeeds for dual-role users
+  useEffect(() => {
+    if (!token || !studioId) return
+    api.franchise.myInstructor(studioId, token)
+      .then(r => setMyInstructorId(r.id))
+      .catch(() => { /* pure fronthost — no instructor record */ })
+  }, [token, studioId])
+
   // Load sessions whenever studio or date changes
   useEffect(() => {
     if (!token || !studioId) return
     setLoading(true)
     setSelectedSession(null)
-    api.admin.sessions(studioId, date, token)
-      .then(data => {
-        setSessions(data)
-        setSelectedSession(data[0] ?? null)
-      })
-      .catch(() => setSessions([]))
+    Promise.all([
+      api.admin.sessions(studioId, date, token),
+      api.admin.stats(studioId, token).catch(() => null),
+    ]).then(([data, stats]) => {
+      setSessions(data)
+      setSelectedSession(data[0] ?? null)
+      if (stats) {
+        setTimeFormat((stats.timeFormat ?? '24h') as TimeFormat)
+        setCurrency(stats.currency ?? 'USD')
+      }
+    }).catch(() => setSessions([]))
       .finally(() => setLoading(false))
   }, [token, studioId, date])
 
@@ -66,6 +119,7 @@ export default function FronthostDashboard({ defaultStudioId, modeSwitch }: { de
   const currentStudio = studios.find(s => s.id === studioId)
 
   return (
+    <TimeFormatProvider value={timeFormat}>
     <div className="flex flex-col h-screen bg-gray-50">
       <NavBar title="Front Desk" subtitle={currentStudio?.name ?? 'Check-in & customer management'} action={modeSwitch}>
         <div className="flex items-center gap-3 pb-3 flex-wrap">
@@ -73,7 +127,7 @@ export default function FronthostDashboard({ defaultStudioId, modeSwitch }: { de
           {studios.length > 1 && (
             <select
               value={studioId ?? ''}
-              onChange={e => setStudioId(e.target.value)}
+              onChange={e => { setStudioId(e.target.value); updateUrl({ studio: e.target.value }) }}
               className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-gray-400"
             >
               {studios.map(s => (
@@ -84,9 +138,27 @@ export default function FronthostDashboard({ defaultStudioId, modeSwitch }: { de
           <input
             type="date"
             value={date}
-            onChange={e => setDate(e.target.value)}
+            onChange={e => { setDate(e.target.value); updateUrl({ date: e.target.value }) }}
             className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-gray-400"
           />
+          {myInstructorId && (
+            <button
+              onClick={togglePhotos}
+              className={`text-xs font-medium px-4 py-2 rounded-lg transition-colors ${
+                showPhotos
+                  ? 'bg-gray-900 text-white'
+                  : 'border border-gray-200 text-gray-600 hover:border-gray-400 hover:text-gray-900'
+              }`}
+            >
+              My Photos
+            </button>
+          )}
+          <button
+            onClick={() => setShowDrawer(true)}
+            className="text-xs font-medium border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:border-gray-500 hover:text-gray-900 transition-colors"
+          >
+            Walk-in
+          </button>
           <button
             onClick={() => setCreditModal(true)}
             className="text-xs font-medium bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
@@ -134,7 +206,7 @@ export default function FronthostDashboard({ defaultStudioId, modeSwitch }: { de
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className={`text-xs font-bold ${isSelected ? 'text-white' : 'text-gray-900'}`}>
-                          {start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                          {fmtTime(start, timeFormat)}
                         </span>
                         {isActive && (
                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500 text-white">
@@ -168,16 +240,18 @@ export default function FronthostDashboard({ defaultStudioId, modeSwitch }: { de
           </div>
         </div>
 
-        {/* Main content — room map */}
+        {/* Main content — photos or room map */}
         <div className="flex-1 overflow-auto p-6">
-          {token && studioId && selectedSession ? (
+          {showPhotos && token && myInstructorId ? (
+            <PhotosTab instructorId={myInstructorId} token={token} isManager={false} />
+          ) : token && studioId && selectedSession ? (
             <div className="space-y-3">
               <div>
                 <h2 className="text-sm font-bold text-gray-900">{selectedSession.templateName}</h2>
                 <p className="text-xs text-gray-500">
-                  {new Date(selectedSession.startsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                  {fmtTime(selectedSession.startsAt, timeFormat)}
                   {' – '}
-                  {new Date(selectedSession.endsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                  {fmtTime(selectedSession.endsAt, timeFormat)}
                   {' · '}{selectedSession.roomName}
                   {' · '}{selectedSession.instructorName}
                 </p>
@@ -204,6 +278,29 @@ export default function FronthostDashboard({ defaultStudioId, modeSwitch }: { de
           onClose={() => setCreditModal(false)}
         />
       )}
+
+      {showDrawer && studioId && (
+        <MemberDrawer
+          studioId={studioId}
+          currency={currency}
+          selectedSession={selectedSession}
+          onClose={() => setShowDrawer(false)}
+          onBookingChanged={() => {
+            // Re-fetch sessions so booked counts stay accurate
+            if (!token || !studioId) return
+            api.admin.sessions(studioId, date, token)
+              .then(data => {
+                setSessions(data)
+                // Keep selectedSession in sync
+                setSelectedSession(prev =>
+                  prev ? (data.find(s => s.id === prev.id) ?? prev) : null
+                )
+              })
+              .catch(() => {})
+          }}
+        />
+      )}
     </div>
+    </TimeFormatProvider>
   )
 }

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import FranchiseDashboard from '@/components/franchise/FranchiseDashboard'
 import StudioManagerDashboard from '@/components/studio/StudioManagerDashboard'
 import DualRoleDashboard from '@/components/dual/DualRoleDashboard'
+import AdminShell from '@/components/admin/AdminShell'
 
 const STUDIO_ID = process.env.NEXT_PUBLIC_STUDIO_ID!
 
@@ -20,7 +21,7 @@ export default async function DashboardPage() {
   }
 
   if (role === 'studio_admin') {
-    return <StudioManagerDashboard studioId={STUDIO_ID} />
+    return <AdminShell studioId={STUDIO_ID} />
   }
 
   // Dual role: has both fronthost and instructor
