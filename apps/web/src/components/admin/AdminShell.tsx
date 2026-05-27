@@ -1,12 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { api } from '@/lib/api'
 import FronthostDashboard from '@/components/fronthost/FronthostDashboard'
 import StudioManagerDashboard from '@/components/studio/StudioManagerDashboard'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Mode = 'management' | 'frontdesk'
+
+interface StudioOption {
+  id: string
+  name: string
+}
 
 // ─── Mode switcher pill ───────────────────────────────────────────────────────
 
@@ -37,28 +44,125 @@ function ModeSwitcher({ mode, onSwitch }: { mode: Mode; onSwitch: (m: Mode) => v
   )
 }
 
+// ─── Studio switcher dropdown ─────────────────────────────────────────────────
+
+function StudioSwitcher({
+  studios,
+  selectedId,
+  onSelect,
+}: {
+  studios: StudioOption[]
+  selectedId: string
+  onSelect: (id: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const selected = studios.find(s => s.id === selectedId)
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-1.5 text-xs font-medium text-gray-600 border border-gray-200 bg-white rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors"
+      >
+        <svg className="w-3.5 h-3.5 text-gray-400" viewBox="0 0 16 16" fill="none">
+          <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+          <path d="M5 7h6M5 10h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+        </svg>
+        {selected?.name ?? 'Select studio'}
+        <svg className="w-3 h-3 text-gray-400" viewBox="0 0 12 12" fill="none">
+          <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+
+      {open && (
+        <>
+          {/* Backdrop */}
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1.5 w-52 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-1 overflow-hidden">
+            {studios.map(s => (
+              <button
+                key={s.id}
+                onClick={() => { onSelect(s.id); setOpen(false) }}
+                className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                  s.id === selectedId
+                    ? 'bg-gray-50 font-medium text-gray-900'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {s.name}
+                {s.id === selectedId && (
+                  <svg className="inline-block ml-2 w-3.5 h-3.5 text-emerald-500" viewBox="0 0 14 14" fill="none">
+                    <path d="M2.5 7l3 3 6-6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                )}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface Props {
+  /** Primary studio ID (first/only studio for single-studio admins) */
   studioId: string
   studioName?: string
+  /** All studio IDs the user has access to. If >1, a studio switcher is shown. */
+  studioIds?: string[]
   /** Called when navigating back (franchise drill-in only) */
   onBack?: () => void
-  /** Called after studio settings are saved — lets the parent keep its studio list in sync */
+  /** Called after studio settings are saved */
   onStudioUpdate?: (data: { name: string; timezone: string; currency: string; timeFormat: string }) => void
 }
 
 // ─── Shell ────────────────────────────────────────────────────────────────────
 
-export default function AdminShell({ studioId, studioName, onBack, onStudioUpdate }: Props) {
+export default function AdminShell({ studioId: initialStudioId, studioName: initialStudioName, studioIds, onBack, onStudioUpdate }: Props) {
   const [mode, setMode] = useState<Mode>('management')
+  const [selectedStudioId, setSelectedStudioId] = useState(initialStudioId)
+  const [studios, setStudios] = useState<StudioOption[]>(
+    initialStudioName ? [{ id: initialStudioId, name: initialStudioName }] : [],
+  )
 
-  const switcher = <ModeSwitcher mode={mode} onSwitch={setMode} />
+  // Fetch studio names when the user has multiple studios
+  useEffect(() => {
+    if (!studioIds || studioIds.length <= 1) return
+    createClient().auth.getSession().then(({ data: { session } }) => {
+      const t = session?.access_token
+      if (!t) return
+      api.franchise.myStudios(t).then(list => {
+        setStudios(list)
+        // Ensure selected is in the list (pick first if not)
+        if (!list.find(s => s.id === selectedStudioId) && list.length > 0) {
+          setSelectedStudioId(list[0].id)
+        }
+      }).catch(() => {})
+    })
+  }, [studioIds?.join(',')])
+
+  const isMultiStudio = studioIds && studioIds.length > 1
+  const selectedName = studios.find(s => s.id === selectedStudioId)?.name
+
+  const switcher = (
+    <div className="flex items-center gap-2">
+      {isMultiStudio && studios.length > 1 && (
+        <StudioSwitcher
+          studios={studios}
+          selectedId={selectedStudioId}
+          onSelect={id => { setSelectedStudioId(id); setMode('management') }}
+        />
+      )}
+      <ModeSwitcher mode={mode} onSwitch={setMode} />
+    </div>
+  )
 
   if (mode === 'frontdesk') {
     return (
       <FronthostDashboard
-        defaultStudioId={studioId}
+        defaultStudioId={selectedStudioId}
         modeSwitch={switcher}
       />
     )
@@ -66,10 +170,14 @@ export default function AdminShell({ studioId, studioName, onBack, onStudioUpdat
 
   return (
     <StudioManagerDashboard
-      studioId={studioId}
-      studioName={studioName}
+      studioId={selectedStudioId}
+      studioName={selectedName ?? initialStudioName}
       onBack={onBack}
-      onStudioUpdate={onStudioUpdate}
+      onStudioUpdate={data => {
+        // Keep studio name in sync when settings are saved
+        setStudios(prev => prev.map(s => s.id === selectedStudioId ? { ...s, name: data.name } : s))
+        onStudioUpdate?.(data)
+      }}
       modeSwitch={switcher}
     />
   )

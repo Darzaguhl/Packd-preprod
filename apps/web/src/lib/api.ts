@@ -493,6 +493,8 @@ export const api = {
       ),
   },
   franchise: {
+    myStudios: (token: string) =>
+      apiFetch<{ id: string; name: string; slug: string }[]>('/franchise/my-studios', { token }),
     studios: (token: string) =>
       apiFetch<StudioSummary[]>('/franchise/studios', { token }),
     myInstructor: (studioId: string, token: string) =>

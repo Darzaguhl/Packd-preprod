@@ -12,16 +12,19 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const appMeta = user.app_metadata as { role?: string; roles?: string[] } | undefined
+  const appMeta = user.app_metadata as { role?: string; roles?: string[]; studioId?: string; studioIds?: string[] } | undefined
   const role = appMeta?.role
   const roles: string[] = appMeta?.roles ?? (role && role !== 'member' ? [role] : [])
+  // All studio IDs the user is assigned to (multi-studio support)
+  const studioIds: string[] = appMeta?.studioIds ?? (appMeta?.studioId ? [appMeta.studioId] : [STUDIO_ID])
+  const primaryStudioId = studioIds[0] ?? STUDIO_ID
 
   if (role === 'admin' || role === 'franchise_admin') {
     return <FranchiseDashboard />
   }
 
   if (role === 'studio_admin') {
-    return <AdminShell studioId={STUDIO_ID} />
+    return <AdminShell studioId={primaryStudioId} studioIds={studioIds} />
   }
 
   // Dual role: has both fronthost and instructor

@@ -86,6 +86,27 @@ export async function assertStudioAccess(
 }
 
 export async function franchiseRoutes(app: FastifyInstance) {
+  // GET /franchise/my-studios — studios accessible to the caller
+  // franchise_admin+: all studios; studio_admin: only their studioIds
+  app.get(
+    '/my-studios',
+    { preHandler: requireRole('studio_admin') },
+    async (request, reply) => {
+      const user = getUser(request)
+      const isFranchise = ROLE_RANK[user.role as keyof typeof ROLE_RANK] >= ROLE_RANK['franchise_admin']
+
+      const studios = isFranchise
+        ? await prisma.studio.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true, slug: true } })
+        : await prisma.studio.findMany({
+            where: { id: { in: user.studioIds } },
+            orderBy: { name: 'asc' },
+            select: { id: true, name: true, slug: true },
+          })
+
+      return reply.send(studios)
+    },
+  )
+
   app.get(
     '/studios',
     { preHandler: requireRole('franchise_admin') },
