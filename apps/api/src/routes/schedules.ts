@@ -11,10 +11,13 @@ async function assertStudioAccess(
   userRole: string,
   studioId: string,
   reply: FastifyReply,
+  jwtStudioIds?: string[],
 ): Promise<boolean> {
   if (ROLE_RANK[userRole as keyof typeof ROLE_RANK] >= ROLE_RANK['franchise_admin']) return true
-  const member = await prisma.member.findUnique({ where: { userId }, select: { studioId: true } })
-  if (!member || member.studioId !== studioId) {
+  // Fast path: JWT already encodes studio access — skip the DB lookup
+  if (jwtStudioIds && jwtStudioIds.includes(studioId)) return true
+  const member = await prisma.member.findUnique({ where: { userId }, select: { studioId: true, studioIds: true } })
+  if (!member || (!member.studioIds.includes(studioId) && member.studioId !== studioId)) {
     reply.code(403).send({ error: 'Access denied' })
     return false
   }
@@ -90,7 +93,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       const { studioId, weekStart } = request.query
       if (!studioId) return reply.badRequest('studioId required')
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       // Default weekStart = today
       const base = weekStart ? new Date(weekStart) : new Date()
@@ -106,22 +109,26 @@ export async function classScheduleRoutes(app: FastifyInstance) {
         prisma.classSession.findMany({
           where: { studioId, startsAt: { gte: monday, lte: sunday } },
           include: {
-            template: true,
-            instructor: { include: { user: true } },
-            substitute: { include: { user: true } },
-            room: true,
+            template: { select: { name: true, sport: true } },
+            instructor: { include: { user: { select: { firstName: true, lastName: true } } } },
+            substitute: { include: { user: { select: { firstName: true, lastName: true } } } },
+            room: { select: { name: true } },
           },
           orderBy: { startsAt: 'asc' },
         }),
-        prisma.classTemplate.findMany({ where: { studioId }, orderBy: { name: 'asc' } }),
+        prisma.classTemplate.findMany({
+          where: { studioId },
+          select: { id: true, name: true, sport: true, durationMin: true, defaultInstructorId: true, defaultRoomId: true, defaultCapacity: true, defaultCreditsRequired: true, defaultStartTime: true, defaultStartTime2: true, defaultDaysOfWeek: true, defaultIntervalWeeks: true },
+          orderBy: { name: 'asc' },
+        }),
         prisma.instructor.findMany({
           where: { studioId },
-          include: { user: true },
+          select: { id: true, user: { select: { firstName: true, lastName: true } } },
           orderBy: { user: { firstName: 'asc' } },
         }),
         prisma.room.findMany({
           where: { location: { studioId } },
-          include: { location: true },
+          select: { id: true, name: true, capacity: true, location: { select: { name: true } } },
           orderBy: { name: 'asc' },
         }),
       ])
@@ -176,14 +183,14 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId required')
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const schedules = await prisma.classSchedule.findMany({
         where: { studioId, isActive: true },
         include: {
-          template: true,
-          instructor: { include: { user: true } },
-          room: true,
+          template: { select: { name: true, sport: true } },
+          instructor: { include: { user: { select: { firstName: true, lastName: true } } } },
+          room: { select: { name: true } },
         },
         orderBy: { createdAt: 'asc' },
       })
@@ -237,7 +244,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       } = request.body
 
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       if (!daysOfWeek?.length) return reply.badRequest('daysOfWeek must be non-empty')
       if (!/^\d{2}:\d{2}$/.test(startTime)) return reply.badRequest('startTime must be HH:MM')
@@ -289,7 +296,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       const { id } = request.params
       const { studioId, ...fields } = request.body
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const existing = await prisma.classSchedule.findFirst({ where: { id, studioId } })
       if (!existing) return reply.notFound('Schedule not found')
@@ -351,7 +358,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       const { id } = request.params
       const { studioId } = request.query
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const existing = await prisma.classSchedule.findFirst({ where: { id, studioId } })
       if (!existing) return reply.notFound('Schedule not found')
@@ -382,7 +389,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       const { sessionId } = request.params
       const { substituteInstructorId, studioId } = request.body
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const session = await prisma.classSession.findFirst({
         where: { id: sessionId, studioId },
@@ -418,7 +425,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
         return reply.badRequest('studioId, templateId, instructorId and startTime are required')
       }
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const [hh, mm] = startTime.split(':').map(Number)
       const now = new Date()
@@ -456,7 +463,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       const { studioId, year, month, instructorId } = request.query
       if (!studioId) return reply.badRequest('studioId required')
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const y = Number(year ?? new Date().getFullYear())
       const m = Number(month ?? new Date().getMonth() + 1)
@@ -501,7 +508,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId required')
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const now = new Date()
       const future = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000) // 60 days ahead

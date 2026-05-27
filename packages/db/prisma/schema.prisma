@@ -303,6 +303,8 @@ model Member {
   transactions    CreditTransaction[]
 
   @@unique([studioId, externalId])
+  @@index([staffRoles], type: Gin)
+  @@index([studioIds], type: Gin)
 }
 
 // ─── Bookings ─────────────────────────────────────────────────────────────────
@@ -326,6 +328,7 @@ model Booking {
   @@unique([sessionId, memberId])
   @@unique([sessionId, stationId])
   @@index([memberId])
+  @@index([sessionId, status])
 }
 
 enum BookingStatus {

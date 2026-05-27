@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -491,9 +491,9 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
   const unassigned = assignments.filter(a => !a.stationId)
 
   // When the assigned member list empties, exit assign mode automatically
-  if (assigningStationId && unassigned.length === 0) {
-    setAssigningStationId(null)
-  }
+  useEffect(() => {
+    if (assigningStationId && unassigned.length === 0) setAssigningStationId(null)
+  }, [assigningStationId, unassigned.length])
 
   function handleEmptyStationClick(station: Station) {
     if (unassigned.length > 0) {

@@ -196,27 +196,28 @@ export async function roomRoutes(app: FastifyInstance) {
         }
       }
 
-      // deactivate previous layouts
-      await prisma.roomLayout.updateMany({ where: { roomId, isActive: true }, data: { isActive: false } })
-
-      const layout = await prisma.roomLayout.create({
-        data: {
-          roomId,
-          name,
-          widthM,
-          lengthM,
-          isActive: true,
-          stations: {
-            create: stations.map(s => ({
-              type: s.type as import('@packd/db').StationType,
-              label: s.label,
-              xM: s.xM,
-              yM: s.yM,
-              rotation: s.rotation ?? 0,
-            })),
+      // Deactivate previous layouts and create the new one atomically
+      const layout = await prisma.$transaction(async (tx) => {
+        await tx.roomLayout.updateMany({ where: { roomId, isActive: true }, data: { isActive: false } })
+        return tx.roomLayout.create({
+          data: {
+            roomId,
+            name,
+            widthM,
+            lengthM,
+            isActive: true,
+            stations: {
+              create: stations.map(s => ({
+                type: s.type as import('@packd/db').StationType,
+                label: s.label,
+                xM: s.xM,
+                yM: s.yM,
+                rotation: s.rotation ?? 0,
+              })),
+            },
           },
-        },
-        include: { stations: true },
+          include: { stations: true },
+        })
       })
 
       return reply.code(201).send(layout)

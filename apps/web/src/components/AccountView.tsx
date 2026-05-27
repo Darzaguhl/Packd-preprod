@@ -67,27 +67,19 @@ export default function AccountView() {
           res.isLateCancel ? 'Cancelled — late cancel fee applied' : 'Booking cancelled',
           !res.isLateCancel,
         )
-        // Re-fetch profile to get accurate credit balance (avoids guessing fee amounts)
+        // Re-fetch profile + transactions to get accurate balances
+        // (late-cancel fee amount is server-determined, so we don't guess it)
         api.members.me(token).then(updated => setProfile(updated)).catch(() => {})
-        // Optimistically prepend the relevant transaction
-        if (profile) {
-          if (!res.isLateCancel && booking) {
-            setTransactions(prev => [{
-              id: `local-${Date.now()}`,
-              amount: booking.creditsRequired,
-              type: 'REFUND',
-              note: `Cancellation: ${booking.templateName}`,
-              createdAt: new Date().toISOString(),
-            }, ...prev])
-          } else if (res.isLateCancel) {
-            setTransactions(prev => [{
-              id: `local-${Date.now()}`,
-              amount: -1,
-              type: 'LATE_CANCEL_FEE',
-              note: 'Late cancellation fee',
-              createdAt: new Date().toISOString(),
-            }, ...prev])
-          }
+        api.members.history(token).then(h => setTransactions(h.transactions)).catch(() => {})
+        // Optimistic refund for on-time cancellation (amount is known client-side)
+        if (!res.isLateCancel && booking) {
+          setTransactions(prev => [{
+            id: `local-${Date.now()}`,
+            amount: booking.creditsRequired,
+            type: 'REFUND',
+            note: `Cancellation: ${booking.templateName}`,
+            createdAt: new Date().toISOString(),
+          }, ...prev])
         }
       }
     } catch (e) {

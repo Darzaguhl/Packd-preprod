@@ -85,7 +85,7 @@ export default function MembershipsTab({ studioId, token, currency = 'USD' }: Pr
     if (assignSearch.length < 2) { setAssignResults([]); return }
     const t = setTimeout(async () => {
       try {
-        const results = await api.admin.searchMembers(studioId, token, assignSearch)
+        const results = await api.admin.searchMembers(studioId, assignSearch, token)
         setAssignResults(results)
       } catch {}
     }, 300)

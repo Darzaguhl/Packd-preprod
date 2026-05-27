@@ -1,15 +1,6 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core'
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import type { SessionSlot } from '@packd/types'
 import { api } from '@/lib/api'
 import { createClient } from '@/lib/supabase/client'
@@ -66,8 +57,6 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   const selectedSession = selectedSessionId ? sessions.find(s => s.id === selectedSessionId) ?? null : null
   // Admins and fronthosts can interact with past/running classes; members cannot
   const isPrivileged = userRole !== 'member'
-
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
   async function getFreshToken(): Promise<string> {
     const { data } = await createClient().auth.getSession()
@@ -224,12 +213,6 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
     }
   }
 
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    console.log('Drag end — implement reschedule:', active.id, '→', over.id)
-  }
-
   /** Called by MiniCalendar when the user clicks a day in a different week */
   function handleCalendarDaySelect(iso: string, relativeWeekOffset: number) {
     setWeekOffset((w) => w + relativeWeekOffset)
@@ -297,21 +280,16 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
               )}
             </div>
           ) : (
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <SortableContext items={daySessions.map((s) => s.id)} strategy={verticalListSortingStrategy}>
-                <div className="space-y-2">
-                  {daySessions.map((s) => (
-                    <ClassCard
-                      key={s.id}
-                      session={s}
-                      privileged={isPrivileged}
-                      onSelect={s => setSelectedSessionId(s.id)}
-                      draggable={false}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
+            <div className="space-y-2">
+              {daySessions.map((s) => (
+                <ClassCard
+                  key={s.id}
+                  session={s}
+                  privileged={isPrivileged}
+                  onSelect={s => setSelectedSessionId(s.id)}
+                />
+              ))}
+            </div>
           )}
         </div>
 

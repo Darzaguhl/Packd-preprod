@@ -106,17 +106,24 @@ export async function setupJobs() {
 
     if (noShows.length === 0) return
 
-    // Single batched transaction for all no-shows in the session
+    // Single batched transaction for all no-shows in the session.
+    // Batch-fetch all credit balances upfront to avoid N+1 DB round-trips.
     await prisma.$transaction(async (tx) => {
       await tx.booking.updateMany({
         where: { id: { in: noShows.map(b => b.id) } },
         data: { status: 'NO_SHOW' },
       })
 
+      const memberIds = noShows.map(b => b.memberId)
+      const balances = await tx.creditBalance.findMany({
+        where: { memberId: { in: memberIds } },
+        select: { memberId: true, balance: true },
+      })
+      const balanceMap = new Map(balances.map(b => [b.memberId, b.balance]))
+
       for (const booking of noShows) {
-        // Floor at 0 — never drive balance negative
-        const current = await tx.creditBalance.findUnique({ where: { memberId: booking.memberId } })
-        const actualFee = Math.min(fee, current?.balance ?? 0)
+        const current = balanceMap.get(booking.memberId) ?? 0
+        const actualFee = Math.min(fee, current)
         if (actualFee <= 0) continue
 
         await tx.creditBalance.update({

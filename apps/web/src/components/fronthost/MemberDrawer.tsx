@@ -185,16 +185,18 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
         const existing = existingBookings.find(b => b.memberId === m.id)
         bookingId = existing?.id
         setBooking(existing ?? null)
+        // Reuse the already-fetched list to avoid a second round-trip
+        setSessionBookings(existingBookings)
       }
       if (bookingId) {
         await api.rooms.assignSpot(selectedSession.roomId, selectedSession.id, bookingId, targetStation.id, t)
+        // Refresh once after spot assignment
+        const bookings = await api.admin.bookings(selectedSession.id, t)
+        setSessionBookings(bookings)
+        setBooking(bookings.find(b => b.memberId === m.id) ?? null)
       }
       // Refresh the map to show the new assignment
       onAssigned?.()
-      // Load the booking into the drawer so the Check in button appears
-      const bookings = await api.admin.bookings(selectedSession.id, t)
-      setSessionBookings(bookings)
-      setBooking(bookings.find(b => b.memberId === m.id) ?? null)
       showToast(`${m.name} added to ${targetStation.label}`)
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Failed to add member', false)

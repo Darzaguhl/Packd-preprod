@@ -181,20 +181,24 @@ export async function bookingRoutes(app: FastifyInstance) {
             },
           })
         } else if (chargeFee) {
-          // Late cancel: no refund + charge the late-cancel fee
-          await tx.creditBalance.upsert({
-            where: { memberId: booking.memberId },
-            create: { memberId: booking.memberId, balance: -lateCancelFeeCredits },
-            update: { balance: { decrement: lateCancelFeeCredits } },
-          })
-          await tx.creditTransaction.create({
-            data: {
-              memberId: booking.memberId,
-              amount: -lateCancelFeeCredits,
-              type: 'LATE_CANCEL_FEE',
-              note: `Late cancellation fee for ${booking.session.template?.name ?? 'class'}`,
-            },
-          })
+          // Late cancel: no refund + charge the late-cancel fee (floor at 0, never go negative)
+          const current = await tx.creditBalance.findUnique({ where: { memberId: booking.memberId } })
+          const actualFee = Math.min(lateCancelFeeCredits, current?.balance ?? 0)
+          if (actualFee > 0) {
+            await tx.creditBalance.upsert({
+              where: { memberId: booking.memberId },
+              create: { memberId: booking.memberId, balance: 0 },
+              update: { balance: { decrement: actualFee } },
+            })
+            await tx.creditTransaction.create({
+              data: {
+                memberId: booking.memberId,
+                amount: -actualFee,
+                type: 'LATE_CANCEL_FEE',
+                note: `Late cancellation fee for ${booking.session.template?.name ?? 'class'}`,
+              },
+            })
+          }
         }
 
         // Promote next waitlist member within the same transaction

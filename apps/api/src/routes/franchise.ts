@@ -7,6 +7,24 @@ import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole } from '../lib/s
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
+// 60-second in-process cache for the Supabase user list (avoid fetching 1000 users per request)
+interface SbUser { id: string; email?: string; created_at?: string; app_metadata?: Record<string, unknown>; user_metadata?: Record<string, unknown> }
+let sbUsersCache: { ts: number; users: SbUser[] } | null = null
+const SB_USERS_TTL_MS = 60_000
+
+async function fetchSupabaseUsers(): Promise<SbUser[]> {
+  const now = Date.now()
+  if (sbUsersCache && now - sbUsersCache.ts < SB_USERS_TTL_MS) return sbUsersCache.users
+  const SUPABASE_URL = process.env.SUPABASE_URL!
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?per_page=1000`, {
+    headers: { Authorization: `Bearer ${SERVICE_ROLE_KEY}`, apikey: SERVICE_ROLE_KEY },
+  })
+  const data = await res.json() as { users?: SbUser[] }
+  const users = data.users ?? []
+  sbUsersCache = { ts: now, users }
+  return users
+}
+
 interface InstructorPermissions {
   canCheckInMembers: boolean
   canManageBookings: boolean
@@ -346,15 +364,8 @@ export async function franchiseRoutes(app: FastifyInstance) {
 
       if (!SERVICE_ROLE_KEY) return reply.internalServerError('SUPABASE_SERVICE_ROLE_KEY not configured on server')
 
-      // Fetch all Supabase users and filter by role + studio
-      const SUPABASE_URL = process.env.SUPABASE_URL!
-      const sbRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?per_page=1000`, {
-        headers: { Authorization: `Bearer ${SERVICE_ROLE_KEY}`, apikey: SERVICE_ROLE_KEY },
-      })
-      const sbData = await sbRes.json() as {
-        users?: { id: string; email?: string; created_at?: string; app_metadata?: Record<string, unknown>; user_metadata?: Record<string, unknown> }[]
-      }
-      const sbUsers = sbData.users ?? []
+      // Fetch all Supabase users (cached 60s) and filter by role + studio
+      const sbUsers = await fetchSupabaseUsers()
 
       // Match users who have studio_admin in roles AND studioId in studioIds.
       // Support both new format (roles array + studioIds) and old format (role + studioId).
@@ -443,6 +454,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
         })
       }
 
+      sbUsersCache = null // invalidate cache
       return reply.code(201).send({ success: true, roles: newRoles })
     },
   )
@@ -479,6 +491,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
         data: { staffRoles: remainingRoles, studioIds: remainingStudios },
       })
 
+      sbUsersCache = null // invalidate cache
       return reply.send({ success: true })
     },
   )

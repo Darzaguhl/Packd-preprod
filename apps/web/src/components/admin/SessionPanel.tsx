@@ -18,6 +18,7 @@ export default function SessionPanel({ session, token, onClose, onSessionUpdate,
   const [loading, setLoading] = useState(true)
   const [actionId, setActionId] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
+  const [checkinError, setCheckinError] = useState<string | null>(null)
 
   useEffect(() => {
     setLoading(true)
@@ -28,6 +29,7 @@ export default function SessionPanel({ session, token, onClose, onSessionUpdate,
 
   async function toggleCheckin(booking: AdminBooking) {
     setActionId(booking.id)
+    setCheckinError(null)
     try {
       const res = await api.admin.checkin(session.id, booking.id, token)
       setBookings(prev =>
@@ -36,6 +38,8 @@ export default function SessionPanel({ session, token, onClose, onSessionUpdate,
           : b
         )
       )
+    } catch (e) {
+      setCheckinError(e instanceof Error ? e.message : 'Check-in failed')
     } finally {
       setActionId(null)
     }
@@ -59,6 +63,12 @@ export default function SessionPanel({ session, token, onClose, onSessionUpdate,
 
   return (
     <div className="h-full flex flex-col">
+      {checkinError && (
+        <div className="px-5 py-2 bg-red-50 border-b border-red-100 text-xs text-red-600 flex items-center justify-between">
+          <span>{checkinError}</span>
+          <button onClick={() => setCheckinError(null)} className="text-red-400 hover:text-red-600 ml-2">✕</button>
+        </div>
+      )}
       {/* Panel header */}
       <div className="px-5 py-4 border-b border-gray-100 flex items-start justify-between">
         <div>
