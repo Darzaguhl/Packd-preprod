@@ -88,6 +88,37 @@ export interface InstructorPhoto {
   createdAt: string
 }
 
+export interface MembershipPlan {
+  id: string
+  studioId: string
+  name: string
+  description?: string | null
+  priceInCents: number
+  intervalMonths: number
+  creditsPerCycle: number | null
+  stripePriceId?: string | null
+  activeSubscriptions?: number
+}
+
+export interface MembershipSubscription {
+  id: string
+  memberId: string
+  memberFirstName?: string
+  memberLastName?: string
+  memberEmail?: string
+  planId: string
+  plan: {
+    name: string
+    creditsPerCycle: number | null
+    intervalMonths: number
+    priceInCents: number
+  }
+  status: 'ACTIVE' | 'PAUSED' | 'CANCELLED' | 'EXPIRED'
+  startDate: string
+  endDate: string | null
+  createdAt?: string
+}
+
 export interface StudioSummary {
   id: string
   name: string
@@ -350,7 +381,14 @@ export interface AdminMemberProfile {
   lastName: string
   email: string
   creditBalance: number
-  activeSubscription: { planName: string; status: string; endDate: string | null } | null
+  activeSubscription: {
+    id: string
+    planId: string
+    planName: string
+    status: string
+    startDate: string
+    endDate: string | null
+  } | null
   joinedAt: string
 }
 
@@ -707,5 +745,27 @@ export const api = {
       apiFetch<Product>(`/products/${id}`, { method: 'PATCH', body: JSON.stringify(body), token }),
     delete: (id: string, token: string) =>
       apiFetch<{ success: boolean }>(`/products/${id}`, { method: 'DELETE', token }),
+  },
+  memberships: {
+    listPlans: (studioId: string, token: string) =>
+      apiFetch<MembershipPlan[]>(`/memberships/plans?studioId=${studioId}`, { token }),
+    createPlan: (body: { studioId: string; name: string; description?: string; priceInCents: number; intervalMonths?: number; creditsPerCycle?: number | null }, token: string) =>
+      apiFetch<{ success: boolean; data: MembershipPlan }>('/memberships/plans', { method: 'POST', body: JSON.stringify(body), token }),
+    updatePlan: (planId: string, body: Partial<Omit<MembershipPlan, 'id' | 'studioId' | 'activeSubscriptions'>>, token: string) =>
+      apiFetch<{ success: boolean; data: MembershipPlan }>(`/memberships/plans/${planId}`, { method: 'PATCH', body: JSON.stringify(body), token }),
+    deletePlan: (planId: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/memberships/plans/${planId}`, { method: 'DELETE', token }),
+    listSubscriptions: (params: { studioId?: string; memberId?: string }, token: string) => {
+      const qs = new URLSearchParams()
+      if (params.studioId) qs.set('studioId', params.studioId)
+      if (params.memberId) qs.set('memberId', params.memberId)
+      return apiFetch<MembershipSubscription[]>(`/memberships?${qs}`, { token })
+    },
+    assign: (body: { memberId: string; planId: string; startDate?: string; grantCredits?: boolean }, token: string) =>
+      apiFetch<{ success: boolean; data: MembershipSubscription }>('/memberships', { method: 'POST', body: JSON.stringify(body), token }),
+    update: (id: string, body: { status?: string; endDate?: string | null; grantCredits?: boolean }, token: string) =>
+      apiFetch<{ success: boolean; data: MembershipSubscription }>(`/memberships/${id}`, { method: 'PATCH', body: JSON.stringify(body), token }),
+    me: (token: string) =>
+      apiFetch<MembershipSubscription | null>('/memberships/me', { token }),
   },
 }

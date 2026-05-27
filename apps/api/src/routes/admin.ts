@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify'
 import { prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK, type UserRole } from '@packd/types'
+import { enqueueNoShowCheck } from '../jobs/index.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 const requireInstructor = requireRole('instructor')
@@ -138,6 +139,14 @@ export async function adminRoutes(app: FastifyInstance) {
         where: { id: request.params.id },
         data: { status: status as SessionStatus },
       })
+
+      // When a session completes, trigger no-show fee processing
+      if (status === 'COMPLETED') {
+        await enqueueNoShowCheck(session.id, session.startsAt).catch(err =>
+          console.error('[jobs] failed to enqueue no-show check', err),
+        )
+      }
+
       return { success: true, status: session.status }
     },
   )
@@ -298,8 +307,11 @@ export async function adminRoutes(app: FastifyInstance) {
         creditBalance: member.creditBalance?.balance ?? 0,
         activeSubscription: member.memberships[0]
           ? {
+              id: member.memberships[0].id,
+              planId: member.memberships[0].planId,
               planName: member.memberships[0].plan.name,
               status: member.memberships[0].status,
+              startDate: member.memberships[0].startDate.toISOString(),
               endDate: member.memberships[0].endDate?.toISOString() ?? null,
             }
           : null,

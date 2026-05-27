@@ -135,19 +135,85 @@ export async function setupJobs() {
     })
   })
 
-  // Nightly cron: expire old waitlist entries and send membership reminders
+  // Membership renewal — grants credits and extends subscription for the next cycle
+  await boss.work('membership.renewal-reminder', async ([job]) => {
+    const { subscriptionId } = job.data as { subscriptionId: string }
+    const sub = await prisma.membershipSubscription.findUnique({
+      where: { id: subscriptionId },
+      include: { plan: true },
+    })
+    if (!sub || sub.status !== 'ACTIVE') return
+
+    const now = new Date()
+    // Only renew if we're within 1 day of or past the end date
+    if (sub.endDate && sub.endDate.getTime() - now.getTime() > 24 * 60 * 60 * 1000) return
+
+    // Calculate new end date: advance by intervalMonths from current endDate (or now)
+    const base = sub.endDate ?? now
+    const newEnd = new Date(base)
+    newEnd.setMonth(newEnd.getMonth() + sub.plan.intervalMonths)
+
+    await prisma.$transaction(async (tx) => {
+      // Extend the subscription
+      await tx.membershipSubscription.update({
+        where: { id: sub.id },
+        data: { endDate: newEnd, updatedAt: new Date() },
+      })
+
+      // Grant credits for the new cycle (null = unlimited, skip credit grant)
+      const credits = sub.plan.creditsPerCycle
+      if (credits !== null && credits > 0) {
+        await tx.creditBalance.upsert({
+          where: { memberId: sub.memberId },
+          create: { memberId: sub.memberId, balance: credits },
+          update: { balance: { increment: credits } },
+        })
+        await tx.creditTransaction.create({
+          data: {
+            memberId: sub.memberId,
+            amount: credits,
+            type: 'MEMBERSHIP_RENEWAL',
+            note: `Renewal: ${sub.plan.name}`,
+          },
+        })
+      }
+    })
+
+    console.log(`[jobs] renewed subscription ${sub.id} → ${newEnd.toISOString()}`)
+  })
+
+  // Nightly cron: expire old waitlist entries, schedule no-show checks, renew memberships
   await boss.schedule('nightly.maintenance', '0 2 * * *', {})
   await boss.work('nightly.maintenance', async () => {
+    const now = new Date()
+
     // Expire stale WAITING entries for past sessions
     await prisma.waitlistEntry.updateMany({
-      where: { status: 'WAITING', session: { startsAt: { lt: new Date() } } },
+      where: { status: 'WAITING', session: { startsAt: { lt: now } } },
       data: { status: 'EXPIRED' },
     })
 
-    // Find memberships expiring in 7 days and enqueue reminders
-    const soon = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+    // Schedule no-show checks for sessions starting in the next 24 hours
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000)
+    const upcomingSessions = await prisma.classSession.findMany({
+      where: { startsAt: { gt: now, lt: tomorrow }, status: 'SCHEDULED' },
+      select: { id: true, startsAt: true },
+    })
+    for (const session of upcomingSessions) {
+      await enqueueNoShowCheck(session.id, session.startsAt)
+    }
+
+    // Mark subscriptions past their end date as EXPIRED
+    await prisma.membershipSubscription.updateMany({
+      where: { status: 'ACTIVE', endDate: { lt: now } },
+      data: { status: 'EXPIRED' },
+    })
+
+    // Find memberships expiring in 7 days and enqueue renewal jobs
+    const soon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
     const expiring = await prisma.membershipSubscription.findMany({
-      where: { status: 'ACTIVE', endDate: { lte: soon, gte: new Date() } },
+      where: { status: 'ACTIVE', endDate: { lte: soon, gte: now } },
+      select: { id: true },
     })
     for (const sub of expiring) {
       await boss.send('membership.renewal-reminder', { subscriptionId: sub.id })
@@ -164,7 +230,8 @@ export async function enqueueLateCancelCheck(bookingId: string, sessionStartsAt:
 }
 
 export async function enqueueNoShowCheck(sessionId: string, sessionStartsAt: Date) {
-  // Check for no-shows 30 minutes after class starts
+  // Check for no-shows 30 minutes after class starts.
+  // singletonKey ensures only one job per session, so nightly + on-completion calls are idempotent.
   const runAt = new Date(sessionStartsAt.getTime() + 30 * 60 * 1000)
-  await boss.sendAfter('session.no-show', { sessionId }, {}, runAt)
+  await boss.sendAfter('session.no-show', { sessionId }, { singletonKey: `session-${sessionId}` }, runAt)
 }

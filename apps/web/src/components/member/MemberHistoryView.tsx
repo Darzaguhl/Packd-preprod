@@ -38,7 +38,8 @@ const TX_CONFIG: Record<string, { label: string; color: string }> = {
   REFUND:           { label: 'Refund',          color: 'text-emerald-600' },
   LATE_CANCEL_FEE:  { label: 'Late cancel fee', color: 'text-amber-600' },
   NO_SHOW_FEE:      { label: 'No-show fee',     color: 'text-red-600' },
-  MANUAL_ADJUSTMENT:{ label: 'Adjustment',      color: 'text-gray-700' },
+  MANUAL_ADJUSTMENT:{ label: 'Adjustment',       color: 'text-gray-700' },
+  MEMBERSHIP_RENEWAL:{ label: 'Membership',      color: 'text-emerald-600' },
 }
 
 type Tab = 'upcoming' | 'history' | 'credits'
