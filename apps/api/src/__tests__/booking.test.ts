@@ -11,7 +11,7 @@ vi.mock('@packd/db', () => {
     findUnique: vi.fn().mockResolvedValue(null),   // no existing booking by default
     findUniqueOrThrow: vi.fn(),
   }
-  const creditBalance = { findUnique: vi.fn(), update: vi.fn() }
+  const creditBalance = { findUnique: vi.fn(), update: vi.fn(), upsert: vi.fn() }
   const creditTransaction = { create: vi.fn() }
   const cancellationPolicy = { findUnique: vi.fn() }
   const waitlistEntry = { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn() }
@@ -231,6 +231,20 @@ describe('DELETE /bookings/:id', () => {
     const res = await app.inject({ method: 'DELETE', url: '/bookings/booking-1' })
 
     expect(res.statusCode).toBe(403)
+  })
+
+  it('allows fronthost to cancel a booking for another member', async () => {
+    vi.mocked(getUser).mockReturnValue({ id: 'staff-user', email: 'desk@packd.test', role: 'fronthost' } as never)
+    vi.mocked(prisma.booking.findUniqueOrThrow).mockResolvedValue({
+      ...mockBooking(25),
+      member: { userId: 'other-user', creditBalance: { balance: 4 } },
+    } as never)
+    vi.mocked(prisma.cancellationPolicy.findUnique).mockResolvedValue({ lateCancelWindowHours: 12 } as never)
+
+    const app = await buildApp()
+    const res = await app.inject({ method: 'DELETE', url: '/bookings/booking-1' })
+
+    expect(res.statusCode).toBe(200)
   })
 
   it('clears stationId when cancelling a booking', async () => {

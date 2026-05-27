@@ -19,20 +19,23 @@ export async function scheduleRoutes(app: FastifyInstance) {
         if (!member || member.studioId !== studioId) return reply.forbidden('Access denied to this studio')
       }
 
-      const sessions = await prisma.classSession.findMany({
-        where: {
-          studioId,
-          startsAt: { gte: new Date(from), lte: new Date(to) },
-          status: { not: 'CANCELLED' },
-        },
-        include: {
-          template: true,
-          instructor: { include: { user: true } },
-          room: true,
-          _count: { select: { bookings: { where: { status: 'CONFIRMED' } }, waitlist: true } },
-        },
-        orderBy: { startsAt: 'asc' },
-      })
+      const [studioSettings, sessions] = await Promise.all([
+        prisma.studio.findUnique({ where: { id: studioId }, select: { timeFormat: true } }),
+        prisma.classSession.findMany({
+          where: {
+            studioId,
+            startsAt: { gte: new Date(from), lte: new Date(to) },
+            status: { not: 'CANCELLED' },
+          },
+          include: {
+            template: true,
+            instructor: { include: { user: true } },
+            room: true,
+            _count: { select: { bookings: { where: { status: 'CONFIRMED' } }, waitlist: true } },
+          },
+          orderBy: { startsAt: 'asc' },
+        }),
+      ])
 
       const userBookings =
         user.role === 'member'
@@ -48,25 +51,28 @@ export async function scheduleRoutes(app: FastifyInstance) {
 
       const bookingMap = new Map(userBookings.map((b) => [b.sessionId, b]))
 
-      return sessions.map((s) => {
-        const userBooking = bookingMap.get(s.id)
-        return {
-          id: s.id,
-          templateName: s.template.name,
-          sport: s.template.sport,
-          instructorName: `${s.instructor.user.firstName} ${s.instructor.user.lastName}`,
-          roomId: s.roomId,
-          roomName: s.room.name,
-          startsAt: s.startsAt.toISOString(),
-          endsAt: s.endsAt.toISOString(),
-          capacity: s.capacity,
-          bookedCount: s._count.bookings,
-          waitlistCount: s._count.waitlist,
-          status: s.status,
-          creditsRequired: s.creditsRequired,
-          userBookingId: userBooking?.id,
-          userStationId: userBooking?.stationId ?? null,
-        }
+      return reply.send({
+        timeFormat: studioSettings?.timeFormat ?? '24h',
+        sessions: sessions.map((s) => {
+          const userBooking = bookingMap.get(s.id)
+          return {
+            id: s.id,
+            templateName: s.template.name,
+            sport: s.template.sport,
+            instructorName: `${s.instructor.user.firstName} ${s.instructor.user.lastName}`,
+            roomId: s.roomId,
+            roomName: s.room.name,
+            startsAt: s.startsAt.toISOString(),
+            endsAt: s.endsAt.toISOString(),
+            capacity: s.capacity,
+            bookedCount: s._count.bookings,
+            waitlistCount: s._count.waitlist,
+            status: s.status,
+            creditsRequired: s.creditsRequired,
+            userBookingId: userBooking?.id,
+            userStationId: userBooking?.stationId ?? null,
+          }
+        }),
       })
     },
   )

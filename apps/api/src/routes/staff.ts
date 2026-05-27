@@ -2,47 +2,14 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '@packd/db'
 import { requireRole, requireAuth, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
+import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole } from '../lib/supabase-admin.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 
-const SUPABASE_URL = process.env.SUPABASE_URL!
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 const VALID_STAFF_ROLES = ['fronthost', 'instructor'] as const
 type StaffRole = typeof VALID_STAFF_ROLES[number]
-
-interface SupabaseAppMeta {
-  role?: string
-  roles?: string[]    // all assigned roles (e.g. ['instructor','fronthost'] for dual-role)
-  studioIds?: string[]
-}
-
-/** Fetch current app_metadata for a Supabase user. */
-async function getSupabaseAppMeta(userId: string): Promise<SupabaseAppMeta> {
-  const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}`, {
-    headers: { Authorization: `Bearer ${SERVICE_ROLE_KEY}`, apikey: SERVICE_ROLE_KEY },
-  })
-  if (!res.ok) return {}
-  const data = await res.json() as { app_metadata?: SupabaseAppMeta }
-  return data.app_metadata ?? {}
-}
-
-/** Overwrite a Supabase user's app_metadata. */
-async function setSupabaseAppMeta(userId: string, meta: SupabaseAppMeta): Promise<void> {
-  const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}`, {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-      apikey: SERVICE_ROLE_KEY,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ app_metadata: meta }),
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(`Supabase Admin API error: ${(err as { message?: string }).message ?? res.statusText}`)
-  }
-}
 
 async function assertStudioAccess(
   userId: string,
@@ -88,7 +55,14 @@ export async function staffRoutes(app: FastifyInstance) {
 
       const staff = await prisma.member.findMany({
         where: { studioIds: { has: studioId }, staffRoles: { hasSome: [...VALID_STAFF_ROLES] } },
-        include: { user: { select: { firstName: true, lastName: true, email: true } } },
+        include: {
+          user: {
+            select: {
+              firstName: true, lastName: true, email: true,
+              instructors: { where: { studioId }, select: { id: true } },
+            },
+          },
+        },
         orderBy: { joinedAt: 'asc' },
       })
 
@@ -99,6 +73,7 @@ export async function staffRoutes(app: FastifyInstance) {
         email: s.user.email,
         staffRoles: s.staffRoles,
         joinedAt: s.joinedAt.toISOString(),
+        instructorId: s.user.instructors[0]?.id ?? null,
       }))
     },
   )
@@ -134,8 +109,7 @@ export async function staffRoutes(app: FastifyInstance) {
       // Merge new role into existing roles (additive — supports dual fronthost+instructor)
       const existingRoles: string[] = current.roles ?? (current.role && current.role !== 'member' ? [current.role] : [])
       const newRoles = [...new Set([...existingRoles, staffRole])]
-      // Primary role for auth: prefer instructor (has Instructor record), otherwise first role
-      const primaryRole = newRoles.includes('instructor') ? 'instructor' : newRoles[0]
+      const primaryRole = getPrimaryRole(newRoles)
 
       await setSupabaseAppMeta(targetUser.id, { role: primaryRole, roles: newRoles, studioIds: newIds })
 
@@ -227,7 +201,7 @@ export async function staffRoutes(app: FastifyInstance) {
         }
       } else {
         // Still has roles — update accordingly
-        const primaryRole = remainingRoles.includes('instructor') ? 'instructor' : remainingRoles[0]
+        const primaryRole = getPrimaryRole(remainingRoles)
         const newStudios = remainingStudios.length > 0 ? remainingStudios : [studioToRemove]
         await setSupabaseAppMeta(member.user.id, { role: primaryRole, roles: remainingRoles, studioIds: newStudios })
         await prisma.member.update({

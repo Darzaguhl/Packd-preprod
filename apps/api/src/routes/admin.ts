@@ -175,7 +175,55 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /admin/members/search?studioId=&q= — search members by name or email
+  // GET /admin/members?studioId= — list all franchise members (studioId used only for access check)
+  app.get<{ Querystring: { studioId: string; q?: string } }>(
+    '/members',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const { studioId, q } = request.query
+      if (!studioId) return reply.badRequest('studioId is required')
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
+
+      // Members are franchise-scoped — studioId is only used for access control above.
+      // Search across all members in the franchise (entire DB for single-franchise deployments).
+      const where = q && q.trim().length >= 2
+        ? {
+            OR: [
+              { user: { firstName: { contains: q.trim(), mode: 'insensitive' as const } } },
+              { user: { lastName:  { contains: q.trim(), mode: 'insensitive' as const } } },
+              { user: { email:     { contains: q.trim(), mode: 'insensitive' as const } } },
+            ],
+          }
+        : {}
+
+      const members = await prisma.member.findMany({
+        where,
+        include: {
+          user: { select: { firstName: true, lastName: true, email: true } },
+          creditBalance: { select: { balance: true } },
+          memberships: {
+            where: { status: { in: ['ACTIVE', 'PAUSED'] } },
+            orderBy: { startDate: 'desc' },
+            take: 1,
+            select: { status: true },
+          },
+        },
+        orderBy: [{ user: { firstName: 'asc' } }, { user: { lastName: 'asc' } }],
+        take: 500,
+      })
+
+      return members.map(m => ({
+        id: m.id,
+        name: `${m.user.firstName} ${m.user.lastName}`,
+        email: m.user.email,
+        creditBalance: m.creditBalance?.balance ?? 0,
+        membershipStatus: m.memberships[0]?.status ?? null,
+      }))
+    },
+  )
+
+  // GET /admin/members/search?studioId=&q= — search franchise members by name or email
   app.get<{ Querystring: { studioId: string; q: string } }>(
     '/members/search',
     { preHandler: requireInstructor },
@@ -186,10 +234,10 @@ export async function adminRoutes(app: FastifyInstance) {
       const user = getUser(request)
       if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
-      const term = q.trim().toLowerCase()
+      // Search across all franchise members — studioId only used for access check above.
+      const term = q.trim()
       const members = await prisma.member.findMany({
         where: {
-          studioId,
           OR: [
             { user: { firstName: { contains: term, mode: 'insensitive' } } },
             { user: { lastName: { contains: term, mode: 'insensitive' } } },
@@ -219,6 +267,125 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   )
 
+  // GET /admin/members/:memberId/profile — full member profile (fronthost+)
+  app.get<{ Params: { memberId: string } }>(
+    '/members/:memberId/profile',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const { memberId } = request.params
+
+      // Members are franchise-scoped; any staff member (requireInstructor) may view any member.
+      const member = await prisma.member.findUnique({
+        where: { id: memberId },
+        include: {
+          user: true,
+          creditBalance: true,
+          memberships: {
+            where: { status: { in: ['ACTIVE', 'PAUSED'] } },
+            include: { plan: true },
+            take: 1,
+            orderBy: { startDate: 'desc' },
+          },
+        },
+      })
+      if (!member) return reply.notFound('Member not found')
+
+      return reply.send({
+        id: member.id,
+        firstName: member.user.firstName,
+        lastName: member.user.lastName,
+        email: member.user.email,
+        creditBalance: member.creditBalance?.balance ?? 0,
+        activeSubscription: member.memberships[0]
+          ? {
+              planName: member.memberships[0].plan.name,
+              status: member.memberships[0].status,
+              endDate: member.memberships[0].endDate?.toISOString() ?? null,
+            }
+          : null,
+        joinedAt: member.joinedAt.toISOString(),
+      })
+    },
+  )
+
+  // GET /admin/members/:memberId/history — booking + transaction history (fronthost+)
+  app.get<{ Params: { memberId: string } }>(
+    '/members/:memberId/history',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const { memberId } = request.params
+
+      // Members are franchise-scoped; any staff member (requireInstructor) may view any member.
+      const member = await prisma.member.findUnique({
+        where: { id: memberId },
+        select: { id: true },
+      })
+      if (!member) return reply.notFound('Member not found')
+
+      const now = new Date()
+      const [bookings, transactions] = await Promise.all([
+        prisma.booking.findMany({
+          where: { memberId },
+          include: {
+            session: {
+              include: {
+                template: { select: { name: true, sport: true } },
+                instructor: { include: { user: { select: { firstName: true, lastName: true } } } },
+                room: { select: { name: true } },
+              },
+            },
+          },
+          orderBy: { session: { startsAt: 'desc' } },
+          take: 100,
+        }),
+        prisma.creditTransaction.findMany({
+          where: { memberId },
+          orderBy: { createdAt: 'desc' },
+          take: 100,
+        }),
+      ])
+
+      return reply.send({
+        upcoming: bookings
+          .filter(b => b.status === 'CONFIRMED' && b.session.startsAt >= now)
+          .map(b => ({
+            id: b.id,
+            sessionId: b.sessionId,
+            startsAt: b.session.startsAt.toISOString(),
+            endsAt: b.session.endsAt.toISOString(),
+            templateName: b.session.template.name,
+            sport: b.session.template.sport,
+            instructorName: `${b.session.instructor.user.firstName} ${b.session.instructor.user.lastName}`,
+            roomName: b.session.room.name,
+            creditsRequired: b.session.creditsRequired,
+            sessionStatus: b.session.status,
+          })),
+        pastBookings: bookings
+          .filter(b => b.session.startsAt < now)
+          .map(b => ({
+            id: b.id,
+            sessionId: b.sessionId,
+            startsAt: b.session.startsAt.toISOString(),
+            endsAt: b.session.endsAt.toISOString(),
+            templateName: b.session.template.name,
+            sport: b.session.template.sport,
+            instructorName: `${b.session.instructor.user.firstName} ${b.session.instructor.user.lastName}`,
+            roomName: b.session.room.name,
+            status: b.status,
+            checkedIn: b.checkedIn,
+            creditsRequired: b.session.creditsRequired,
+          })),
+        transactions: transactions.map(t => ({
+          id: t.id,
+          amount: t.amount,
+          type: t.type,
+          note: t.note ?? null,
+          createdAt: t.createdAt.toISOString(),
+        })),
+      })
+    },
+  )
+
   // POST /admin/members/:memberId/credits — manual credit adjustment (fronthost or higher)
   app.post<{ Params: { memberId: string }; Body: { amount: number; note?: string } }>(
     '/members/:memberId/credits',
@@ -235,10 +402,8 @@ export async function adminRoutes(app: FastifyInstance) {
         where: { id: memberId },
         include: { creditBalance: true },
       })
+      // Members are franchise-scoped; any staff member (requireInstructor) may adjust credits.
       if (!member) return reply.notFound('Member not found')
-
-      const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply, user.studioIds)) return
 
       const [balance] = await prisma.$transaction([
         prisma.creditBalance.upsert({

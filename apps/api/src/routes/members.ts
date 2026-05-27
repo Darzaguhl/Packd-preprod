@@ -39,6 +39,58 @@ export async function memberRoutes(app: FastifyInstance) {
     }
   })
 
+  // GET /members/me/history — past bookings + credit transactions
+  app.get('/me/history', { preHandler: requireAuth }, async (request, reply) => {
+    const user = getUser(request)
+    const member = await prisma.member.findUnique({ where: { userId: user.id } })
+    if (!member) return reply.notFound('No member profile found for this user')
+
+    const [pastBookings, transactions] = await Promise.all([
+      prisma.booking.findMany({
+        where: { memberId: member.id, session: { startsAt: { lt: new Date() } } },
+        include: {
+          session: {
+            include: {
+              template: { select: { name: true, sport: true } },
+              instructor: { include: { user: { select: { firstName: true, lastName: true } } } },
+              room: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { session: { startsAt: 'desc' } },
+        take: 100,
+      }),
+      prisma.creditTransaction.findMany({
+        where: { memberId: member.id },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      }),
+    ])
+
+    return reply.send({
+      pastBookings: pastBookings.map(b => ({
+        id: b.id,
+        sessionId: b.sessionId,
+        startsAt: b.session.startsAt.toISOString(),
+        endsAt: b.session.endsAt.toISOString(),
+        templateName: b.session.template.name,
+        sport: b.session.template.sport,
+        instructorName: `${b.session.instructor.user.firstName} ${b.session.instructor.user.lastName}`,
+        roomName: b.session.room.name,
+        status: b.status,
+        checkedIn: b.checkedIn,
+        creditsRequired: b.session.creditsRequired,
+      })),
+      transactions: transactions.map(t => ({
+        id: t.id,
+        amount: t.amount,
+        type: t.type,
+        note: t.note ?? null,
+        createdAt: t.createdAt.toISOString(),
+      })),
+    })
+  })
+
   // GET /members/me/bookings
   app.get('/me/bookings', { preHandler: requireAuth }, async (request, reply) => {
     const user = getUser(request)

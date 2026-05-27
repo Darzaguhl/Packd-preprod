@@ -25,6 +25,10 @@ interface Props {
   assignments: SpotAssignment[]
   onAssign: (bookingId: string, stationId: string | null) => Promise<void>
   onCheckin?: (bookingId: string) => Promise<void>
+  onMemberClick?: (assignment: SpotAssignment) => void
+  onEmptyStationClick?: (station: Station) => void
+  onRemoveBooking?: (bookingId: string) => Promise<void>
+  orderedMemberIds?: Set<string>
 }
 
 function initials(name: string) {
@@ -87,8 +91,9 @@ function MembershipBadge({ status }: { status: SpotAssignment['membershipStatus'
   )
 }
 
-// Tile shown in the unassigned roster and as the DragOverlay
-function MemberTile({ assignment, isDragging = false }: { assignment: SpotAssignment; isDragging?: boolean }) {
+// Tile shown as the DragOverlay
+function MemberTile({ assignment, isDragging = false, onMemberClick, ordered }: { assignment: SpotAssignment; isDragging?: boolean; onMemberClick?: (a: SpotAssignment) => void; ordered?: boolean }) {
+  const clickable = onMemberClick && !isDragging
   return (
     <div className={`flex items-center gap-2 px-3 py-2 rounded-xl bg-white border transition-all ${
       isDragging ? 'shadow-lg opacity-80 border-gray-300' : 'border-gray-100'
@@ -98,32 +103,29 @@ function MemberTile({ assignment, isDragging = false }: { assignment: SpotAssign
         {initials(assignment.memberName)}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-semibold text-gray-900 truncate">{assignment.memberName}</p>
+        {clickable ? (
+          <button
+            onPointerDown={e => e.stopPropagation()}
+            onClick={e => { e.stopPropagation(); onMemberClick!(assignment) }}
+            className={`text-xs font-semibold text-left w-full ${assignment.checkedIn ? 'text-emerald-700 hover:text-emerald-900' : 'text-gray-800 hover:text-gray-950'}`}
+          >
+            <span className={`inline-block border rounded px-1.5 py-0.5 leading-tight transition-colors max-w-full truncate ${assignment.checkedIn ? 'border-emerald-300 hover:border-emerald-500' : 'border-gray-300 hover:border-gray-500'}`}>
+              {assignment.memberName}
+            </span>
+          </button>
+        ) : (
+          <p className="text-xs font-semibold text-gray-900 truncate">{assignment.memberName}</p>
+        )}
         <div className="flex items-center gap-1 mt-0.5">
           <MembershipBadge status={assignment.membershipStatus} />
           <span className="text-[9px] text-gray-400">{assignment.creditBalance} cr</span>
+          {ordered && <span className="text-[9px]" title="Has ordered">🥤</span>}
         </div>
       </div>
     </div>
   )
 }
 
-function DraggableMember({ assignment }: { assignment: SpotAssignment }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: assignment.bookingId,
-    disabled: assignment.checkedIn, // locked once checked in
-  })
-  return (
-    <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      className={`${assignment.checkedIn ? 'cursor-default' : 'cursor-grab'} ${isDragging ? 'opacity-30' : ''}`}
-    >
-      <MemberTile assignment={assignment} />
-    </div>
-  )
-}
 
 function DroppableStation({
   station,
@@ -131,12 +133,20 @@ function DroppableStation({
   layout,
   onCheckin,
   onUnassign,
+  onMemberClick,
+  onEmptyStationClick,
+  isAssigningTarget,
+  ordered,
 }: {
   station: Station
   assignment: SpotAssignment | undefined
   layout: RoomLayout
   onCheckin?: (bookingId: string) => void
   onUnassign?: (bookingId: string) => void
+  onMemberClick?: (a: SpotAssignment) => void
+  onEmptyStationClick?: (station: Station) => void
+  isAssigningTarget?: boolean
+  ordered?: boolean
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: station.id })
   const meta = STATION_META[station.type]
@@ -151,11 +161,13 @@ function DroppableStation({
       className={`absolute rounded-xl border-2 transition-all overflow-hidden ${
         isOver && !isLocked
           ? 'border-gray-900 bg-gray-100 scale-105 z-20'
-          : isLocked
-            ? 'border-emerald-400 bg-emerald-50 z-10'
-            : assignment
-              ? 'border-gray-300 bg-white z-10'
-              : 'border-dashed border-gray-300 bg-gray-50/60 hover:border-gray-400'
+          : isAssigningTarget
+            ? 'border-amber-500 bg-amber-50 z-20 ring-2 ring-amber-300'
+            : isLocked
+              ? 'border-emerald-400 bg-emerald-50 z-10'
+              : assignment
+                ? 'border-gray-300 bg-white z-10'
+                : 'border-dashed border-gray-300 bg-gray-50/60 hover:border-gray-400'
       }`}
       style={{
         left: station.xM * SCALE,
@@ -193,8 +205,17 @@ function DroppableStation({
           <div className="h-px bg-black/10" />
 
           {/* Member info — draggable when not checked in */}
-          <DraggableInStation assignment={assignment} />
+          <DraggableInStation assignment={assignment} onMemberClick={onMemberClick} ordered={ordered} />
         </div>
+      ) : onEmptyStationClick && !isOver ? (
+        <button
+          className="flex flex-col items-center justify-center h-full w-full gap-1 hover:bg-gray-100 transition-colors rounded-xl"
+          onClick={() => onEmptyStationClick(station)}
+        >
+          <span className="text-xl leading-none opacity-40">{meta.icon}</span>
+          <span className="text-[10px] font-semibold text-gray-400 truncate px-1 max-w-full">{station.label}</span>
+          <span className="text-[9px] text-gray-400 font-medium">+ add</span>
+        </button>
       ) : (
         <div className="flex flex-col items-center justify-center h-full gap-1 pointer-events-none">
           <span className="text-xl leading-none opacity-60">{meta.icon}</span>
@@ -206,7 +227,7 @@ function DroppableStation({
   )
 }
 
-function DraggableInStation({ assignment }: { assignment: SpotAssignment }) {
+function DraggableInStation({ assignment, onMemberClick, ordered }: { assignment: SpotAssignment; onMemberClick?: (a: SpotAssignment) => void; ordered?: boolean }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: assignment.bookingId,
     disabled: assignment.checkedIn,
@@ -226,11 +247,101 @@ function DraggableInStation({ assignment }: { assignment: SpotAssignment }) {
         {initials(assignment.memberName)}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[11px] font-semibold text-gray-900 truncate leading-tight">{assignment.memberName}</p>
+        {onMemberClick && !isDragging ? (
+          <button
+            onPointerDown={e => e.stopPropagation()}
+            onClick={e => { e.stopPropagation(); onMemberClick(assignment) }}
+            className={`text-[11px] font-semibold text-left w-full ${assignment.checkedIn ? 'text-emerald-700 hover:text-emerald-900' : 'text-gray-800 hover:text-gray-950'}`}
+          >
+            <span className={`inline-block border rounded px-1 py-0 leading-tight transition-colors max-w-full truncate ${assignment.checkedIn ? 'border-emerald-300 hover:border-emerald-500' : 'border-gray-300 hover:border-gray-500'}`}>
+              {assignment.memberName}
+            </span>
+          </button>
+        ) : (
+          <p className="text-[11px] font-semibold text-gray-900 truncate leading-tight">{assignment.memberName}</p>
+        )}
         <div className="flex items-center gap-1 mt-0.5 flex-wrap">
           <MembershipBadge status={assignment.membershipStatus} />
           <span className="text-[9px] text-gray-500">{assignment.creditBalance} cr</span>
+          {ordered && <span className="text-[9px]" title="Has ordered">🥤</span>}
         </div>
+      </div>
+    </div>
+  )
+}
+
+/** A draggable row for members booked but not yet assigned to any station */
+function UnassignedMemberRow({
+  assignment,
+  onCheckin,
+  onMemberClick,
+  onAssignToStation,
+  onRemove,
+  ordered,
+}: {
+  assignment: SpotAssignment
+  onCheckin?: (bookingId: string) => void
+  onMemberClick?: (a: SpotAssignment) => void
+  /** When in assign-mode, called instead of onMemberClick */
+  onAssignToStation?: (bookingId: string) => void
+  onRemove?: (bookingId: string) => Promise<void>
+  ordered?: boolean
+}) {
+  const inAssignMode = !!onAssignToStation
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `list-drag-${assignment.bookingId}`,
+    disabled: assignment.checkedIn || inAssignMode,
+  })
+  return (
+    <div
+      ref={setNodeRef}
+      {...(!inAssignMode && !assignment.checkedIn ? { ...listeners, ...attributes } : {})}
+      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg border-l-2 transition-all ${
+        inAssignMode
+          ? 'bg-amber-100 border-l-amber-500 cursor-pointer hover:bg-amber-200'
+          : assignment.checkedIn
+            ? 'bg-amber-50 border-l-amber-400 cursor-default'
+            : 'bg-amber-50 border-l-amber-400 cursor-grab active:cursor-grabbing'
+      } ${isDragging ? 'opacity-30' : ''}`}
+      onClick={inAssignMode ? () => onAssignToStation(assignment.bookingId) : undefined}
+    >
+      <div className="w-5 h-5 rounded-full bg-gray-700 text-white flex items-center justify-center text-[9px] font-bold shrink-0">
+        {initials(assignment.memberName)}
+      </div>
+      <div className="flex-1 min-w-0">
+        {inAssignMode ? (
+          <p className="text-[11px] font-semibold text-amber-900 truncate">{assignment.memberName}</p>
+        ) : onMemberClick ? (
+          <button
+            onPointerDown={e => e.stopPropagation()}
+            onClick={e => { e.stopPropagation(); onMemberClick(assignment) }}
+            className="text-[11px] font-medium text-gray-800 hover:text-gray-950 text-left w-full truncate"
+          >
+            {assignment.memberName}
+          </button>
+        ) : (
+          <p className="text-[11px] font-medium text-gray-800 truncate">{assignment.memberName}</p>
+        )}
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        {ordered && <span className="text-[11px]" title="Has ordered">🥤</span>}
+        {!inAssignMode && onRemove && (
+          <button
+            onPointerDown={e => e.stopPropagation()}
+            onClick={e => { e.stopPropagation(); onRemove(assignment.bookingId) }}
+            title="Cancel booking"
+            className="w-5 h-5 rounded-full bg-white text-gray-400 hover:text-red-500 hover:bg-red-50 flex items-center justify-center text-[11px] font-bold transition-colors"
+          >
+            ×
+          </button>
+        )}
+        {!inAssignMode && (
+          <CheckInButton
+            checkedIn={assignment.checkedIn}
+            onClick={() => onCheckin?.(assignment.bookingId)}
+            size="md"
+          />
+        )}
       </div>
     </div>
   )
@@ -241,11 +352,17 @@ function DroppableListStation({
   assignment,
   onCheckin,
   onUnassign,
+  onMemberClick,
+  onEmptyStationClick,
+  ordered,
 }: {
   station: Station
   assignment: SpotAssignment | undefined
   onCheckin?: (bookingId: string) => void
   onUnassign?: (bookingId: string) => void
+  onMemberClick?: (a: SpotAssignment) => void
+  onEmptyStationClick?: (station: Station) => void
+  ordered?: boolean
 }) {
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `list-${station.id}` })
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
@@ -284,9 +401,31 @@ function DroppableListStation({
         className={`flex-1 min-w-0 ${assignment && !isLocked ? 'cursor-grab active:cursor-grabbing' : ''} ${isDragging ? 'opacity-30' : ''}`}
       >
         {assignment ? (
-          <p className={`text-[11px] font-medium truncate leading-tight ${isOver && !isLocked ? 'text-white' : isLocked ? 'text-emerald-800' : 'text-gray-900'}`}>
-            {isOver && !isLocked ? 'Drop here' : assignment.memberName}
-          </p>
+          isOver && !isLocked ? (
+            <p className="text-[11px] font-medium truncate leading-tight text-white">Drop here</p>
+          ) : onMemberClick ? (
+            <button
+              onPointerDown={e => e.stopPropagation()}
+              onClick={e => { e.stopPropagation(); onMemberClick(assignment) }}
+              className={`text-[11px] font-medium text-left w-full ${isLocked ? 'text-emerald-800 hover:text-emerald-950' : 'text-gray-900 hover:text-gray-700'}`}
+            >
+              <span className={`inline-block border rounded px-1 leading-tight transition-colors max-w-full truncate ${isLocked ? 'border-emerald-300 hover:border-emerald-500' : 'border-gray-300 hover:border-gray-500'}`}>
+                {assignment.memberName}
+              </span>
+            </button>
+          ) : (
+            <p className={`text-[11px] font-medium truncate leading-tight ${isLocked ? 'text-emerald-800' : 'text-gray-900'}`}>
+              {assignment.memberName}
+            </p>
+          )
+        ) : onEmptyStationClick && !isOver ? (
+          <button
+            onPointerDown={e => e.stopPropagation()}
+            onClick={e => { e.stopPropagation(); onEmptyStationClick(station) }}
+            className="text-[11px] text-gray-400 hover:text-gray-700 italic text-left w-full hover:not-italic transition-colors"
+          >
+            + add member
+          </button>
         ) : (
           <p className={`text-[11px] italic ${isOver ? 'text-gray-300' : 'text-gray-400'}`}>
             {isOver ? 'Drop here' : 'empty'}
@@ -294,6 +433,10 @@ function DroppableListStation({
         )}
       </div>
       <div className="flex items-center gap-1 shrink-0">
+        {/* Ordered indicator */}
+        {ordered && assignment && (
+          <span className="text-[11px]" title="Has ordered">🥤</span>
+        )}
         {/* Remove from station */}
         {assignment && !isLocked && (
           <button
@@ -331,8 +474,12 @@ const DROP_ANIMATION: DropAnimation = {
   },
 }
 
-export default function SessionRoomMap({ layout, assignments, onAssign, onCheckin }: Props) {
+export default function SessionRoomMap({ layout, assignments, onAssign, onCheckin, onMemberClick, onEmptyStationClick, onRemoveBooking, orderedMemberIds }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null)
+  // When the fronthost clicks an empty station and unassigned members exist,
+  // we enter "assign mode": the station is highlighted and clicking any
+  // unassigned member row assigns them directly (no drawer, not checked-in).
+  const [assigningStationId, setAssigningStationId] = useState<string | null>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   const assignmentByStation = useCallback(
@@ -340,8 +487,28 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
     [assignments],
   )
 
-  const unassigned = assignments.filter(a => !a.stationId)
   const checkedInCount = assignments.filter(a => a.checkedIn).length
+  const unassigned = assignments.filter(a => !a.stationId)
+
+  // When the assigned member list empties, exit assign mode automatically
+  if (assigningStationId && unassigned.length === 0) {
+    setAssigningStationId(null)
+  }
+
+  function handleEmptyStationClick(station: Station) {
+    if (unassigned.length > 0) {
+      // Toggle: clicking the same station again cancels assign mode
+      setAssigningStationId(prev => prev === station.id ? null : station.id)
+    } else {
+      onEmptyStationClick?.(station)
+    }
+  }
+
+  async function handleAssignFromList(bookingId: string) {
+    if (!assigningStationId) return
+    setAssigningStationId(null)
+    await onAssign(bookingId, assigningStationId)
+  }
   // Resolve bare bookingId from either canvas (bare) or list (list-drag-) drag ids
   const activeBookingId = activeId?.replace(/^list-drag-/, '') ?? null
   const activeAssignment = activeBookingId ? assignments.find(a => a.bookingId === activeBookingId) : null
@@ -383,32 +550,61 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
             <span className="text-[11px] font-semibold text-emerald-600">{checkedInCount}/{assignments.length} in</span>
           </div>
 
-          {/* Station rows */}
-          {sortedStations.map(station => (
-            <DroppableListStation
-              key={station.id}
-              station={station}
-              assignment={assignmentByStation(station.id)}
-              onCheckin={onCheckin}
-              onUnassign={bookingId => onAssign(bookingId, null)}
-            />
-          ))}
-
-          {/* Unassigned section */}
+          {/* Unassigned members — booked but no station yet */}
           {unassigned.length > 0 && (
             <>
-              <div className="mt-2 mb-1 px-1">
-                <p className="text-[11px] font-semibold text-amber-600 uppercase tracking-wide">
-                  Unassigned ({unassigned.length})
-                </p>
-              </div>
-              {unassigned.map(a => (
-                <div key={a.bookingId}>
-                  <DraggableMember assignment={a} />
+              {assigningStationId ? (
+                <div className="flex items-center justify-between px-1 mt-1">
+                  <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-wide">
+                    Pick member for {layout.stations.find(s => s.id === assigningStationId)?.label}
+                  </p>
+                  <button
+                    onClick={() => setAssigningStationId(null)}
+                    className="text-[10px] text-gray-400 hover:text-gray-700 font-medium"
+                  >
+                    Cancel
+                  </button>
                 </div>
-              ))}
+              ) : (
+                <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wide px-1 mt-1">
+                  No station · {unassigned.length}
+                </p>
+              )}
+              {unassigned.map(a => {
+                const ordered = orderedMemberIds?.has(a.memberId)
+                return (
+                  <UnassignedMemberRow
+                    key={a.bookingId}
+                    assignment={a}
+                    onCheckin={onCheckin}
+                    onMemberClick={assigningStationId ? undefined : onMemberClick}
+                    onAssignToStation={assigningStationId ? handleAssignFromList : undefined}
+                    onRemove={onRemoveBooking}
+                    ordered={ordered}
+                  />
+                )
+              })}
+              <div className="h-px bg-gray-100 my-1" />
             </>
           )}
+
+          {/* Station rows */}
+          {sortedStations.map(station => {
+            const a = assignmentByStation(station.id)
+            return (
+              <DroppableListStation
+                key={station.id}
+                station={station}
+                assignment={a}
+                onCheckin={onCheckin}
+                onUnassign={onRemoveBooking}
+                onMemberClick={onMemberClick}
+                onEmptyStationClick={handleEmptyStationClick}
+                ordered={a ? orderedMemberIds?.has(a.memberId) : false}
+              />
+            )
+          })}
+
         </div>
 
         {/* ── Map canvas ── */}
@@ -437,16 +633,23 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
                 style={{ left: 2, top: i * SCALE + 2 }}>{i}m</span>
             ))}
 
-            {layout.stations.map(station => (
-              <DroppableStation
-                key={station.id}
-                station={station}
-                assignment={assignmentByStation(station.id)}
-                layout={layout}
-                onCheckin={onCheckin}
-                onUnassign={bookingId => onAssign(bookingId, null)}
-              />
-            ))}
+            {layout.stations.map(station => {
+              const a = assignmentByStation(station.id)
+              return (
+                <DroppableStation
+                  key={station.id}
+                  station={station}
+                  assignment={a}
+                  layout={layout}
+                  onCheckin={onCheckin}
+                  onUnassign={onRemoveBooking}
+                  onMemberClick={onMemberClick}
+                  onEmptyStationClick={handleEmptyStationClick}
+                  isAssigningTarget={assigningStationId === station.id}
+                  ordered={a ? orderedMemberIds?.has(a.memberId) : false}
+                />
+              )
+            })}
           </div>
         </div>
       </div>

@@ -1,14 +1,16 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { api, type AdminSession } from '@/lib/api'
 import NavBar from '@/components/NavBar'
-import RoomMapView from '@/components/room/RoomMapView'
-import CreditModal from './CreditModal'
+import RoomMapView, { type RoomMapViewHandle } from '@/components/room/RoomMapView'
 import PhotosTab from '@/components/studio/PhotosTab'
 import MemberDrawer from './MemberDrawer'
+import type { SpotAssignment } from '@/lib/api'
+
+type DrawerMember = { id: string; name: string; creditBalance: number; membershipStatus: string | null }
 import { TimeFormatProvider } from '@/lib/time-format-context'
 import { fmtTime, type TimeFormat } from '@/lib/fmt-time'
 
@@ -34,10 +36,14 @@ export default function FronthostDashboard({ defaultStudioId, modeSwitch }: { de
   const [sessions, setSessions] = useState<AdminSession[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedSession, setSelectedSession] = useState<AdminSession | null>(null)
-  const [creditModal, setCreditModal] = useState(false)
   const [date, setDate] = useState(searchParams.get('date') ?? isoDate(new Date()))
   const [showPhotos, setShowPhotos] = useState(searchParams.get('view') === 'photos')
   const [showDrawer, setShowDrawer] = useState(false)
+  const [drawerMember, setDrawerMember] = useState<DrawerMember | null>(null)
+  const [drawerStation, setDrawerStation] = useState<{ id: string; label: string } | null>(null)
+  const [mapRefreshKey, setMapRefreshKey] = useState(0)
+  const mapRef = useRef<RoomMapViewHandle>(null)
+  const [orderedMemberIds, setOrderedMemberIds] = useState<Set<string>>(new Set())
   // Set if this user also has an instructor record (dual-role)
   const [myInstructorId, setMyInstructorId] = useState<string | null>(null)
   const [timeFormat, setTimeFormat] = useState<TimeFormat>('24h')
@@ -99,6 +105,7 @@ export default function FronthostDashboard({ defaultStudioId, modeSwitch }: { de
     if (!token || !studioId) return
     setLoading(true)
     setSelectedSession(null)
+    setOrderedMemberIds(new Set())
     Promise.all([
       api.admin.sessions(studioId, date, token),
       api.admin.stats(studioId, token).catch(() => null),
@@ -154,16 +161,10 @@ export default function FronthostDashboard({ defaultStudioId, modeSwitch }: { de
             </button>
           )}
           <button
-            onClick={() => setShowDrawer(true)}
+            onClick={() => { setDrawerMember(null); setShowDrawer(true) }}
             className="text-xs font-medium border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:border-gray-500 hover:text-gray-900 transition-colors"
           >
-            Walk-in
-          </button>
-          <button
-            onClick={() => setCreditModal(true)}
-            className="text-xs font-medium bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
-          >
-            + Credits
+            Find member
           </button>
         </div>
       </NavBar>
@@ -257,10 +258,24 @@ export default function FronthostDashboard({ defaultStudioId, modeSwitch }: { de
                 </p>
               </div>
               <RoomMapView
+                ref={mapRef}
                 roomId={selectedSession.roomId}
                 token={token}
                 session={selectedSession}
                 variant="checkin"
+                refreshKey={mapRefreshKey}
+                orderedMemberIds={orderedMemberIds}
+                allowRemoveBooking
+                onMemberClick={a => {
+                  setDrawerMember({ id: a.memberId, name: a.memberName, creditBalance: a.creditBalance, membershipStatus: a.membershipStatus })
+                  setDrawerStation(null)
+                  setShowDrawer(true)
+                }}
+                onEmptyStationClick={s => {
+                  setDrawerMember(null)
+                  setDrawerStation(s)
+                  setShowDrawer(true)
+                }}
               />
             </div>
           ) : !loading && (
@@ -271,20 +286,22 @@ export default function FronthostDashboard({ defaultStudioId, modeSwitch }: { de
         </div>
       </div>
 
-      {creditModal && token && studioId && (
-        <CreditModal
-          studioId={studioId}
-          token={token}
-          onClose={() => setCreditModal(false)}
-        />
-      )}
-
       {showDrawer && studioId && (
         <MemberDrawer
           studioId={studioId}
           currency={currency}
           selectedSession={selectedSession}
-          onClose={() => setShowDrawer(false)}
+          initialMember={drawerMember ?? undefined}
+          targetStation={drawerStation ?? undefined}
+          onAssigned={() => {
+              // Call refresh() directly on the map — bypasses the refreshKey →
+              // useCallback → useEffect chain which can miss renders under concurrency.
+              mapRef.current?.refresh()
+              setMapRefreshKey(k => k + 1) // keep for any other consumers
+            }}
+          onPatchCheckin={(bookingId, checkedIn) => mapRef.current?.patchCheckin(bookingId, checkedIn)}
+          onProductsCharged={memberId => setOrderedMemberIds(prev => new Set([...prev, memberId]))}
+          onClose={() => { setShowDrawer(false); setDrawerMember(null); setDrawerStation(null) }}
           onBookingChanged={() => {
             // Re-fetch sessions so booked counts stay accurate
             if (!token || !studioId) return

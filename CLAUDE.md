@@ -35,7 +35,7 @@ cd apps/api && npm run dev    # API on :4000
 cd apps/web && npm run dev    # Web on :3001 (or :3000)
 
 # Tests
-npm test                      # Vitest unit tests (26 tests, all passing)
+npm test                      # Vitest unit tests (39 tests, all passing)
 npm run test:coverage         # with coverage report
 npm run test:e2e              # Playwright E2E (needs web + API running)
 ```
@@ -90,7 +90,7 @@ NEXT_PUBLIC_STUDIO_ID=<seeded-studio-id>
 - `$transaction` callback form: `vi.fn(async (fn) => fn(tx))` where `tx` is the shared model object; array form: `vi.fn(async (arr) => Promise.all(arr))`
 - Custom errors in routes must use `{ statusCode: N }` (not `{ code: 'NAME' }`) — Fastify's error handler only reads `err.statusCode`
 
-## Database schema (17 models)
+## Database schema (18 models)
 
 ```
 Studio → Location → Room → RoomLayout → Station
@@ -111,6 +111,7 @@ Key additions:
 - `Station` — positioned equipment (`type: StationType`, `xM`, `yM`, `rotation`, `label`); linked to `RoomLayout`
 - `Booking.stationId` — links a confirmed booking to a specific station for spot assignment
 - `Member.staffRoles String[] @default([])` — all staff roles for this member (replaces old `staffRole String?`); multi-studio: member can appear in multiple studios' staff lists via `studioIds` in `app_metadata`
+- `Product` — studio retail/service item (`studioId`, `name`, `category @default("Other")`, `priceInCents`, `creditsRequired Int @default(0)`, `imageUrl`, `inStock @default(true)`); free = both price and credits = 0
 
 Seed data lives in `packages/db/src/seed.ts`:
 - 1 studio: Packd Demo Studio
@@ -141,7 +142,7 @@ Seed data lives in `packages/db/src/seed.ts`:
 
 ### API (`apps/api/src/routes/`)
 - `schedule.ts` — `GET /schedule/:studioId` — lists sessions with booking status per user
-- `bookings.ts` — `POST /bookings`, `DELETE /bookings/:id`, `POST /bookings/:id/checkin`; members (role=member or no role) are blocked from booking past sessions (400); LATE_CANCELLED bookings are re-activated via `update` not `create` to avoid P2002; cancel clears `stationId: null`
+- `bookings.ts` — `POST /bookings`, `DELETE /bookings/:id`, `POST /bookings/:id/checkin`; members (role=member or no role) are blocked from booking past sessions (400); LATE_CANCELLED bookings are re-activated via `update` not `create` to avoid P2002; cancel clears `stationId: null`; optional `memberId` body param for on-behalf booking — privileged roles (rank ≥ fronthost) look up member by `{ id: memberId }`, members always book for themselves via `{ userId }`
 - `waitlist.ts` — `POST /waitlist`, `DELETE /waitlist/:id`, `POST /waitlist/:id/confirm`
 - `members.ts` — `GET /members/me`
 - `studios.ts` — `GET/POST /studios`, `PATCH/DELETE /studios/:id`, `GET /studios/:id/rooms`, `POST /studios/:id/rooms`, `DELETE /studios/:id/rooms/:roomId`, `POST /studios/onboard`
@@ -150,7 +151,7 @@ Seed data lives in `packages/db/src/seed.ts`:
   - `GET /admin/sessions/:id/bookings` — attendee list with check-in status
   - `POST /admin/sessions/:id/checkin/:bookingId` — toggle check-in
   - `PATCH /admin/sessions/:id` — update session status
-  - `GET /admin/stats?studioId=` — today's headline stats; includes `studioName` for NavBar display
+  - `GET /admin/stats?studioId=` — today's headline stats; includes `studioName`, `timeFormat`, `currency` for NavBar and price display
   - `GET /admin/members/search?studioId=&q=` — fuzzy search members by name/email (up to 10 results, includes creditBalance and membershipStatus)
   - `POST /admin/members/:memberId/credits` — adjust credit balance (positive or negative integer, type: MANUAL_ADJUSTMENT)
 - `rooms.ts` — room layout and spot assignment
@@ -176,6 +177,7 @@ Seed data lives in `packages/db/src/seed.ts`:
   - `GET /franchise/studios/:id/instructors` — instructors with permissions (studio_admin+)
   - `GET /franchise/studios/:id/my-instructor` — calling instructor's own id + permissions (instructor+ role)
   - `PATCH /franchise/studios/:id/instructors/:instructorId/permissions` — update instructor permissions
+- `products.ts` — `GET /products?studioId=` (requireAuth, `?all=true` includes out-of-stock), `POST /products`, `PATCH /products/:id`, `DELETE /products/:id` (studio_admin+)
 - `stripe.ts` — Stripe webhook handler stub
 
 ### Web (`apps/web/src/`)
@@ -195,7 +197,7 @@ Seed data lives in `packages/db/src/seed.ts`:
 - `schedule/constants.ts` — SPORT_CONFIG color map
 
 ### Admin UI components
-- `admin/AdminDashboard.tsx` — stat cards (today's classes, bookings, waitlist, members), date picker, session list with fill bars, slide-in panel
+- `admin/AdminShell.tsx` — Management | Front Desk pill toggle in NavBar; `studio_admin` dashboard and FranchiseDashboard drill-in both render this; management mode → `StudioManagerDashboard`, front desk mode → `FronthostDashboard` locked to the studio
 - `admin/SessionPanel.tsx` — attendee list with avatar initials + credit balance, check-in toggle; three-segment attendance bar (black=checked-in, amber=booked-not-in, light-gray=empty); `canCancel` prop (default true) — instructors see the panel without the cancel button
 
 ### Franchise / studio management components
@@ -206,6 +208,8 @@ Seed data lives in `packages/db/src/seed.ts`:
 - `studio/PermissionsTab.tsx` — per-instructor permission toggles with accordion UI; toggle fix: explicit `left-1 translate-x-0/translate-x-4` anchoring required; includes `canCreateSchedules` permission
 - `studio/SettingsTab.tsx` — studio name, timezone (grouped optgroup, ~80 zones), currency (34 options); calls `onStudioUpdate` on save
 - `studio/StaffTab.tsx` — manage fronthosts and instructors; violet badge for instructors, blue for front desk; additive role assignment — help text explains users can hold both roles; dual-role members show per-role `×` remove button on each badge; single "Remove" button removes all roles entirely; shortcut to Permissions tab for instructor rows
+- `studio/ProductsTab.tsx` — CRUD UI for studio products; grouped by category; price input with `step="0.01"` and currency code prefix; `fmtPrice(cents, currency)` with 2 decimal places; "Free" label only when both price and credits = 0
+- `studio/SocialPhotosTab.tsx` — two sections: "Approved" gallery (`ApprovedPhotosGallery` with per-instructor filter pills and unapprove action) and "Photo Repositories" (instructor selector + `PhotosTab` with `isManager=true`)
 
 ### Calendar components (`components/calendar/`)
 - `CalendarView.tsx` — three views: `week` (time grid with overlap layout), `month` (sport-dot grid), `schedules` (master recurring + orphaned sessions)
@@ -223,11 +227,13 @@ Seed data lives in `packages/db/src/seed.ts`:
 - `constants.ts` — `STATION_META` (icon, color, physical size in metres per type), `GRID_STEP`, `snapToGrid`
 
 ### Fronthost components (`components/fronthost/`)
-- `FronthostDashboard.tsx` — full-screen layout: session sidebar (w-72) with today's sessions, LIVE badge, fill bar, date picker; clicking a session loads `<RoomMapView variant="checkin" />`; "+ Credits" button opens CreditModal; accepts `modeSwitch?: React.ReactNode` prop passed to NavBar `action` slot
+- `FronthostDashboard.tsx` — full-screen layout: session sidebar (w-72) with today's sessions, LIVE badge, fill bar, date picker; clicking a session loads `<RoomMapView variant="checkin" />`; "Walk-in" button opens `MemberDrawer`; "+ Credits" button opens `CreditModal`; `currency` state populated from stats on mount; accepts `modeSwitch?: React.ReactNode` prop passed to NavBar `action` slot
 - `CreditModal.tsx` — member search via `api.admin.searchMembers`; preset amounts (+5, +10, +20, +30) with deduct toggle; manual amount + optional note; calls `api.admin.adjustCredits`
+- `MemberDrawer.tsx` — slide-over walk-in POS; member search (debounced 300ms, min 2 chars); on-behalf session booking for selected member; product grid with cart; "Charge N cr" (credit cart) or "Record sale" (cash); `fmtPrice` with studio currency; shows "No products configured" hint if catalog is empty
 
 ### Tests
-- `apps/api/src/__tests__/booking.test.ts` — 12 unit tests (create 201, full class 409, insufficient credits 402, cancelled session 400, missing body 400, past class rejected for member 400, past class allowed for admin 201, LATE_CANCELLED re-book via update 201, on-time cancel 200, late cancel 200, wrong user cancel 403, cancel clears stationId)
+- `apps/api/src/__tests__/booking.test.ts` — 15 unit tests (create 201, full class 409, insufficient credits 402, cancelled session 400, missing body 400, past class rejected for member 400, past class allowed for admin 201, LATE_CANCELLED re-book via update 201, on-time cancel 200, late cancel 200, wrong user cancel 403, cancel clears stationId, fronthost on-behalf booking, studio_admin on-behalf booking, member role ignores memberId override)
+- `apps/api/src/__tests__/products.test.ts` — 10 unit tests (GET: in-stock list, all=true, missing studioId 400; POST: create 201, defaults creditsRequired=0, missing fields 400; PATCH: update, 404; DELETE: success, 404)
 - `apps/api/src/__tests__/waitlist.test.ts` — 6 unit tests (join empty 201, join with queue 201, missing body 400, confirm valid 200, expired window 410, wrong user 403)
 - `apps/api/src/__tests__/checkin.test.ts` — 3 unit tests (toggle on, toggle off + clears checkedInAt, wrong session booking 404)
 - `apps/api/src/__tests__/credits.test.ts` — 5 unit tests (add credits, deduct credits, amount=0 rejected, non-integer rejected, missing member 404)
@@ -275,12 +281,12 @@ apps/
       components/
         ScheduleView.tsx  # Main schedule shell
         schedule/         # Schedule sub-components
-        admin/            # Admin dashboard components
+        admin/            # AdminShell (mgmt/front-desk toggle), SessionPanel
         calendar/         # CalendarView, ScheduleModal, SubstituteModal
         franchise/        # FranchiseDashboard
-        studio/           # StudioManagerDashboard, RoomsTab, PermissionsTab, SettingsTab
+        studio/           # StudioManagerDashboard, RoomsTab, PermissionsTab, SettingsTab, ProductsTab, SocialPhotosTab
         room/             # RoomMapView, RoomMapEditor, SessionRoomMap, constants
-        fronthost/        # FronthostDashboard, CreditModal
+        fronthost/        # FronthostDashboard, CreditModal, MemberDrawer
         dual/             # DualRoleDashboard (fronthost+instructor mode switcher)
         onboarding/       # Onboarding wizard steps
       lib/

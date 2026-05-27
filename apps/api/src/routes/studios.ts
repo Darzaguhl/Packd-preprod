@@ -105,6 +105,7 @@ export async function studioRoutes(app: FastifyInstance) {
       slug?: string
       timezone?: string
       currency?: string
+      timeFormat?: string
       location?: { id: string; name?: string; address?: string; city?: string; country?: string }
     }
   }>(
@@ -112,7 +113,7 @@ export async function studioRoutes(app: FastifyInstance) {
     { preHandler: requireStudioAdmin },
     async (request, reply) => {
       const { studioId } = request.params
-      const { name, slug, timezone, currency, location } = request.body
+      const { name, slug, timezone, currency, timeFormat, location } = request.body
       const user = getUser(request)
       if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
 
@@ -128,6 +129,7 @@ export async function studioRoutes(app: FastifyInstance) {
           ...(slug && { slug }),
           ...(timezone && { timezone }),
           ...(currency && { currency }),
+          ...(timeFormat && { timeFormat }),
         },
         include: { locations: true },
       })
@@ -154,6 +156,79 @@ export async function studioRoutes(app: FastifyInstance) {
       if (!studio) return reply.notFound('Studio not found')
       await prisma.studio.delete({ where: { id: studioId } })
       return reply.send({ success: true })
+    },
+  )
+
+  // GET /studios/:studioId/policy — fetch cancellation policy (studio_admin+)
+  app.get<{ Params: { studioId: string } }>(
+    '/:studioId/policy',
+    { preHandler: requireStudioAdmin },
+    async (request, reply) => {
+      const { studioId } = request.params
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+
+      const policy = await prisma.cancellationPolicy.findUnique({ where: { studioId } })
+      // Return current values or schema defaults
+      return reply.send({
+        lateCancelWindowHours:  policy?.lateCancelWindowHours  ?? 12,
+        lateCancelFeeCredits:   policy?.lateCancelFeeCredits   ?? 1,
+        noShowFeeCredits:       policy?.noShowFeeCredits        ?? 1,
+        waitlistWindowMinutes:  policy?.waitlistWindowMinutes  ?? 15,
+      })
+    },
+  )
+
+  // PATCH /studios/:studioId/policy — upsert cancellation policy (studio_admin+)
+  app.patch<{
+    Params: { studioId: string }
+    Body: {
+      lateCancelWindowHours?: number
+      lateCancelFeeCredits?: number
+      noShowFeeCredits?: number
+      waitlistWindowMinutes?: number
+    }
+  }>(
+    '/:studioId/policy',
+    { preHandler: requireStudioAdmin },
+    async (request, reply) => {
+      const { studioId } = request.params
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+
+      const { lateCancelWindowHours, lateCancelFeeCredits, noShowFeeCredits, waitlistWindowMinutes } = request.body
+
+      // Validate: all values must be non-negative integers when provided
+      const numFields = { lateCancelWindowHours, lateCancelFeeCredits, noShowFeeCredits, waitlistWindowMinutes }
+      for (const [key, val] of Object.entries(numFields)) {
+        if (val !== undefined && (!Number.isInteger(val) || val < 0)) {
+          return reply.badRequest(`${key} must be a non-negative integer`)
+        }
+      }
+
+      const policy = await prisma.cancellationPolicy.upsert({
+        where: { studioId },
+        create: {
+          studioId,
+          lateCancelWindowHours:  lateCancelWindowHours  ?? 12,
+          lateCancelFeeCredits:   lateCancelFeeCredits   ?? 1,
+          noShowFeeCredits:       noShowFeeCredits        ?? 1,
+          waitlistWindowMinutes:  waitlistWindowMinutes  ?? 15,
+        },
+        update: {
+          ...(lateCancelWindowHours  !== undefined && { lateCancelWindowHours }),
+          ...(lateCancelFeeCredits   !== undefined && { lateCancelFeeCredits }),
+          ...(noShowFeeCredits        !== undefined && { noShowFeeCredits }),
+          ...(waitlistWindowMinutes  !== undefined && { waitlistWindowMinutes }),
+        },
+      })
+
+      return reply.send({
+        lateCancelWindowHours:  policy.lateCancelWindowHours,
+        lateCancelFeeCredits:   policy.lateCancelFeeCredits,
+        noShowFeeCredits:       policy.noShowFeeCredits,
+        waitlistWindowMinutes:  policy.waitlistWindowMinutes,
+      })
     },
   )
 
@@ -293,6 +368,33 @@ export async function studioRoutes(app: FastifyInstance) {
       })
 
       return reply.code(201).send({ success: true, data: { id: studio.id } })
+    },
+  )
+
+  // GET /studios/:studioId/layouts — all active room layouts (with stations) for the studio
+  // Used by the room editor to populate the "load template" picker
+  app.get<{ Params: { studioId: string } }>(
+    '/:studioId/layouts',
+    { preHandler: requireRole('instructor') },
+    async (request, reply) => {
+      const { studioId } = request.params
+      const rooms = await prisma.room.findMany({
+        where: { location: { studioId } },
+        include: {
+          layouts: {
+            where: { isActive: true },
+            include: { stations: true },
+            take: 1,
+          },
+        },
+      })
+      const layouts = rooms
+        .filter(r => r.layouts.length > 0)
+        .map(r => ({
+          ...r.layouts[0],
+          roomName: r.name,
+        }))
+      return reply.send(layouts)
     },
   )
 

@@ -74,6 +74,16 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
   const [city, setCity] = useState('')
   const [country, setCountry] = useState('')
 
+  // Cancellation policy fields
+  const [policyLoading, setPolicyLoading] = useState(true)
+  const [policySaving, setPolicySaving] = useState(false)
+  const [lateCancelWindowHours, setLateCancelWindowHours]   = useState(12)
+  const [lateCancelFeeCredits,  setLateCancelFeeCredits]    = useState(1)
+  const [noShowFeeCredits,      setNoShowFeeCredits]         = useState(1)
+  const [waitlistWindowMinutes, setWaitlistWindowMinutes]   = useState(15)
+  // Saved state for dirty-check
+  const [savedPolicy, setSavedPolicy] = useState({ lateCancelWindowHours: 12, lateCancelFeeCredits: 1, noShowFeeCredits: 1, waitlistWindowMinutes: 15 })
+
   function showToast(msg: string, ok = true) {
     setToast({ msg, ok })
     setTimeout(() => setToast(null), 3000)
@@ -95,6 +105,14 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
         setCountry(loc.country)
       }
     }).finally(() => setLoading(false))
+
+    api.studios.getPolicy(studioId, token).then(p => {
+      setLateCancelWindowHours(p.lateCancelWindowHours)
+      setLateCancelFeeCredits(p.lateCancelFeeCredits)
+      setNoShowFeeCredits(p.noShowFeeCredits)
+      setWaitlistWindowMinutes(p.waitlistWindowMinutes)
+      setSavedPolicy(p)
+    }).catch(() => {}).finally(() => setPolicyLoading(false))
   }, [studioId, token])
 
   function handleNameChange(val: string) {
@@ -135,6 +153,30 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
       setSaving(false)
     }
   }
+
+  async function handleSavePolicy() {
+    setPolicySaving(true)
+    try {
+      const updated = await api.studios.updatePolicy(studioId, {
+        lateCancelWindowHours,
+        lateCancelFeeCredits,
+        noShowFeeCredits,
+        waitlistWindowMinutes,
+      }, token)
+      setSavedPolicy(updated)
+      showToast('Cancellation policy saved')
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Failed to save policy', false)
+    } finally {
+      setPolicySaving(false)
+    }
+  }
+
+  const isPolicyDirty =
+    lateCancelWindowHours  !== savedPolicy.lateCancelWindowHours  ||
+    lateCancelFeeCredits   !== savedPolicy.lateCancelFeeCredits   ||
+    noShowFeeCredits        !== savedPolicy.noShowFeeCredits       ||
+    waitlistWindowMinutes  !== savedPolicy.waitlistWindowMinutes
 
   const isDirty = studio && (
     name !== studio.name ||
@@ -297,6 +339,110 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
           </button>
         )}
       </div>
+
+      {/* ── Cancellation Policy ─────────────────────────────────────── */}
+      <section className="space-y-4 pt-4 border-t border-gray-100">
+        <div>
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Cancellation Policy</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Rules applied when members cancel bookings or fail to show up.</p>
+        </div>
+
+        {policyLoading ? (
+          <div className="space-y-3">
+            {[...Array(4)].map((_, i) => <div key={i} className="h-10 bg-gray-50 rounded-xl animate-pulse" />)}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Late cancel window */}
+            <div className="space-y-1">
+              <label className="text-xs text-gray-500 font-medium">Late cancel window</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  value={lateCancelWindowHours}
+                  onChange={e => setLateCancelWindowHours(Math.max(0, parseInt(e.target.value) || 0))}
+                  className="w-24 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400 tabular-nums"
+                />
+                <span className="text-sm text-gray-500">hours before class</span>
+              </div>
+              <p className="text-[10px] text-gray-400">Cancellations within this window are treated as late cancels.</p>
+            </div>
+
+            {/* Fees grid */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs text-gray-500 font-medium">Late cancel fee</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    value={lateCancelFeeCredits}
+                    onChange={e => setLateCancelFeeCredits(Math.max(0, parseInt(e.target.value) || 0))}
+                    className="w-20 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400 tabular-nums"
+                  />
+                  <span className="text-sm text-gray-500">cr</span>
+                </div>
+                <p className="text-[10px] text-gray-400">0 = no additional fee</p>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs text-gray-500 font-medium">No-show fee</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    value={noShowFeeCredits}
+                    onChange={e => setNoShowFeeCredits(Math.max(0, parseInt(e.target.value) || 0))}
+                    className="w-20 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400 tabular-nums"
+                  />
+                  <span className="text-sm text-gray-500">cr</span>
+                </div>
+                <p className="text-[10px] text-gray-400">Charged when session ends without check-in</p>
+              </div>
+            </div>
+
+            {/* Waitlist window */}
+            <div className="space-y-1">
+              <label className="text-xs text-gray-500 font-medium">Waitlist confirmation window</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  value={waitlistWindowMinutes}
+                  onChange={e => setWaitlistWindowMinutes(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-24 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400 tabular-nums"
+                />
+                <span className="text-sm text-gray-500">minutes to confirm</span>
+              </div>
+              <p className="text-[10px] text-gray-400">How long a promoted waitlist member has to confirm their spot.</p>
+            </div>
+
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                onClick={handleSavePolicy}
+                disabled={policySaving || !isPolicyDirty}
+                className="text-sm font-medium bg-gray-900 text-white px-5 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors"
+              >
+                {policySaving ? 'Saving…' : 'Save policy'}
+              </button>
+              {isPolicyDirty && (
+                <button
+                  onClick={() => {
+                    setLateCancelWindowHours(savedPolicy.lateCancelWindowHours)
+                    setLateCancelFeeCredits(savedPolicy.lateCancelFeeCredits)
+                    setNoShowFeeCredits(savedPolicy.noShowFeeCredits)
+                    setWaitlistWindowMinutes(savedPolicy.waitlistWindowMinutes)
+                  }}
+                  className="text-sm text-gray-400 hover:text-gray-700 transition-colors"
+                >
+                  Discard
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
 
       {toast && (
         <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg ${

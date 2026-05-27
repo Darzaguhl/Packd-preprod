@@ -138,9 +138,12 @@ export default function SessionPanel({ session, token, onClose, onSessionUpdate,
 
               {/* Name + email */}
               <div className="flex-1 min-w-0">
-                <p className={`text-sm font-medium truncate ${b.checkedIn ? 'text-gray-900' : 'text-gray-700'}`}>
+                <a
+                  href={`/members/${b.memberId}`}
+                  className={`text-sm font-medium truncate block hover:underline ${b.checkedIn ? 'text-gray-900' : 'text-gray-700'}`}
+                >
                   {b.memberName}
-                </p>
+                </a>
                 <p className="text-xs text-gray-400 truncate">{b.memberEmail}</p>
               </div>
 

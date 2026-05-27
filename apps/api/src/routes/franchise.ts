@@ -3,6 +3,9 @@ import { Prisma } from '@packd/db'
 import { prisma } from '@packd/db'
 import { ROLE_RANK } from '@packd/types'
 import { requireRole, getUser } from '../lib/auth.js'
+import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole } from '../lib/supabase-admin.js'
+
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 interface InstructorPermissions {
   canCheckInMembers: boolean
@@ -41,7 +44,7 @@ const DEFAULT_FRONTHOST_PERMISSIONS: FronthostPermissions = {
   canViewMemberContact: true,
 }
 
-async function assertStudioAccess(
+export async function assertStudioAccess(
   userId: string,
   userRole: string,
   studioId: string,
@@ -327,6 +330,156 @@ export async function franchiseRoutes(app: FastifyInstance) {
       }
 
       return reply.send(Array.from(byUserId.values()))
+    },
+  )
+
+  // ── Studio admin management (franchise_admin only) ───────────────────────────
+
+  // GET /franchise/studios/:studioId/admins — list studio_admin members for a studio.
+  // Uses Supabase as source of truth for roles so admins set up via Supabase dashboard
+  // or direct API calls are included even if Member.staffRoles is not yet synced.
+  app.get<{ Params: { studioId: string } }>(
+    '/studios/:studioId/admins',
+    { preHandler: requireRole('franchise_admin') },
+    async (request, reply) => {
+      const { studioId } = request.params
+
+      if (!SERVICE_ROLE_KEY) return reply.internalServerError('SUPABASE_SERVICE_ROLE_KEY not configured on server')
+
+      // Fetch all Supabase users and filter by role + studio
+      const SUPABASE_URL = process.env.SUPABASE_URL!
+      const sbRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?per_page=1000`, {
+        headers: { Authorization: `Bearer ${SERVICE_ROLE_KEY}`, apikey: SERVICE_ROLE_KEY },
+      })
+      const sbData = await sbRes.json() as {
+        users?: { id: string; email?: string; created_at?: string; app_metadata?: Record<string, unknown>; user_metadata?: Record<string, unknown> }[]
+      }
+      const sbUsers = sbData.users ?? []
+
+      // Match users who have studio_admin in roles AND studioId in studioIds.
+      // Support both new format (roles array + studioIds) and old format (role + studioId).
+      const adminSbUsers = sbUsers.filter(u => {
+        const meta = u.app_metadata ?? {}
+        const roles: string[] = (meta.roles as string[] | undefined) ?? (meta.role ? [meta.role as string] : [])
+        const ids: string[] = (meta.studioIds as string[] | undefined) ?? (meta.studioId ? [meta.studioId as string] : [])
+        return roles.includes('studio_admin') && ids.includes(studioId)
+      })
+
+      if (adminSbUsers.length === 0) return reply.send([])
+
+      const adminUserIds = adminSbUsers.map(u => u.id)
+
+      // Look up Member + User records for display info; some may not have a Member record yet
+      const members = await prisma.member.findMany({
+        where: { userId: { in: adminUserIds } },
+        include: { user: { select: { firstName: true, lastName: true, email: true } } },
+      })
+      const memberByUserId = new Map(members.map(m => [m.userId, m]))
+
+      // Sync staffRoles in DB for any admin whose Member record is out of date
+      for (const m of members) {
+        if (!m.staffRoles.includes('studio_admin')) {
+          const newRoles = [...new Set([...m.staffRoles, 'studio_admin'])]
+          const newIds = [...new Set([...m.studioIds, studioId])]
+          await prisma.member.update({
+            where: { id: m.id },
+            data: { staffRoles: newRoles, studioIds: newIds },
+          }).catch(() => { /* non-fatal */ })
+        }
+      }
+
+      return reply.send(adminSbUsers.map(su => {
+        const m = memberByUserId.get(su.id)
+        // Fall back to Supabase user_metadata for name if no Member record exists
+        const meta = su.user_metadata ?? {}
+        const fallbackName = [meta.first_name, meta.last_name].filter(Boolean).join(' ') || su.email || su.id
+        return {
+          id: m?.id ?? su.id,
+          userId: su.id,
+          name: m ? `${m.user.firstName} ${m.user.lastName}` : fallbackName,
+          email: su.email ?? m?.user.email ?? '',
+          joinedAt: m?.joinedAt.toISOString() ?? su.created_at ?? new Date().toISOString(),
+        }
+      }))
+    },
+  )
+
+  // POST /franchise/studios/:studioId/admins — promote a user to studio_admin
+  app.post<{ Params: { studioId: string }; Body: { email: string } }>(
+    '/studios/:studioId/admins',
+    { preHandler: requireRole('franchise_admin') },
+    async (request, reply) => {
+      const { studioId } = request.params
+      const { email } = request.body
+
+      if (!email) return reply.badRequest('email is required')
+      if (!SERVICE_ROLE_KEY) return reply.internalServerError('SUPABASE_SERVICE_ROLE_KEY not configured on server')
+
+      const studio = await prisma.studio.findUnique({ where: { id: studioId } })
+      if (!studio) return reply.notFound('Studio not found')
+
+      const targetUser = await prisma.user.findUnique({ where: { email } })
+      if (!targetUser) return reply.notFound('No account found with that email address. The user must sign up first.')
+
+      const current = await getSupabaseAppMeta(targetUser.id)
+      const existingIds: string[] = current.studioIds ?? []
+      const newIds = [...new Set([...existingIds, studioId])]
+
+      const existingRoles: string[] = current.roles ?? (current.role && current.role !== 'member' ? [current.role] : [])
+      const newRoles = [...new Set([...existingRoles, 'studio_admin'])]
+      const primaryRole = getPrimaryRole(newRoles)
+
+      await setSupabaseAppMeta(targetUser.id, { role: primaryRole, roles: newRoles, studioIds: newIds })
+
+      const existingMember = await prisma.member.findUnique({ where: { userId: targetUser.id } })
+      if (existingMember) {
+        await prisma.member.update({
+          where: { userId: targetUser.id },
+          data: { staffRoles: newRoles, studioIds: newIds },
+        })
+      } else {
+        await prisma.member.create({
+          data: { userId: targetUser.id, studioId, staffRoles: newRoles, studioIds: newIds, source: 'packd' },
+        })
+      }
+
+      return reply.code(201).send({ success: true, roles: newRoles })
+    },
+  )
+
+  // DELETE /franchise/studios/:studioId/admins/:userId — remove studio_admin for a studio
+  app.delete<{ Params: { studioId: string; userId: string } }>(
+    '/studios/:studioId/admins/:userId',
+    { preHandler: requireRole('franchise_admin') },
+    async (request, reply) => {
+      const { studioId, userId } = request.params
+
+      if (!SERVICE_ROLE_KEY) return reply.internalServerError('SUPABASE_SERVICE_ROLE_KEY not configured on server')
+
+      const member = await prisma.member.findUnique({
+        where: { userId },
+        select: { id: true, studioIds: true, staffRoles: true },
+      })
+      if (!member) return reply.notFound('User not found')
+
+      const current = await getSupabaseAppMeta(userId)
+      const currentRoles: string[] = current.roles ?? member.staffRoles
+      const remainingRoles = currentRoles.filter(r => r !== 'studio_admin')
+
+      // Remove studioId only if no other roles remain for this studio
+      const allStudioIds: string[] = current.studioIds ?? member.studioIds
+      const remainingStudios = remainingRoles.length > 0
+        ? allStudioIds
+        : allStudioIds.filter(id => id !== studioId)
+
+      const primaryRole = getPrimaryRole(remainingRoles)
+      await setSupabaseAppMeta(userId, { role: primaryRole, roles: remainingRoles, studioIds: remainingStudios })
+      await prisma.member.update({
+        where: { id: member.id },
+        data: { staffRoles: remainingRoles, studioIds: remainingStudios },
+      })
+
+      return reply.send({ success: true })
     },
   )
 

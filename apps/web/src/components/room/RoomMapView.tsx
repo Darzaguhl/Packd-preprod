@@ -1,10 +1,18 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { api, type RoomLayout, type LayoutTemplate, type SessionSpots, type AdminSession } from '@/lib/api'
+import { api, type RoomLayout, type LayoutTemplate, type SessionSpots, type AdminSession, type SpotAssignment } from '@/lib/api'
 import RoomMapEditor from './RoomMapEditor'
 import SessionRoomMap from './SessionRoomMap'
+
+/** Imperative handle so parents can call refresh() directly without relying on the refreshKey chain. */
+export interface RoomMapViewHandle {
+  /** Re-fetch spots from the server (used after booking/assignment changes). */
+  refresh: () => void
+  /** Instantly flip a member's check-in state without a server round-trip. */
+  patchCheckin: (bookingId: string, checkedIn: boolean) => void
+}
 
 interface Props {
   roomId: string
@@ -17,9 +25,19 @@ interface Props {
   variant?: 'checkin' | 'editor'
   /** Called whenever the active layout changes so parent can update room card */
   onLayoutChange?: (layout: RoomLayout) => void
+  /** Called when a member's name is clicked in the check-in map */
+  onMemberClick?: (assignment: SpotAssignment) => void
+  /** Called when an empty station is clicked */
+  onEmptyStationClick?: (station: { id: string; label: string }) => void
+  /** Increment to force a full reload of spots */
+  refreshKey?: number
+  /** Member IDs who have ordered products this session */
+  orderedMemberIds?: Set<string>
+  /** If true, show a × button on unassigned members to cancel their booking */
+  allowRemoveBooking?: boolean
 }
 
-export default function RoomMapView({ roomId, studioId, token, session, variant, onLayoutChange }: Props) {
+const RoomMapView = forwardRef<RoomMapViewHandle, Props>(function RoomMapView({ roomId, studioId, token, session, variant, onLayoutChange, onMemberClick, onEmptyStationClick, refreshKey, orderedMemberIds, allowRemoveBooking }: Props, ref) {
   const [layout, setLayout] = useState<RoomLayout | null>(null)
   const [spots, setSpots] = useState<SessionSpots | null>(null)
   const [roomLayouts, setRoomLayouts] = useState<RoomLayout[]>([])
@@ -40,8 +58,50 @@ export default function RoomMapView({ roomId, studioId, token, session, variant,
     return data.session?.access_token ?? token // fall back to prop if somehow missing
   }
 
-  const load = useCallback(async () => {
+  // Hard-reset (show spinner + clear state) only when session or room changes,
+  // NOT when refreshKey increments — so background spot refreshes are seamless.
+  useEffect(() => {
+    setSpots(null)
     setLoading(true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, session?.id])
+
+  // Spots-only refresh — faster than full load (no layout/template fetches).
+  // Used by the imperative handle so the front-desk drawer gets snappy map updates.
+  const loadSpotsRef = useRef<(() => Promise<void>) | undefined>(undefined)
+  const loadSpotsCallback = useCallback(async () => {
+    if (!session) return
+    try {
+      const t = await getFreshToken()
+      const s = await api.rooms.spots(roomId, session.id, t)
+      setSpots(s)
+      if (s.layout) setLayout(s.layout)
+    } catch {
+      // leave existing state
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, session?.id])
+  loadSpotsRef.current = loadSpotsCallback
+
+  // Always-fresh ref to full load — fallback used by refreshKey chain.
+  const loadRef = useRef<(() => Promise<void>) | undefined>(undefined)
+
+  useImperativeHandle(ref, () => ({
+    refresh: () => { loadSpotsRef.current?.() },
+    patchCheckin: (bookingId: string, checkedIn: boolean) => {
+      setSpots(prev => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          assignments: prev.assignments.map(a =>
+            a.bookingId === bookingId ? { ...a, checkedIn } : a
+          ),
+        }
+      })
+    },
+  }), [])
+
+  const load = useCallback(async () => {
     try {
       const t = await getFreshToken()
       await Promise.all([
@@ -52,12 +112,15 @@ export default function RoomMapView({ roomId, studioId, token, session, variant,
         studioId ? api.studios.layouts(studioId, t).then(ls => setStudioTemplates(ls)).catch(() => {}) : Promise.resolve(),
       ])
     } catch {
-      // leave existing
+      // leave existing state
     } finally {
       setLoading(false)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, studioId, session])
+  }, [roomId, studioId, session?.id, refreshKey])
+
+  // Keep the ref in sync so the imperative handle always calls the freshest load
+  loadRef.current = load
 
   useEffect(() => { load() }, [load])
 
@@ -142,6 +205,18 @@ export default function RoomMapView({ roomId, studioId, token, session, variant,
     }
   }
 
+  async function handleRemoveBooking(bookingId: string) {
+    const previous = spots
+    setSpots(prev => prev ? { ...prev, assignments: prev.assignments.filter(a => a.bookingId !== bookingId) } : prev)
+    try {
+      const t = await getFreshToken()
+      await api.bookings.cancel(bookingId, t)
+    } catch {
+      setSpots(previous)
+      showToast('Failed to remove booking', false)
+    }
+  }
+
   if (loading) {
     return <div className="h-64 bg-gray-50 rounded-2xl animate-pulse border border-gray-100" />
   }
@@ -182,6 +257,10 @@ export default function RoomMapView({ roomId, studioId, token, session, variant,
               assignments={spots.assignments}
               onAssign={handleAssign}
               onCheckin={handleCheckin}
+              onMemberClick={onMemberClick}
+              onEmptyStationClick={onEmptyStationClick}
+              onRemoveBooking={allowRemoveBooking ? handleRemoveBooking : undefined}
+              orderedMemberIds={orderedMemberIds}
             />
           ) : (
             <div className="py-12 text-center text-sm text-gray-400">
@@ -275,4 +354,6 @@ export default function RoomMapView({ roomId, studioId, token, session, variant,
       )}
     </div>
   )
-}
+})
+
+export default RoomMapView

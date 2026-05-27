@@ -252,7 +252,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
         data: {
           studioId, templateId, instructorId, roomId,
           capacity, creditsRequired, daysOfWeek, startTime, durationMin, intervalWeeks,
-          validFrom: from, validUntil: validUntil ? new Date(validUntil) : null,
+          validFrom: from, validUntil: until,
         },
       })
 
@@ -448,12 +448,12 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /schedules/month?studioId=&year=&month= — sessions grouped by date for month view
-  app.get<{ Querystring: { studioId: string; year: string; month: string } }>(
+  // GET /schedules/month?studioId=&year=&month=[&instructorId=] — sessions grouped by date for month view
+  app.get<{ Querystring: { studioId: string; year: string; month: string; instructorId?: string } }>(
     '/month',
     { preHandler: requireInstructor },
     async (request, reply) => {
-      const { studioId, year, month } = request.query
+      const { studioId, year, month, instructorId } = request.query
       if (!studioId) return reply.badRequest('studioId required')
       const user = getUser(request)
       if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
@@ -465,7 +465,17 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       const until = new Date(y, m, 0, 23, 59, 59, 999) // last day of month
 
       const sessions = await prisma.classSession.findMany({
-        where: { studioId, startsAt: { gte: from, lte: until } },
+        where: {
+          studioId,
+          startsAt: { gte: from, lte: until },
+          // Optional instructor filter: primary or substitute
+          ...(instructorId ? {
+            OR: [
+              { instructorId },
+              { substituteInstructorId: instructorId },
+            ],
+          } : {}),
+        },
         include: { template: true },
         orderBy: { startsAt: 'asc' },
       })

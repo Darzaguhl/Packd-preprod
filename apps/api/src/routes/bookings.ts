@@ -125,12 +125,14 @@ export async function bookingRoutes(app: FastifyInstance) {
       const booking = await prisma.booking.findUniqueOrThrow({
         where: { id: request.params.id },
         include: {
-          session: true,
+          session: { include: { template: { select: { name: true } } } },
           member: { include: { creditBalance: true } },
         },
       })
 
-      if (booking.member.userId !== user.id) {
+      // Members can only cancel their own booking; privileged staff can cancel any
+      const isPrivileged = ROLE_RANK[user.role as keyof typeof ROLE_RANK] >= ROLE_RANK['fronthost']
+      if (!isPrivileged && booking.member.userId !== user.id) {
         return reply.forbidden()
       }
 
@@ -142,12 +144,19 @@ export async function bookingRoutes(app: FastifyInstance) {
       const policy = await prisma.cancellationPolicy.findUnique({
         where: { studioId: booking.session.studioId },
       })
-      const windowHours = policy?.lateCancelWindowHours ?? 12
+      const windowHours          = policy?.lateCancelWindowHours  ?? 12
+      const lateCancelFeeCredits = policy?.lateCancelFeeCredits   ?? 1
+      const waitlistWindowMs     = (policy?.waitlistWindowMinutes ?? 15) * 60 * 1000
+
       const hoursUntilClass =
         (booking.session.startsAt.getTime() - now.getTime()) / (1000 * 60 * 60)
       const isLateCancel = hoursUntilClass < windowHours
 
-      // Fix #7: run waitlist promotion inside the same transaction as the cancellation
+      // Privileged staff cancellations (on behalf) are never charged late-cancel fees
+      const isPrivilegedCancel = ROLE_RANK[user.role as keyof typeof ROLE_RANK] >= ROLE_RANK['fronthost']
+      const chargeFee = isLateCancel && !isPrivilegedCancel && lateCancelFeeCredits > 0
+
+      // Run waitlist promotion inside the same transaction as the cancellation
       await prisma.$transaction(async (tx) => {
         await tx.booking.update({
           where: { id: booking.id },
@@ -158,6 +167,7 @@ export async function bookingRoutes(app: FastifyInstance) {
         })
 
         if (!isLateCancel) {
+          // On-time cancel: full credit refund
           await tx.creditBalance.update({
             where: { memberId: booking.memberId },
             data: { balance: { increment: booking.session.creditsRequired } },
@@ -170,6 +180,21 @@ export async function bookingRoutes(app: FastifyInstance) {
               note: `Cancellation of booking ${booking.id}`,
             },
           })
+        } else if (chargeFee) {
+          // Late cancel: no refund + charge the late-cancel fee
+          await tx.creditBalance.upsert({
+            where: { memberId: booking.memberId },
+            create: { memberId: booking.memberId, balance: -lateCancelFeeCredits },
+            update: { balance: { decrement: lateCancelFeeCredits } },
+          })
+          await tx.creditTransaction.create({
+            data: {
+              memberId: booking.memberId,
+              amount: -lateCancelFeeCredits,
+              type: 'LATE_CANCEL_FEE',
+              note: `Late cancellation fee for ${booking.session.template?.name ?? 'class'}`,
+            },
+          })
         }
 
         // Promote next waitlist member within the same transaction
@@ -178,7 +203,7 @@ export async function bookingRoutes(app: FastifyInstance) {
           orderBy: { position: 'asc' },
         })
         if (next) {
-          const expiresAt = new Date(Date.now() + 15 * 60 * 1000)
+          const expiresAt = new Date(Date.now() + waitlistWindowMs)
           await tx.waitlistEntry.update({
             where: { id: next.id },
             data: { status: 'NOTIFIED', notifiedAt: new Date(), expiresAt },

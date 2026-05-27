@@ -56,6 +56,120 @@ export async function roomRoutes(app: FastifyInstance) {
     },
   )
 
+  // GET /rooms/:roomId/layouts — all saved layouts for this room (active + inactive), most recent first
+  app.get<{ Params: { roomId: string } }>(
+    '/:roomId/layouts',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { roomId } = request.params
+      const user = getUser(request)
+      if (!await assertRoomAccess(user.id, user.role, roomId, reply, user.studioIds)) return
+      const layouts = await prisma.roomLayout.findMany({
+        where: { roomId },
+        include: { stations: true },
+        orderBy: { id: 'desc' },
+      })
+      return reply.send(layouts)
+    },
+  )
+
+  // POST /rooms/:roomId/layouts/:layoutId/activate — switch the active layout without creating a new record
+  app.post<{ Params: { roomId: string; layoutId: string } }>(
+    '/:roomId/layouts/:layoutId/activate',
+    { preHandler: requireRole('studio_admin') },
+    async (request, reply) => {
+      const { roomId, layoutId } = request.params
+      const user = getUser(request)
+      if (!await assertRoomAccess(user.id, user.role, roomId, reply, user.studioIds)) return
+
+      const target = await prisma.roomLayout.findFirst({ where: { id: layoutId, roomId } })
+      if (!target) return reply.notFound('Layout not found')
+
+      await prisma.$transaction([
+        prisma.roomLayout.updateMany({ where: { roomId, isActive: true }, data: { isActive: false } }),
+        prisma.roomLayout.update({ where: { id: layoutId }, data: { isActive: true } }),
+      ])
+
+      const layout = await prisma.roomLayout.findUnique({
+        where: { id: layoutId },
+        include: { stations: true },
+      })
+      return reply.send(layout)
+    },
+  )
+
+  // PATCH /rooms/:roomId/layouts/:layoutId — update an existing layout in place (name, dimensions, stations)
+  app.patch<{
+    Params: { roomId: string; layoutId: string }
+    Body: {
+      name?: string
+      widthM: number
+      lengthM: number
+      stations: Array<{ type: string; label: string; xM: number; yM: number; rotation?: number }>
+    }
+  }>(
+    '/:roomId/layouts/:layoutId',
+    { preHandler: requireRole('studio_admin') },
+    async (request, reply) => {
+      const { roomId, layoutId } = request.params
+      const { name, widthM, lengthM, stations } = request.body
+      const user = getUser(request)
+
+      if (!await assertRoomAccess(user.id, user.role, roomId, reply, user.studioIds)) return
+
+      const existing = await prisma.roomLayout.findFirst({ where: { id: layoutId, roomId } })
+      if (!existing) return reply.notFound('Layout not found')
+
+      const validTypes = ['BIKE', 'TREADMILL', 'BENCH', 'ROWER', 'MAT', 'REFORMER', 'BARRE', 'OTHER']
+      for (const s of stations) {
+        if (!validTypes.includes(s.type)) return reply.code(400).send({ error: `Invalid station type: ${s.type}` })
+      }
+
+      // Delete old stations, update layout fields, create new stations in a transaction
+      const layout = await prisma.$transaction(async tx => {
+        await tx.station.deleteMany({ where: { layoutId } })
+        return tx.roomLayout.update({
+          where: { id: layoutId },
+          data: {
+            ...(name !== undefined && { name }),
+            widthM,
+            lengthM,
+            stations: {
+              create: stations.map(s => ({
+                type: s.type as import('@packd/db').StationType,
+                label: s.label,
+                xM: s.xM,
+                yM: s.yM,
+                rotation: s.rotation ?? 0,
+              })),
+            },
+          },
+          include: { stations: true },
+        })
+      })
+
+      return reply.send(layout)
+    },
+  )
+
+  // DELETE /rooms/:roomId/layouts/:layoutId — delete a saved layout (cannot delete the active one)
+  app.delete<{ Params: { roomId: string; layoutId: string } }>(
+    '/:roomId/layouts/:layoutId',
+    { preHandler: requireRole('studio_admin') },
+    async (request, reply) => {
+      const { roomId, layoutId } = request.params
+      const user = getUser(request)
+      if (!await assertRoomAccess(user.id, user.role, roomId, reply, user.studioIds)) return
+
+      const layout = await prisma.roomLayout.findFirst({ where: { id: layoutId, roomId } })
+      if (!layout) return reply.notFound('Layout not found')
+      if (layout.isActive) return reply.code(400).send({ error: 'Cannot delete the active layout. Activate another layout first.' })
+
+      await prisma.roomLayout.delete({ where: { id: layoutId } })
+      return reply.send({ success: true })
+    },
+  )
+
   // POST /rooms/:roomId/layout — create/replace active layout
   app.post<{
     Params: { roomId: string }

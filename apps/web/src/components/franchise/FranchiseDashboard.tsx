@@ -5,10 +5,12 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { api, type StudioSummary } from '@/lib/api'
 import PermissionsTab from '@/components/studio/PermissionsTab'
+import StaffTab from '@/components/studio/StaffTab'
+import StudioAdminsTab from './StudioAdminsTab'
 import AdminShell from '@/components/admin/AdminShell'
 import NavBar from '@/components/NavBar'
 
-type Tab = 'studios' | 'permissions'
+type Tab = 'studios' | 'admins' | 'staff' | 'permissions'
 
 const TIMEZONES = [
   'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Stockholm', 'Europe/Oslo',
@@ -182,6 +184,8 @@ export default function FranchiseDashboard() {
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'studios', label: 'Studios' },
+    { id: 'admins', label: 'Studio Admins' },
+    { id: 'staff', label: 'Staff' },
     { id: 'permissions', label: 'Permissions' },
   ]
 
@@ -363,6 +367,51 @@ export default function FranchiseDashboard() {
                 </div>
               ))}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Studio Admins tab */}
+      {tab === 'admins' && token && (
+        <div className="max-w-3xl mx-auto w-full px-6 py-6">
+          {studios.length === 0 ? (
+            <p className="text-sm text-gray-400">No studios yet. Create a studio first.</p>
+          ) : (
+            <StudioAdminsTab studios={studios} token={token} />
+          )}
+        </div>
+      )}
+
+      {/* Staff tab */}
+      {tab === 'staff' && (
+        <div className="max-w-3xl mx-auto w-full px-6 py-6 space-y-4">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-semibold text-gray-700">Studio</span>
+            <select
+              value={permStudio?.id ?? ''}
+              onChange={e => setPermStudio(studios.find(s => s.id === e.target.value) ?? null)}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-white"
+            >
+              <option value="">— select a studio —</option>
+              {studios.map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {permStudio && token ? (
+            <>
+              <p className="text-sm text-gray-500">
+                Manage instructors and front-desk staff for <strong>{permStudio.name}</strong>.
+              </p>
+              <StaffTab
+                studioId={permStudio.id}
+                token={token}
+                onOpenPermissions={() => changeTab('permissions')}
+              />
+            </>
+          ) : (
+            <p className="text-sm text-gray-400">Select a studio above to manage staff.</p>
           )}
         </div>
       )}

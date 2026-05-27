@@ -11,7 +11,7 @@ import { fmtTime } from '@/lib/fmt-time'
 interface MemberResult {
   id: string
   name: string
-  email: string
+  email?: string
   creditBalance: number
   membershipStatus: string | null
 }
@@ -68,16 +68,26 @@ interface Props {
   onClose: () => void
   /** Called when a booking is created so the parent can refresh session counts */
   onBookingChanged: () => void
+  /** Pre-select a member when opening from the room map */
+  initialMember?: { id: string; name: string; email?: string; creditBalance: number; membershipStatus: string | null }
+  /** Target station — when set, booking auto-assigns + auto-checks in */
+  targetStation?: { id: string; label: string }
+  /** Called after a booking is created and (if applicable) assigned+checked in */
+  onAssigned?: () => void
+  /** Called after check-in is toggled — passes the exact change so the map can update instantly */
+  onPatchCheckin?: (bookingId: string, checkedIn: boolean) => void
+  /** Called after products are successfully charged, with the member's ID */
+  onProductsCharged?: (memberId: string) => void
 }
 
-export default function MemberDrawer({ studioId, currency, selectedSession, onClose, onBookingChanged }: Props) {
+export default function MemberDrawer({ studioId, currency, selectedSession, onClose, onBookingChanged, initialMember, targetStation, onAssigned, onPatchCheckin, onProductsCharged }: Props) {
   const timeFormat = useTimeFormat()
 
   // Member search
-  const [query, setQuery]           = useState('')
+  const [query, setQuery]           = useState(initialMember?.name ?? '')
   const [results, setResults]       = useState<MemberResult[]>([])
   const [searching, setSearching]   = useState(false)
-  const [member, setMember]         = useState<MemberResult | null>(null)
+  const [member, setMember]         = useState<MemberResult | null>(initialMember ?? null)
   const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Session booking status for selected member
@@ -92,6 +102,13 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
   // Action states
   const [actionLoading, setActionLoading] = useState(false)
   const [toast, setToast]                 = useState<{ msg: string; ok: boolean } | null>(null)
+
+  // Credit adjustment
+  const [creditPreset, setCreditPreset]   = useState<number | null>(null)
+  const [creditCustom, setCreditCustom]   = useState('')
+  const [creditDeduct, setCreditDeduct]   = useState(false)
+  const [creditNote, setCreditNote]       = useState('')
+  const creditAmount = creditPreset ?? (creditCustom ? parseInt(creditCustom, 10) : null)
 
   function showToast(msg: string, ok = true) {
     setToast({ msg, ok })
@@ -146,6 +163,44 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
     setCart([])
   }
 
+  /** When the drawer was opened from an empty station click, clicking a member
+   *  name in the search results immediately books them into the session and
+   *  assigns them to the station — same behaviour as drag-and-drop on the map.
+   *  The drawer then shows their booking card with the Check in button. */
+  async function handleAddToStation(m: MemberResult) {
+    if (!selectedSession || !targetStation) return
+    setActionLoading(true)
+    selectMember(m)
+    try {
+      const t = await getFreshToken()
+      let bookingId: string | undefined
+      try {
+        // Try to create a new booking
+        const createRes = await api.bookings.create(selectedSession.id, t, m.id)
+        bookingId = (createRes as { success: boolean; data?: { id: string } })?.data?.id
+        onBookingChanged()
+      } catch {
+        // Member is already booked — find their existing booking
+        const existingBookings = await api.admin.bookings(selectedSession.id, t)
+        const existing = existingBookings.find(b => b.memberId === m.id)
+        bookingId = existing?.id
+        setBooking(existing ?? null)
+      }
+      if (bookingId) {
+        await api.rooms.assignSpot(selectedSession.roomId, selectedSession.id, bookingId, targetStation.id, t)
+      }
+      // Refresh the map to show the new assignment
+      onAssigned?.()
+      // Load the booking into the drawer so the Check in button appears
+      const bookings = await api.admin.bookings(selectedSession.id, t)
+      setSessionBookings(bookings)
+      setBooking(bookings.find(b => b.memberId === m.id) ?? null)
+      showToast(`${m.name} added to ${targetStation.label}`)
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Failed to add member', false)
+    } finally { setActionLoading(false) }
+  }
+
   function clearMember() {
     setMember(null)
     setQuery('')
@@ -181,15 +236,20 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
     try {
       const t = await getFreshToken()
       await api.bookings.create(selectedSession.id, t, member.id)
-      // Refresh booking status
-      const bookings = await api.admin.bookings(selectedSession.id, t)
-      setSessionBookings(bookings)
-      setBooking(bookings.find(b => b.memberId === member.id) ?? null)
-      // Refresh member credit balance
-      const fresh = await api.admin.searchMembers(studioId, member.name, t)
-      const updated = fresh.find(r => r.id === member.id)
-      if (updated) setMember(updated)
       onBookingChanged()
+
+      // Refresh booking status for drawer display (background, non-blocking)
+      api.admin.bookings(selectedSession.id, t).then(bookings => {
+        setSessionBookings(bookings)
+        setBooking(bookings.find(bk => bk.memberId === member.id) ?? null)
+      }).catch(() => {})
+
+      // Refresh member credit balance (best-effort)
+      api.admin.searchMembers(studioId, member.name, t).then(fresh => {
+        const updated = fresh.find(r => r.id === member.id)
+        if (updated) setMember(updated)
+      }).catch(() => {})
+
       showToast(`${member.name} booked into ${selectedSession.templateName}`)
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Booking failed', false)
@@ -199,12 +259,14 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
   async function handleCheckin() {
     if (!booking || !selectedSession) return
     setActionLoading(true)
+    const newCheckedIn = !booking.checkedIn
     try {
       const t = await getFreshToken()
       await api.admin.checkin(selectedSession.id, booking.id, t)
-      setBooking(prev => prev ? { ...prev, checkedIn: !prev.checkedIn } : null)
+      setBooking(prev => prev ? { ...prev, checkedIn: newCheckedIn } : null)
+      // Patch the map instantly — no server round-trip needed since we have the data
+      onPatchCheckin?.(booking.id, newCheckedIn)
       showToast(booking.checkedIn ? 'Check-in reversed' : 'Checked in ✓')
-      onBookingChanged()
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Check-in failed', false)
     } finally { setActionLoading(false) }
@@ -220,11 +282,29 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
         setMember(prev => prev ? { ...prev, creditBalance: prev.creditBalance - cartTotal } : null)
       }
       setCart([])
+      onProductsCharged?.(member.id)
       showToast(cartTotal > 0
         ? `Charged ${cartTotal} credit${cartTotal !== 1 ? 's' : ''} for ${cartLabel}`
         : `Recorded: ${cartLabel}`)
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Charge failed', false)
+    } finally { setActionLoading(false) }
+  }
+
+  async function handleAdjustCredit() {
+    if (!member || !creditAmount || isNaN(creditAmount) || creditAmount <= 0) return
+    const delta = creditDeduct ? -creditAmount : creditAmount
+    setActionLoading(true)
+    try {
+      const t = await getFreshToken()
+      await api.admin.adjustCredits(member.id, delta, creditNote.trim(), t)
+      setMember(prev => prev ? { ...prev, creditBalance: prev.creditBalance + delta } : null)
+      setCreditPreset(null)
+      setCreditCustom('')
+      setCreditNote('')
+      showToast(`${delta > 0 ? '+' : ''}${delta} credits for ${member.name}`)
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Credit adjustment failed', false)
     } finally { setActionLoading(false) }
   }
 
@@ -242,7 +322,9 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
           <div>
-            <h2 className="text-base font-semibold text-gray-900">Walk-in / Member</h2>
+            <h2 className="text-base font-semibold text-gray-900">
+              {targetStation ? `Add to ${targetStation.label}` : 'Find member'}
+            </h2>
             {selectedSession && (
               <p className="text-xs text-gray-400 mt-0.5">
                 {selectedSession.templateName} · {fmtTime(selectedSession.startsAt, timeFormat)}
@@ -278,8 +360,9 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                 {results.map(r => (
                   <button
                     key={r.id}
-                    onClick={() => selectMember(r)}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 transition-colors text-left border-b border-gray-50 last:border-0"
+                    onClick={() => targetStation ? handleAddToStation(r) : selectMember(r)}
+                    disabled={actionLoading}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 transition-colors text-left border-b border-gray-50 last:border-0 disabled:opacity-40"
                   >
                     <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-semibold shrink-0">
                       {initials(r.name)}
@@ -289,8 +372,14 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                       <p className="text-xs text-gray-400 truncate">{r.email}</p>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="text-xs font-semibold text-gray-700">{r.creditBalance} cr</p>
-                      <MembershipBadge status={r.membershipStatus} />
+                      {targetStation ? (
+                        <p className="text-xs font-semibold text-gray-500">+ add</p>
+                      ) : (
+                        <>
+                          <p className="text-xs font-semibold text-gray-700">{r.creditBalance} cr</p>
+                          <MembershipBadge status={r.membershipStatus} />
+                        </>
+                      )}
                     </div>
                   </button>
                 ))}
@@ -309,10 +398,15 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-semibold text-gray-900">{member.name}</p>
+                    <a
+                      href={`/members/${member.id}`}
+                      className="text-sm font-semibold text-gray-900 hover:underline"
+                    >
+                      {member.name}
+                    </a>
                     <MembershipBadge status={member.membershipStatus} />
                   </div>
-                  <p className="text-xs text-gray-400 truncate">{member.email}</p>
+                  {member.email && <p className="text-xs text-gray-400 truncate">{member.email}</p>}
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="text-lg font-bold tabular-nums text-gray-900">{member.creditBalance}</p>
@@ -370,6 +464,66 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                   )}
                 </div>
               )}
+
+              {/* ── Credit adjustment ── */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Adjust credits</p>
+                  <button
+                    onClick={() => setCreditDeduct(d => !d)}
+                    className={`text-[10px] font-semibold px-2 py-1 rounded-lg transition-colors ${
+                      creditDeduct ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
+                    }`}
+                  >
+                    {creditDeduct ? '− Deduct' : '+ Add'}
+                  </button>
+                </div>
+                {/* Presets */}
+                <div className="flex gap-1.5">
+                  {[5, 10, 20, 30].map(n => (
+                    <button
+                      key={n}
+                      onClick={() => { setCreditPreset(creditPreset === n ? null : n); setCreditCustom('') }}
+                      className={`flex-1 text-xs font-semibold py-1.5 rounded-lg transition-colors ${
+                        creditPreset === n
+                          ? creditDeduct ? 'bg-red-500 text-white' : 'bg-gray-900 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {creditDeduct ? `−${n}` : `+${n}`}
+                    </button>
+                  ))}
+                </div>
+                {/* Custom amount + note + confirm */}
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    value={creditCustom}
+                    onChange={e => { setCreditCustom(e.target.value); setCreditPreset(null) }}
+                    placeholder="Custom…"
+                    className="w-24 shrink-0 text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  />
+                  <input
+                    type="text"
+                    value={creditNote}
+                    onChange={e => setCreditNote(e.target.value)}
+                    placeholder="Note (optional)"
+                    className="flex-1 min-w-0 text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  />
+                </div>
+                <button
+                  onClick={handleAdjustCredit}
+                  disabled={actionLoading || !creditAmount || creditAmount <= 0}
+                  className={`w-full text-sm font-semibold py-2 rounded-xl transition-colors disabled:opacity-40 ${
+                    creditDeduct ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-gray-900 text-white hover:bg-gray-700'
+                  }`}
+                >
+                  {actionLoading ? '…' : creditAmount && creditAmount > 0
+                    ? `${creditDeduct ? 'Deduct' : 'Add'} ${creditAmount} credit${creditAmount !== 1 ? 's' : ''}`
+                    : 'Select amount'}
+                </button>
+              </div>
             </div>
           )}
 

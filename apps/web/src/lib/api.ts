@@ -232,6 +232,14 @@ export interface CalendarTemplate {
   name: string
   sport: string
   durationMin: number
+  defaultInstructorId?: string | null
+  defaultRoomId?: string | null
+  defaultCapacity?: number | null
+  defaultCreditsRequired?: number | null
+  defaultStartTime?: string | null
+  defaultStartTime2?: string | null
+  defaultDaysOfWeek?: number[]
+  defaultIntervalWeeks?: number
 }
 
 export interface CalendarInstructor {
@@ -309,6 +317,49 @@ export interface AdminBooking {
   bookedAt: string
 }
 
+export interface PastBooking {
+  id: string
+  sessionId: string
+  startsAt: string
+  endsAt: string
+  templateName: string
+  sport: string
+  instructorName: string
+  roomName: string
+  status: 'CONFIRMED' | 'CANCELLED' | 'LATE_CANCELLED' | 'NO_SHOW'
+  checkedIn: boolean
+  creditsRequired: number
+}
+
+export interface CreditTransaction {
+  id: string
+  amount: number
+  type: 'PURCHASE' | 'CLASS_DEBIT' | 'REFUND' | 'LATE_CANCEL_FEE' | 'NO_SHOW_FEE' | 'MANUAL_ADJUSTMENT'
+  note: string | null
+  createdAt: string
+}
+
+export interface MemberHistory {
+  pastBookings: PastBooking[]
+  transactions: CreditTransaction[]
+}
+
+export interface AdminMemberProfile {
+  id: string
+  firstName: string
+  lastName: string
+  email: string
+  creditBalance: number
+  activeSubscription: { planName: string; status: string; endDate: string | null } | null
+  joinedAt: string
+}
+
+export interface AdminMemberHistory {
+  upcoming: UpcomingBooking[]
+  pastBookings: PastBooking[]
+  transactions: CreditTransaction[]
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'
 
 async function apiFetch<T>(
@@ -347,7 +398,7 @@ export const api = {
         token,
       }),
     cancel: (bookingId: string, token: string) =>
-      apiFetch<ApiResponse<{ isLateCancel: boolean }>>(`/bookings/${bookingId}`, {
+      apiFetch<{ success: boolean; isLateCancel: boolean }>(`/bookings/${bookingId}`, {
         method: 'DELETE',
         token,
       }),
@@ -363,6 +414,7 @@ export const api = {
   members: {
     me: (token: string) => apiFetch<MemberProfile>('/members/me', { token }),
     bookings: (token: string) => apiFetch<UpcomingBooking[]>('/members/me/bookings', { token }),
+    history: (token: string) => apiFetch<MemberHistory>('/members/me/history', { token }),
   },
   admin: {
     stats: (studioId: string, token: string) =>
@@ -388,6 +440,14 @@ export const api = {
       apiFetch<{ id: string; name: string; email: string; creditBalance: number; membershipStatus: string | null }[]>(
         `/admin/members/search?studioId=${studioId}&q=${encodeURIComponent(q)}`, { token },
       ),
+    memberProfile: (memberId: string, token: string) =>
+      apiFetch<AdminMemberProfile>(`/admin/members/${memberId}/profile`, { token }),
+    memberHistory: (memberId: string, token: string) =>
+      apiFetch<AdminMemberHistory>(`/admin/members/${memberId}/history`, { token }),
+    listMembers: (studioId: string, token: string, q?: string) =>
+      apiFetch<{ id: string; name: string; email: string; creditBalance: number; membershipStatus: string | null }[]>(
+        `/admin/members?studioId=${studioId}${q ? `&q=${encodeURIComponent(q)}` : ''}`, { token },
+      ),
   },
   franchise: {
     studios: (token: string) =>
@@ -406,6 +466,18 @@ export const api = {
         `/franchise/studios/${studioId}/fronthosts/${memberId}/permissions`,
         { method: 'PATCH', body: JSON.stringify(permissions), token },
       ),
+    listAdmins: (studioId: string, token: string) =>
+      apiFetch<{ id: string; userId: string; name: string; email: string; joinedAt: string }[]>(
+        `/franchise/studios/${studioId}/admins`, { token },
+      ),
+    addAdmin: (studioId: string, email: string, token: string) =>
+      apiFetch<{ success: boolean; roles: string[] }>(`/franchise/studios/${studioId}/admins`, {
+        method: 'POST', body: JSON.stringify({ email }), token,
+      }),
+    removeAdmin: (studioId: string, userId: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/franchise/studios/${studioId}/admins/${userId}`, {
+        method: 'DELETE', token,
+      }),
   },
   photos: {
     list: (instructorId: string, token: string) =>
@@ -596,6 +668,18 @@ export const api = {
       apiFetch<{ success: boolean }>(`/studios/${studioId}/rooms/${roomId}`, { method: 'DELETE', token }),
     layouts: (studioId: string, token: string) =>
       apiFetch<LayoutTemplate[]>(`/studios/${studioId}/layouts`, { token }),
+    getPolicy: (studioId: string, token: string) =>
+      apiFetch<{ lateCancelWindowHours: number; lateCancelFeeCredits: number; noShowFeeCredits: number; waitlistWindowMinutes: number }>(
+        `/studios/${studioId}/policy`, { token },
+      ),
+    updatePolicy: (
+      studioId: string,
+      body: { lateCancelWindowHours?: number; lateCancelFeeCredits?: number; noShowFeeCredits?: number; waitlistWindowMinutes?: number },
+      token: string,
+    ) =>
+      apiFetch<{ lateCancelWindowHours: number; lateCancelFeeCredits: number; noShowFeeCredits: number; waitlistWindowMinutes: number }>(
+        `/studios/${studioId}/policy`, { method: 'PATCH', body: JSON.stringify(body), token },
+      ),
     onboard: (
       body: {
         name: string
