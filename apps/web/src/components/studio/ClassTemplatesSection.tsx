@@ -1,9 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { api, type ClassTemplate, type CalendarInstructor, type CalendarRoom } from '@/lib/api'
+import { api, type ClassTemplate } from '@/lib/api'
 import { SPORT_CONFIG } from '@/components/schedule/constants'
 import TimeInput from '@/components/ui/TimeInput'
+
+type SimpleInstructor = { id: string; name: string }
+type SimpleRoom = { id: string; name: string }
 
 const SPORT_OPTIONS = [
   'CYCLING', 'HIIT', 'YOGA', 'PILATES', 'BARRE', 'ROWING', 'STRENGTH', 'OTHER',
@@ -54,11 +57,11 @@ function templateToForm(t: ClassTemplate): FormState {
 interface Props {
   studioId: string
   token: string
-  instructors: CalendarInstructor[]
-  rooms: CalendarRoom[]
 }
 
-export default function ClassTemplatesSection({ studioId, token, instructors, rooms }: Props) {
+export default function ClassTemplatesSection({ studioId, token }: Props) {
+  const [instructors, setInstructors] = useState<SimpleInstructor[]>([])
+  const [rooms, setRooms] = useState<SimpleRoom[]>([])
   const [templates, setTemplates] = useState<ClassTemplate[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -74,8 +77,18 @@ export default function ClassTemplatesSection({ studioId, token, instructors, ro
 
   async function load() {
     try {
-      const tmpl = await api.templates.list(studioId, token)
+      const [tmpl, staff, roomList] = await Promise.all([
+        api.templates.list(studioId, token),
+        api.staff.list(studioId, token),
+        api.studios.rooms(studioId, token),
+      ])
       setTemplates(tmpl)
+      setInstructors(
+        staff
+          .filter(s => s.instructorId !== null)
+          .map(s => ({ id: s.instructorId as string, name: s.name }))
+      )
+      setRooms(roomList.map((r: { id: string; name: string }) => ({ id: r.id, name: r.name })))
     } catch { /* silent */ }
     finally { setLoading(false) }
   }

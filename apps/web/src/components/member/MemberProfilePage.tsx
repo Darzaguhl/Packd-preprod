@@ -42,6 +42,11 @@ export default function MemberProfilePage({ memberId }: Props) {
   const [subSaving, setSubSaving] = useState(false)
   const [subError, setSubError] = useState<string | null>(null)
 
+  // Notes
+  const [notes, setNotes] = useState<string>('')
+  const [notesSaving, setNotesSaving] = useState(false)
+  const [notesSaved, setNotesSaved] = useState(false)
+
   useEffect(() => {
     createClient().auth.getSession().then(async ({ data: { session } }) => {
       const t = session?.access_token ?? null
@@ -57,6 +62,7 @@ export default function MemberProfilePage({ memberId }: Props) {
           api.admin.memberHistory(memberId, t),
         ])
         setProfile(prof)
+        setNotes(prof.notes ?? '')
         setUpcoming(history.upcoming as UpcomingBooking[])
         setPastBookings(history.pastBookings)
         setTransactions(history.transactions)
@@ -99,6 +105,17 @@ export default function MemberProfilePage({ memberId }: Props) {
     } finally {
       setSubSaving(false)
     }
+  }
+
+  async function saveNotes() {
+    if (!token) return
+    setNotesSaving(true)
+    try {
+      await api.admin.updateMember(memberId, { notes: notes.trim() || null }, token)
+      setNotesSaved(true)
+      setTimeout(() => setNotesSaved(false), 2000)
+    } catch { /* silent */ }
+    finally { setNotesSaving(false) }
   }
 
   const backButton = (
@@ -152,6 +169,32 @@ export default function MemberProfilePage({ memberId }: Props) {
             transactions={transactions}
             showEmail
           />
+
+          {/* Staff notes */}
+          <div className="bg-white rounded-2xl border border-gray-100 px-5 py-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-900">Staff notes</h3>
+              {notesSaved && (
+                <span className="text-xs text-emerald-600 font-medium">Saved</span>
+              )}
+            </div>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="Add internal notes visible only to staff…"
+              rows={3}
+              className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400 resize-none"
+            />
+            <div className="flex justify-end mt-2">
+              <button
+                onClick={saveNotes}
+                disabled={notesSaving}
+                className="text-xs font-medium bg-gray-900 text-white px-3 py-1.5 rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors"
+              >
+                {notesSaving ? 'Saving…' : 'Save notes'}
+              </button>
+            </div>
+          </div>
 
           {/* Subscription management (admin only — requires studioId + plans) */}
           {studioId && (

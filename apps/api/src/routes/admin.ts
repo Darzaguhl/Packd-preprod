@@ -305,6 +305,7 @@ export async function adminRoutes(app: FastifyInstance) {
         lastName: member.user.lastName,
         email: member.user.email,
         creditBalance: member.creditBalance?.balance ?? 0,
+        notes: member.notes ?? null,
         activeSubscription: member.memberships[0]
           ? {
               id: member.memberships[0].id,
@@ -434,6 +435,27 @@ export async function adminRoutes(app: FastifyInstance) {
       ])
 
       return { success: true, newBalance: balance.balance }
+    },
+  )
+
+  // PATCH /admin/members/:memberId — update member notes (fronthost or higher)
+  app.patch<{ Params: { memberId: string }; Body: { notes?: string | null } }>(
+    '/members/:memberId',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const { memberId } = request.params
+      const { notes } = request.body
+
+      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true } })
+      if (!member) return reply.notFound('Member not found')
+
+      const updated = await prisma.member.update({
+        where: { id: memberId },
+        data: { notes: notes ?? null },
+        select: { id: true, notes: true },
+      })
+
+      return { success: true, data: updated }
     },
   )
 }

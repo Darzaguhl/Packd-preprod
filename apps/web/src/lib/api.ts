@@ -381,6 +381,7 @@ export interface AdminMemberProfile {
   lastName: string
   email: string
   creditBalance: number
+  notes: string | null
   activeSubscription: {
     id: string
     planId: string
@@ -473,6 +474,10 @@ export const api = {
     adjustCredits: (memberId: string, amount: number, note: string, token: string) =>
       apiFetch<{ success: boolean; newBalance: number }>(`/admin/members/${memberId}/credits`, {
         method: 'POST', body: JSON.stringify({ amount, note }), token,
+      }),
+    updateMember: (memberId: string, data: { notes?: string | null }, token: string) =>
+      apiFetch<{ success: boolean; data: { id: string; notes: string | null } }>(`/admin/members/${memberId}`, {
+        method: 'PATCH', body: JSON.stringify(data), token,
       }),
     searchMembers: (studioId: string, q: string, token: string) =>
       apiFetch<{ id: string; name: string; email: string; creditBalance: number; membershipStatus: string | null }[]>(

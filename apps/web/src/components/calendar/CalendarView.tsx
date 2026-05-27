@@ -700,8 +700,6 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
                 <ClassTemplatesSection
                   studioId={studioId}
                   token={token}
-                  instructors={data?.instructors ?? []}
-                  rooms={data?.rooms ?? []}
                 />
               </div>
             )}

@@ -108,6 +108,11 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
   const [creditCustom, setCreditCustom]   = useState('')
   const [creditDeduct, setCreditDeduct]   = useState(false)
   const [creditNote, setCreditNote]       = useState('')
+
+  // Member notes (lazy-loaded when member is selected)
+  const [memberNotes, setMemberNotes]       = useState<string>('')
+  const [notesSaving, setNotesSaving]       = useState(false)
+  const [notesSaved, setNotesSaved]         = useState(false)
   const creditAmount = creditPreset ?? (creditCustom ? parseInt(creditCustom, 10) : null)
 
   function showToast(msg: string, ok = true) {
@@ -161,7 +166,17 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
     setQuery(m.name)
     setResults([])
     setCart([])
+    setMemberNotes('')
+    setNotesSaved(false)
   }
+
+  // Load member notes when a member is selected
+  useEffect(() => {
+    if (!member) return
+    getFreshToken().then(t =>
+      api.admin.memberProfile(member.id, t)
+    ).then(p => setMemberNotes(p.notes ?? '')).catch(() => {})
+  }, [member?.id])
 
   /** When the drawer was opened from an empty station click, clicking a member
    *  name in the search results immediately books them into the session and
@@ -414,6 +429,32 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                   <p className="text-lg font-bold tabular-nums text-gray-900">{member.creditBalance}</p>
                   <p className="text-[10px] text-gray-400">credits</p>
                 </div>
+              </div>
+
+              {/* Quick notes */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-gray-500">Staff notes</label>
+                  {notesSaved && <span className="text-[10px] text-emerald-600 font-medium">Saved</span>}
+                </div>
+                <textarea
+                  value={memberNotes}
+                  onChange={e => setMemberNotes(e.target.value)}
+                  onBlur={async () => {
+                    if (!member) return
+                    setNotesSaving(true)
+                    try {
+                      const t = await getFreshToken()
+                      await api.admin.updateMember(member.id, { notes: memberNotes.trim() || null }, t)
+                      setNotesSaved(true)
+                      setTimeout(() => setNotesSaved(false), 2000)
+                    } catch { /* silent */ }
+                    finally { setNotesSaving(false) }
+                  }}
+                  placeholder="Internal notes…"
+                  rows={2}
+                  className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-gray-400 resize-none text-gray-700 placeholder:text-gray-300"
+                />
               </div>
 
               {/* Session actions */}
