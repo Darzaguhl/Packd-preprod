@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { api } from '@/lib/api'
 import type { MemberProfile } from '@packd/types'
@@ -10,6 +11,7 @@ import { TimeFormatProvider } from '@/lib/time-format-context'
 import type { UpcomingBooking, PastBooking, CreditTransaction } from '@/lib/api'
 
 export default function AccountView() {
+  const router = useRouter()
   const [profile, setProfile] = useState<MemberProfile | null>(null)
   const [upcoming, setUpcoming] = useState<UpcomingBooking[]>([])
   const [pastBookings, setPastBookings] = useState<PastBooking[]>([])
@@ -23,7 +25,7 @@ export default function AccountView() {
     createClient().auth.getSession().then(async ({ data: { session } }) => {
       const t = session?.access_token ?? null
       setToken(t)
-      if (!t) { setLoading(false); return }
+      if (!t) { router.replace('/login'); return }
 
       try {
         const [profileData, upcomingData, historyData] = await Promise.all([
@@ -56,6 +58,7 @@ export default function AccountView() {
 
   async function handleCancelBooking(bookingId: string) {
     if (!token) return
+    const booking = upcoming.find(b => b.id === bookingId)
     try {
       const res = await api.bookings.cancel(bookingId, token)
       if (res.success) {
@@ -64,15 +67,27 @@ export default function AccountView() {
           res.isLateCancel ? 'Cancelled — late cancel fee applied' : 'Booking cancelled',
           !res.isLateCancel,
         )
-        if (profile && res.isLateCancel) {
-          setProfile({ ...profile, creditBalance: profile.creditBalance - 1 })
-          setTransactions(prev => [{
-            id: `local-${Date.now()}`,
-            amount: -1,
-            type: 'LATE_CANCEL_FEE',
-            note: 'Late cancellation fee',
-            createdAt: new Date().toISOString(),
-          }, ...prev])
+        // Re-fetch profile to get accurate credit balance (avoids guessing fee amounts)
+        api.members.me(token).then(updated => setProfile(updated)).catch(() => {})
+        // Optimistically prepend the relevant transaction
+        if (profile) {
+          if (!res.isLateCancel && booking) {
+            setTransactions(prev => [{
+              id: `local-${Date.now()}`,
+              amount: booking.creditsRequired,
+              type: 'REFUND',
+              note: `Cancellation: ${booking.templateName}`,
+              createdAt: new Date().toISOString(),
+            }, ...prev])
+          } else if (res.isLateCancel) {
+            setTransactions(prev => [{
+              id: `local-${Date.now()}`,
+              amount: -1,
+              type: 'LATE_CANCEL_FEE',
+              note: 'Late cancellation fee',
+              createdAt: new Date().toISOString(),
+            }, ...prev])
+          }
         }
       }
     } catch (e) {
