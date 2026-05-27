@@ -99,6 +99,9 @@ export default function FranchiseDashboard() {
         const t = session?.access_token ?? null
         setToken(t)
         if (!t) return
+        // Ensure the franchise admin has a Member record so they can be booked into
+        // classes and appear in member search. Fire-and-forget — non-blocking.
+        api.members.ensure(t).catch(() => {})
         return api.franchise.studios(t)
       })
       .then(data => {

@@ -3,7 +3,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // Share the same vi.fn() instances between direct prisma calls and the tx proxy,
 // so vi.mocked(prisma.x.y).mockResolvedValue(...) works inside transactions too.
 vi.mock('@packd/db', () => {
-  const classSession = { findUniqueOrThrow: vi.fn() }
+  const classSession = {
+    findUniqueOrThrow: vi.fn(),
+    findUnique: vi.fn().mockResolvedValue({ studioId: 'studio-1' }),
+  }
   const member = { findUniqueOrThrow: vi.fn() }
   const booking = {
     create: vi.fn().mockResolvedValue({ id: 'booking-1' }),
@@ -33,6 +36,7 @@ vi.mock('@packd/db', () => {
 })
 
 vi.mock('../jobs/index.js', () => ({ enqueueLateCancelCheck: vi.fn() }))
+vi.mock('../routes/members.js', () => ({ ensureMemberForAdmin: vi.fn() }))
 vi.mock('../lib/auth.js', () => ({
   requireAuth: vi.fn().mockResolvedValue(undefined),
   getUser: vi.fn(() => ({ id: 'user-1', email: 'test@test.com', role: 'member' })),

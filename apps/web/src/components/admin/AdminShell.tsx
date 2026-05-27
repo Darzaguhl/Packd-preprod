@@ -127,6 +127,14 @@ export default function AdminShell({ studioId: initialStudioId, studioName: init
     initialStudioName ? [{ id: initialStudioId, name: initialStudioName }] : [],
   )
 
+  // Ensure the admin has a member record on first dashboard load (idempotent)
+  useEffect(() => {
+    createClient().auth.getSession().then(({ data: { session } }) => {
+      const t = session?.access_token
+      if (t) api.members.ensure(t, initialStudioId).catch(() => {})
+    })
+  }, [initialStudioId])
+
   // Fetch studio names when the user has multiple studios
   useEffect(() => {
     if (!studioIds || studioIds.length <= 1) return

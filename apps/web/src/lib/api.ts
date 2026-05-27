@@ -454,6 +454,10 @@ export const api = {
     me: (token: string) => apiFetch<MemberProfile>('/members/me', { token }),
     bookings: (token: string) => apiFetch<UpcomingBooking[]>('/members/me/bookings', { token }),
     history: (token: string) => apiFetch<MemberHistory>('/members/me/history', { token }),
+    ensure: (token: string, studioId?: string) =>
+      apiFetch<{ success: boolean; memberId: string }>('/members/ensure', {
+        method: 'POST', body: JSON.stringify({ studioId }), token,
+      }),
   },
   admin: {
     stats: (studioId: string, token: string) =>

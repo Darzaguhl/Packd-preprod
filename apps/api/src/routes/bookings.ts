@@ -3,6 +3,7 @@ import { prisma, Prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { enqueueLateCancelCheck } from '../jobs/index.js'
+import { ensureMemberForAdmin } from './members.js'
 
 export async function bookingRoutes(app: FastifyInstance) {
   // POST /bookings — create booking
@@ -23,9 +24,20 @@ export async function bookingRoutes(app: FastifyInstance) {
 
       // Privileged roles can book on behalf of any member by passing memberId
       const isPrivileged = ROLE_RANK[user.role] >= ROLE_RANK['fronthost']
-      const member = isPrivileged && targetMemberId
-        ? await prisma.member.findUniqueOrThrow({ where: { id: targetMemberId } })
-        : await prisma.member.findUniqueOrThrow({ where: { userId: user.id } })
+      const isAdmin = ROLE_RANK[user.role] >= ROLE_RANK['franchise_admin']
+
+      let member
+      if (isPrivileged && targetMemberId) {
+        member = await prisma.member.findUniqueOrThrow({ where: { id: targetMemberId } })
+      } else {
+        // For admin/franchise_admin: auto-create member record if missing (they may have
+        // been promoted directly via Supabase without going through normal member signup)
+        if (isAdmin) {
+          const session = await prisma.classSession.findUnique({ where: { id: sessionId }, select: { studioId: true } })
+          if (session) await ensureMemberForAdmin(user.id, user.email, session.studioId)
+        }
+        member = await prisma.member.findUniqueOrThrow({ where: { userId: user.id } })
+      }
 
       // Run capacity check + balance check + booking creation inside a single
       // transaction. Both the session and credit balance are read inside the
