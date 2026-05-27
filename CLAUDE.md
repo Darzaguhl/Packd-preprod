@@ -35,7 +35,7 @@ cd apps/api && npm run dev    # API on :4000
 cd apps/web && npm run dev    # Web on :3001 (or :3000)
 
 # Tests
-npm test                      # Vitest unit tests (40 tests, all passing)
+npm test                      # Vitest unit tests (56 tests, all passing)
 npm run test:coverage         # with coverage report
 npm run test:e2e              # Playwright E2E (needs web + API running)
 ```
@@ -236,7 +236,8 @@ Seed data lives in `packages/db/src/seed.ts`:
 - `MemberDrawer.tsx` — slide-over walk-in POS; member search (debounced 300ms, min 2 chars); on-behalf session booking for selected member; product grid with cart; "Charge N cr" (credit cart) or "Record sale" (cash); `fmtPrice` with studio currency; shows "No products configured" hint if catalog is empty
 
 ### Tests
-- `apps/api/src/__tests__/booking.test.ts` — 15 unit tests (create 201, full class 409, insufficient credits 402, cancelled session 400, missing body 400, past class rejected for member 400, past class allowed for admin 201, LATE_CANCELLED re-book via update 201, on-time cancel 200, late cancel 200, wrong user cancel 403, cancel clears stationId, fronthost on-behalf booking, studio_admin on-behalf booking, member role ignores memberId override)
+- `apps/api/src/__tests__/booking.test.ts` — 16 unit tests (create 201, full class 409, insufficient credits 402, cancelled session 400, missing body 400, past class rejected for member 400, past class allowed for admin 201, LATE_CANCELLED re-book via update 201, on-time cancel 200, late cancel 200, wrong user cancel 403, cancel clears stationId, fronthost on-behalf booking, studio_admin on-behalf booking, member role ignores memberId override, overlap conflict 409)
+- `apps/api/src/__tests__/query.test.ts` — 16 unit tests (SELECT 200, WITH/CTE 200, empty result 200, Date serialisation, INSERT/UPDATE/DELETE/DROP/TRUNCATE all 400, multi-statement 400, comment-bypass attempt 400, trailing semicolon allowed, missing studioId 400, missing sql 400, empty sql 400, DB error forwarded 400)
 - `apps/api/src/__tests__/products.test.ts` — 10 unit tests (GET: in-stock list, all=true, missing studioId 400; POST: create 201, defaults creditsRequired=0, missing fields 400; PATCH: update, 404; DELETE: success, 404)
 - `apps/api/src/__tests__/waitlist.test.ts` — 6 unit tests (join empty 201, join with queue 201, missing body 400, confirm valid 200, expired window 410, wrong user 403)
 - `apps/api/src/__tests__/checkin.test.ts` — 3 unit tests (toggle on, toggle off + clears checkedInAt, wrong session booking 404)
