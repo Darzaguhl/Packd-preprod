@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { UpcomingBooking, PastBooking, CreditTransaction, AdminMemberProfile } from '@/lib/api'
+import type { UpcomingBooking, PastBooking, CreditTransaction, AdminMemberProfile, MembershipPlan } from '@/lib/api'
 import type { MemberProfile } from '@packd/types'
 import { sportConfig } from '@/components/schedule/constants'
 import { useTimeFormat } from '@/lib/time-format-context'
@@ -44,6 +44,64 @@ const TX_CONFIG: Record<string, { label: string; color: string }> = {
 
 type Tab = 'upcoming' | 'history' | 'credits'
 
+// ─── Plan card ────────────────────────────────────────────────────────────────
+
+function fmtPrice(cents: number) {
+  return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 })
+}
+
+function PlanCard({
+  plan,
+  isCurrent,
+  onSelect,
+  subscribing,
+}: {
+  plan: Omit<MembershipPlan, 'activeSubscriptions'>
+  isCurrent: boolean
+  onSelect: (id: string) => void
+  subscribing: boolean
+}) {
+  const intervalLabel = plan.intervalMonths === 1 ? 'month' : `${plan.intervalMonths} months`
+
+  return (
+    <div className={`relative flex flex-col gap-3 rounded-2xl border p-5 transition-shadow ${
+      isCurrent ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white hover:shadow-sm'
+    }`}>
+      {isCurrent && (
+        <span className="absolute top-3 right-3 text-[10px] font-semibold bg-white/20 text-white px-2 py-0.5 rounded-full">
+          Current plan
+        </span>
+      )}
+      <div>
+        <p className={`text-base font-semibold ${isCurrent ? 'text-white' : 'text-gray-900'}`}>{plan.name}</p>
+        {plan.description && (
+          <p className={`text-xs mt-0.5 ${isCurrent ? 'text-gray-300' : 'text-gray-500'}`}>{plan.description}</p>
+        )}
+      </div>
+      <div className="flex items-end gap-1">
+        <span className={`text-2xl font-bold tabular-nums ${isCurrent ? 'text-white' : 'text-gray-900'}`}>
+          {fmtPrice(plan.priceInCents)}
+        </span>
+        <span className={`text-xs pb-0.5 ${isCurrent ? 'text-gray-300' : 'text-gray-400'}`}>/ {intervalLabel}</span>
+      </div>
+      {plan.creditsPerCycle !== null && plan.creditsPerCycle > 0 && (
+        <p className={`text-xs ${isCurrent ? 'text-gray-300' : 'text-gray-500'}`}>
+          {plan.creditsPerCycle} credits per {intervalLabel}
+        </p>
+      )}
+      {!isCurrent && (
+        <button
+          onClick={() => onSelect(plan.id)}
+          disabled={subscribing}
+          className="mt-auto w-full py-2 rounded-xl text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-50 transition-colors"
+        >
+          {subscribing ? 'Subscribing…' : 'Subscribe'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -52,8 +110,14 @@ interface Props {
   upcoming: UpcomingBooking[]
   pastBookings: PastBooking[]
   transactions: CreditTransaction[]
+  /** Available plans to display/purchase */
+  plans?: Omit<MembershipPlan, 'activeSubscriptions'>[]
   /** If provided, cancel button appears on upcoming bookings */
   onCancelBooking?: (bookingId: string) => Promise<void>
+  /** If provided, subscribe button appears on plan cards */
+  onSubscribe?: (planId: string) => Promise<void>
+  /** If provided, an edit button appears on the profile card (member's own view only) */
+  onEditProfile?: () => void
   /** Show email — for admin view */
   showEmail?: boolean
 }
@@ -158,10 +222,26 @@ export default function MemberHistoryView({
   upcoming,
   pastBookings,
   transactions,
+  plans = [],
   onCancelBooking,
+  onSubscribe,
+  onEditProfile,
   showEmail = false,
 }: Props) {
   const [tab, setTab] = useState<Tab>('upcoming')
+  const [showPlans, setShowPlans] = useState(false)
+  const [subscribing, setSubscribing] = useState<string | null>(null)
+
+  async function handleSubscribe(planId: string) {
+    if (!onSubscribe) return
+    setSubscribing(planId)
+    try {
+      await onSubscribe(planId)
+      setShowPlans(false)
+    } finally {
+      setSubscribing(null)
+    }
+  }
 
   const { firstName, lastName, email, creditBalance } = profile
   const activeSubscription = profile.activeSubscription ?? null
@@ -182,6 +262,17 @@ export default function MemberHistoryView({
             </p>
           )}
         </div>
+        {onEditProfile && (
+          <button
+            onClick={onEditProfile}
+            className="shrink-0 text-xs text-gray-400 hover:text-gray-700 flex items-center gap-1 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 16 16">
+              <path d="M11 2l3 3-8 8H3v-3l8-8z" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Edit
+          </button>
+        )}
       </div>
 
       {/* Stats row */}
@@ -190,22 +281,42 @@ export default function MemberHistoryView({
           <p className="text-xs text-gray-400 font-medium mb-1">Credits</p>
           <p className="text-3xl font-bold tabular-nums text-gray-900">{creditBalance}</p>
         </div>
-        <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4">
-          <p className="text-xs text-gray-400 font-medium mb-1">Membership</p>
+        <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4 flex flex-col justify-between gap-2">
+          <p className="text-xs text-gray-400 font-medium">Membership</p>
           {activeSubscription ? (
             <>
-              <p className="text-sm font-semibold text-gray-900 leading-tight">{activeSubscription.planName}</p>
-              <div className="flex items-center gap-1.5 mt-1">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                <span className="text-xs text-gray-400">
-                  {activeSubscription.endDate
-                    ? `Renews ${new Date(activeSubscription.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-                    : 'Active'}
-                </span>
+              <div>
+                <p className="text-sm font-semibold text-gray-900 leading-tight">{activeSubscription.planName}</p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span className="text-xs text-gray-400">
+                    {activeSubscription.endDate
+                      ? `Renews ${new Date(activeSubscription.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                      : 'Active'}
+                  </span>
+                </div>
               </div>
+              {onSubscribe && plans.length > 0 && (
+                <button
+                  onClick={() => setShowPlans(true)}
+                  className="text-xs text-gray-500 hover:text-gray-900 underline underline-offset-2 text-left"
+                >
+                  Change plan
+                </button>
+              )}
             </>
           ) : (
-            <p className="text-sm text-gray-400 mt-1">No active plan</p>
+            <>
+              <p className="text-sm text-gray-400">No active plan</p>
+              {onSubscribe && plans.length > 0 && (
+                <button
+                  onClick={() => setShowPlans(true)}
+                  className="text-xs font-medium bg-gray-900 text-white px-3 py-1.5 rounded-lg hover:bg-gray-700 transition-colors w-fit"
+                >
+                  Browse plans
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -260,6 +371,37 @@ export default function MemberHistoryView({
             transactions.map(t => <TransactionRow key={t.id} tx={t} />)
           )}
         </div>
+      )}
+
+      {/* Plans overlay */}
+      {showPlans && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setShowPlans(false)} />
+          <div className="fixed inset-x-0 bottom-0 z-50 bg-gray-50 rounded-t-2xl max-h-[85vh] overflow-y-auto">
+            <div className="sticky top-0 bg-gray-50 px-5 pt-5 pb-3 flex items-center justify-between border-b border-gray-100">
+              <h2 className="text-base font-semibold text-gray-900">Membership Plans</h2>
+              <button onClick={() => setShowPlans(false)} className="text-gray-400 hover:text-gray-600 p-1">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
+            <div className="px-5 py-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {plans.map(plan => (
+                <PlanCard
+                  key={plan.id}
+                  plan={plan}
+                  isCurrent={activeSubscription?.planName === plan.name}
+                  onSelect={handleSubscribe}
+                  subscribing={subscribing === plan.id}
+                />
+              ))}
+            </div>
+            <p className="text-center text-xs text-gray-400 pb-6 px-5">
+              Subscription starts immediately. Credits are added to your account right away.
+            </p>
+          </div>
+        </>
       )}
     </div>
   )

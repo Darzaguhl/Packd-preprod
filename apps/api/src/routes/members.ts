@@ -123,6 +123,7 @@ export async function memberRoutes(app: FastifyInstance) {
 
     return {
       id: member.id,
+      studioId: member.studioId,
       firstName: member.user.firstName,
       lastName: member.user.lastName,
       email: member.user.email,
@@ -229,4 +230,32 @@ export async function memberRoutes(app: FastifyInstance) {
       bookedAt: b.bookedAt.toISOString(),
     }))
   })
+
+  // PATCH /members/me — update display name
+  app.patch<{ Body: { firstName?: string; lastName?: string } }>(
+    '/me',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const user = getUser(request)
+      const { firstName, lastName } = request.body
+
+      if (firstName !== undefined && (typeof firstName !== 'string' || !firstName.trim())) {
+        return reply.badRequest('firstName must be a non-empty string')
+      }
+      if (lastName !== undefined && (typeof lastName !== 'string' || !lastName.trim())) {
+        return reply.badRequest('lastName must be a non-empty string')
+      }
+
+      const updated = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          ...(firstName !== undefined && { firstName: firstName.trim() }),
+          ...(lastName !== undefined && { lastName: lastName.trim() }),
+        },
+        select: { id: true, firstName: true, lastName: true, email: true },
+      })
+
+      return reply.send({ success: true, data: updated })
+    },
+  )
 }

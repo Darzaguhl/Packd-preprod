@@ -38,9 +38,7 @@ export default function SessionDetailView({
   const [spots, setSpots] = useState<SessionSpots | null>(null)
   const [spotsLoading, setSpotsLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
-  const [justBooked, setJustBooked] = useState(false)
-
-  const timeFormat = useTimeFormat()
+const timeFormat = useTimeFormat()
   const cfg = sportConfig(s.sport)
   const isBooked = !!s.userBookingId
   const isWaitlisted = !!s.userWaitlistPosition
@@ -87,7 +85,6 @@ export default function SessionDetailView({
       }
       await onPickSpot(stationId)
       await refreshSpots()
-      if (wasNew) setJustBooked(true)
     } finally {
       setActionLoading(false)
     }
@@ -192,30 +189,6 @@ export default function SessionDetailView({
                 </div>
               )}
 
-              {/* Booking confirmation flash */}
-              {justBooked && isBooked && (
-                <div className="animate-[fadeIn_200ms_ease-out] rounded-xl bg-emerald-900 text-white px-3 py-3 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold">Booking confirmed</p>
-                    <button
-                      onClick={() => setJustBooked(false)}
-                      className="text-emerald-300 hover:text-white transition-colors"
-                    >
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 14 14" fill="none">
-                        <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-                      </svg>
-                    </button>
-                  </div>
-                  <p className="text-xs text-emerald-300">
-                    −{s.creditsRequired} credit{s.creditsRequired !== 1 ? 's' : ''} deducted
-                  </p>
-                  {hasLayout && !hasSpot && (
-                    <p className="text-xs text-emerald-200 mt-1">
-                      Pick a spot on the map →
-                    </p>
-                  )}
-                </div>
-              )}
             </div>
           </div>
 
@@ -232,7 +205,6 @@ export default function SessionDetailView({
                     setActionLoading(true)
                     try {
                       await onBook(s.id)
-                      setJustBooked(true)
                     } catch { /* toast shown in handleBook */ }
                     finally { setActionLoading(false) }
                   }}

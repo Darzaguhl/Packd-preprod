@@ -5,6 +5,14 @@ import { ROLE_RANK } from '@packd/types'
 import { enqueueLateCancelCheck } from '../jobs/index.js'
 import { ensureMemberForAdmin } from './members.js'
 
+/** Format a human-readable note for credit transactions, e.g. "Cycling · 26 May, 09:00" */
+function fmtClassNote(className: string | null | undefined, startsAt: Date): string {
+  const name = className ?? 'Class'
+  const date = startsAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  const time = startsAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+  return `${name} · ${date}, ${time}`
+}
+
 export async function bookingRoutes(app: FastifyInstance) {
   // POST /bookings — create booking
   // Privileged roles (studio_admin, fronthost, instructor, etc.) may pass a
@@ -46,7 +54,10 @@ export async function bookingRoutes(app: FastifyInstance) {
       const booking = await prisma.$transaction(async (tx) => {
         const session = await tx.classSession.findUniqueOrThrow({
           where: { id: sessionId },
-          include: { _count: { select: { bookings: { where: { status: 'CONFIRMED' } } } } },
+          include: {
+            _count: { select: { bookings: { where: { status: 'CONFIRMED' } } } },
+            template: { select: { name: true } },
+          },
         })
 
         if (session.status !== 'SCHEDULED') {
@@ -69,6 +80,29 @@ export async function bookingRoutes(app: FastifyInstance) {
         const balance = creditBalance?.balance ?? 0
         if (balance < session.creditsRequired) {
           throw Object.assign(new Error('Insufficient credits'), { statusCode: 402 })
+        }
+
+        // Check for a time-overlap conflict — member already has a CONFIRMED booking
+        // for another session (at any studio) that runs at the same time.
+        const conflict = await tx.booking.findFirst({
+          where: {
+            memberId: member.id,
+            status: 'CONFIRMED',
+            sessionId: { not: sessionId }, // exclude the session itself (re-book edge case)
+            session: {
+              startsAt: { lt: session.endsAt },
+              endsAt:   { gt: session.startsAt },
+            },
+          },
+          select: { session: { select: { startsAt: true, template: { select: { name: true } } } } },
+        })
+        if (conflict) {
+          const conflictName = conflict.session.template?.name ?? 'another class'
+          const conflictTime = conflict.session.startsAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+          throw Object.assign(
+            new Error(`You already have ${conflictName} booked at ${conflictTime} — classes overlap`),
+            { statusCode: 409 },
+          )
         }
 
         // Check for an existing booking row (confirmed = already booked,
@@ -109,12 +143,13 @@ export async function bookingRoutes(app: FastifyInstance) {
           data: { balance: { decrement: session.creditsRequired } },
         })
 
+        const classLabel = fmtClassNote(session.template?.name, session.startsAt)
         await tx.creditTransaction.create({
           data: {
             memberId: member.id,
             amount: -session.creditsRequired,
             type: 'CLASS_DEBIT',
-            note: `Booking ${newBooking.id}`,
+            note: classLabel,
           },
         })
 
@@ -189,7 +224,7 @@ export async function bookingRoutes(app: FastifyInstance) {
               memberId: booking.memberId,
               amount: booking.session.creditsRequired,
               type: 'REFUND',
-              note: `Cancellation of booking ${booking.id}`,
+              note: `Cancelled: ${fmtClassNote(booking.session.template?.name, booking.session.startsAt)}`,
             },
           })
         } else if (chargeFee) {

@@ -15,13 +15,14 @@ import SocialPhotosTab from './SocialPhotosTab'
 import ProductsTab from './ProductsTab'
 import MembersTab from './MembersTab'
 import MembershipsTab from './MembershipsTab'
+import AnalyticsTab from './AnalyticsTab'
 import NavBar from '@/components/NavBar'
 import RoomMapView from '@/components/room/RoomMapView'
 import CalendarView from '@/components/calendar/CalendarView'
 import { TimeFormatProvider } from '@/lib/time-format-context'
 import { fmtTime, type TimeFormat } from '@/lib/fmt-time'
 
-type Tab = 'today' | 'calendar' | 'rooms' | 'room' | 'permissions' | 'staff' | 'members' | 'memberships' | 'settings' | 'photos' | 'social' | 'products'
+type Tab = 'today' | 'calendar' | 'analytics' | 'rooms' | 'room' | 'permissions' | 'staff' | 'members' | 'memberships' | 'settings' | 'photos' | 'social' | 'products'
 
 function toIsoDate(d: Date) {
   const y = d.getFullYear()
@@ -46,7 +47,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
   const [studioName, setStudioName] = useState(initialStudioName)
   const [timeFormat, setTimeFormat] = useState<TimeFormat>('24h')
   const [currency, setCurrency] = useState('USD')
-  const VALID_TABS: Tab[] = ['today', 'calendar', 'rooms', 'room', 'permissions', 'staff', 'members', 'memberships', 'settings', 'photos', 'social', 'products']
+  const VALID_TABS: Tab[] = ['today', 'calendar', 'analytics', 'rooms', 'room', 'permissions', 'staff', 'members', 'memberships', 'settings', 'photos', 'social', 'products']
   const [tab, setTab] = useState<Tab>(() => {
     const t = searchParams.get('tab') as Tab
     return VALID_TABS.includes(t) ? t : 'today'
@@ -60,6 +61,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
   }
   const [token, setToken] = useState<string | null>(null)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [sessionRole, setSessionRole] = useState<string | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
   const [sessions, setSessions] = useState<AdminSession[]>([])
   const [selectedDate, setSelectedDate] = useState(toIsoDate(new Date()))
@@ -87,6 +89,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
       const uid = session?.user?.id ?? null
       setToken(t)
       setCurrentUserId(uid)
+      setSessionRole((session?.user?.app_metadata as { role?: string } | undefined)?.role ?? null)
       if (!t) return
       // Always load studio settings (name, timeFormat, currency) on mount —
       // not just when the Today tab is active — so all tabs have the right values.
@@ -141,6 +144,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
   const ALL_TABS: { id: Tab; label: string }[] = [
     { id: 'today', label: 'Today' },
     { id: 'calendar', label: 'Calendar' },
+    { id: 'analytics', label: 'Analytics' },
     { id: 'rooms', label: 'Rooms' },
     { id: 'room', label: 'Room map' },
     { id: 'permissions', label: 'Permissions' },
@@ -154,7 +158,11 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
     { id: 'photos', label: 'My Photos' },
   ]
   // Instructors see Today, Calendar, Photos. Room map is a hidden tab opened via session click.
-  const TABS = role === 'instructor'
+  // Use the prop when explicitly set (e.g. DualRoleDashboard passes 'instructor'); otherwise
+  // fall back to the role read from the Supabase session JWT.
+  const effectiveRole = role ?? sessionRole
+  const isAdminRole = effectiveRole === 'studio_admin' || effectiveRole === 'admin' || effectiveRole === 'franchise_admin'
+  const TABS = effectiveRole === 'instructor'
     ? ALL_TABS.filter(t => INSTRUCTOR_TABS.includes(t.id) && t.id !== 'room')
     : ALL_TABS.filter(t => t.id !== 'room' && t.id !== 'photos')
 
@@ -360,9 +368,14 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
             studioId={studioId}
             token={token}
             canCreateSchedules={role === 'instructor' ? (myPermissions?.canCreateSchedules ?? false) : true}
+            canSetSubstitute={role === 'instructor' ? (myPermissions?.canSetSubstitute ?? false) : true}
             filterInstructorId={role === 'instructor' ? (myInstructorId ?? undefined) : undefined}
           />
         </div>
+      )}
+
+      {tab === 'analytics' && token && (
+        <AnalyticsTab studioId={studioId} token={token} canQuery={isAdminRole} />
       )}
 
       {tab === 'rooms' && token && (

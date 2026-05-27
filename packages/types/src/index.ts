@@ -82,6 +82,7 @@ export interface MembershipPlanSummary {
 
 export interface MemberProfile {
   id: string
+  studioId: string
   firstName: string
   lastName: string
   email: string

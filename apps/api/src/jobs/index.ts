@@ -58,7 +58,7 @@ export async function setupJobs() {
     const { bookingId } = job.data as { bookingId: string }
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
-      include: { session: true },
+      include: { session: { include: { template: { select: { name: true } } } } },
     })
     if (!booking || booking.status !== 'LATE_CANCELLED') return
 
@@ -82,7 +82,7 @@ export async function setupJobs() {
           memberId: booking.memberId,
           amount: -actualFee,
           type: 'LATE_CANCEL_FEE',
-          note: `Late cancel: session ${booking.sessionId}`,
+          note: `Late cancel fee: ${booking.session.template.name} · ${booking.session.startsAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}, ${booking.session.startsAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}`,
         },
       })
     })
@@ -91,7 +91,10 @@ export async function setupJobs() {
   // No-show processing — runs 30 min after class starts
   await boss.work('session.no-show', async ([job]) => {
     const { sessionId } = job.data as { sessionId: string }
-    const session = await prisma.classSession.findUnique({ where: { id: sessionId } })
+    const session = await prisma.classSession.findUnique({
+      where: { id: sessionId },
+      include: { template: { select: { name: true } } },
+    })
     if (!session) return
 
     const policy = await prisma.cancellationPolicy.findUnique({
@@ -135,7 +138,7 @@ export async function setupJobs() {
             memberId: booking.memberId,
             amount: -actualFee,
             type: 'NO_SHOW_FEE',
-            note: `No-show: session ${sessionId}`,
+            note: `No-show: ${session.template.name} · ${session.startsAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}, ${session.startsAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}`,
           },
         })
       }

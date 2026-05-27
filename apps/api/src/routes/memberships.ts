@@ -8,6 +8,77 @@ const requireStudioAdmin = requireRole('studio_admin')
 // ─── Plans ───────────────────────────────────────────────────────────────────
 
 export async function membershipRoutes(app: FastifyInstance) {
+  // GET /memberships/plans/member?studioId= — list plans for members to browse (any auth)
+  app.get<{ Querystring: { studioId: string } }>(
+    '/plans/member',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { studioId } = request.query
+      if (!studioId) return reply.badRequest('studioId is required')
+
+      const plans = await prisma.membershipPlan.findMany({
+        where: { studioId },
+        orderBy: { priceInCents: 'asc' },
+        select: { id: true, name: true, description: true, priceInCents: true, intervalMonths: true, creditsPerCycle: true },
+      })
+      return reply.send(plans)
+    },
+  )
+
+  // POST /memberships/subscribe — member self-subscribes to a plan
+  app.post<{ Body: { planId: string } }>(
+    '/subscribe',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { planId } = request.body
+      if (!planId) return reply.badRequest('planId is required')
+
+      const user = getUser(request)
+      const member = await prisma.member.findUnique({ where: { userId: user.id } })
+      if (!member) return reply.notFound('Member not found')
+
+      const plan = await prisma.membershipPlan.findUnique({ where: { id: planId } })
+      if (!plan) return reply.notFound('Plan not found')
+
+      const start = new Date()
+      start.setHours(0, 0, 0, 0)
+      const end = new Date(start)
+      end.setMonth(end.getMonth() + plan.intervalMonths)
+
+      // Cancel existing active subscription for this member at this studio
+      await prisma.membershipSubscription.updateMany({
+        where: { memberId: member.id, plan: { studioId: plan.studioId }, status: { in: ['ACTIVE', 'PAUSED'] } },
+        data: { status: 'CANCELLED' },
+      })
+
+      const sub = await prisma.$transaction(async (tx) => {
+        const newSub = await tx.membershipSubscription.create({
+          data: { memberId: member.id, planId, startDate: start, endDate: end, status: 'ACTIVE' },
+        })
+
+        if (plan.creditsPerCycle && plan.creditsPerCycle > 0) {
+          await tx.creditBalance.upsert({
+            where: { memberId: member.id },
+            create: { memberId: member.id, balance: plan.creditsPerCycle },
+            update: { balance: { increment: plan.creditsPerCycle } },
+          })
+          await tx.creditTransaction.create({
+            data: {
+              memberId: member.id,
+              amount: plan.creditsPerCycle,
+              type: 'MEMBERSHIP_RENEWAL',
+              note: `New subscription: ${plan.name}`,
+            },
+          })
+        }
+
+        return newSub
+      })
+
+      return reply.code(201).send({ success: true, data: sub })
+    },
+  )
+
   // GET /memberships/plans?studioId= — list plans for a studio (studio_admin+)
   app.get<{ Querystring: { studioId: string } }>(
     '/plans',

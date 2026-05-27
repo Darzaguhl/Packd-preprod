@@ -35,7 +35,7 @@ cd apps/api && npm run dev    # API on :4000
 cd apps/web && npm run dev    # Web on :3001 (or :3000)
 
 # Tests
-npm test                      # Vitest unit tests (39 tests, all passing)
+npm test                      # Vitest unit tests (40 tests, all passing)
 npm run test:coverage         # with coverage report
 npm run test:e2e              # Playwright E2E (needs web + API running)
 ```
@@ -154,6 +154,8 @@ Seed data lives in `packages/db/src/seed.ts`:
   - `GET /admin/stats?studioId=` — today's headline stats; includes `studioName`, `timeFormat`, `currency` for NavBar and price display
   - `GET /admin/members/search?studioId=&q=` — fuzzy search members by name/email (up to 10 results, includes creditBalance and membershipStatus)
   - `POST /admin/members/:memberId/credits` — adjust credit balance (positive or negative integer, type: MANUAL_ADJUSTMENT)
+  - `GET /admin/analytics?studioId=&weeks=12` — utilization analytics: heatmap, weekly trend, class stats, funnel, instructor stats (incl. `loyaltyRate`), recurrence, revenue (studio_admin+)
+  - `POST /admin/query` — run a read-only SELECT query against the live DB; validates SELECT/WITH-only, strips comments, blocks DML/DDL/multi-statement, wraps in `SELECT * FROM (...) LIMIT 500`; returns `{ columns, rows, rowCount, duration }` (studio_admin+)
 - `rooms.ts` — room layout and spot assignment
   - `GET /rooms/:id/layout` — active layout with stations
   - `POST /rooms/:id/layout` — save/replace layout
@@ -202,7 +204,9 @@ Seed data lives in `packages/db/src/seed.ts`:
 
 ### Franchise / studio management components
 - `franchise/FranchiseDashboard.tsx` — multi-studio overview cards, drill into per-studio management; `onStudioUpdate` callback keeps cards in sync after settings save without reload
-- `studio/StudioManagerDashboard.tsx` — tabbed per-studio view; role-aware: instructors see Today + Calendar only; clicking a session opens room map directly; `myClassesOnly` filter defaults ON for instructors; loads own `Instructor` record to pass `myInstructorId` + `myPermissions` to CalendarView; studio name shown in NavBar for all roles; accepts `modeSwitch?: React.ReactNode` prop passed to NavBar `action` slot (used by DualRoleDashboard)
+- `studio/StudioManagerDashboard.tsx` — tabbed per-studio view; role-aware: instructors see Today + Calendar only; clicking a session opens room map directly; `myClassesOnly` filter defaults ON for instructors; loads own `Instructor` record to pass `myInstructorId` + `myPermissions` to CalendarView; studio name shown in NavBar for all roles; accepts `modeSwitch?: React.ReactNode` prop passed to NavBar `action` slot (used by DualRoleDashboard); reads `sessionRole` from Supabase JWT `app_metadata.role` as fallback when `role` prop is not passed (e.g. from AdminShell); `effectiveRole = role ?? sessionRole` drives tab visibility; passes `canQuery={isAdminRole}` to AnalyticsTab
+- `studio/AnalyticsTab.tsx` — full analytics dashboard; `canQuery` prop (default false) shows "Overview / Custom Query" sub-nav pill for studio_admin+; Overview: SVG line chart (smooth Bézier, animated) for weekly trend, period-over-period deltas on stat cards, heatmap, funnel, class rankings, instructor table with `loyaltyRate` (violet mini-bar), member recurrence, revenue/credit summary
+- `studio/QueryTab.tsx` — custom SQL query runner (studio_admin+); SELECT-only textarea with auto-resize + ⌘↵ shortcut; 6 built-in example queries; localStorage history (last 10); results table with sticky headers, NULL display, row numbers, CSV export; collapsible schema reference panel
 - `dual/DualRoleDashboard.tsx` — renders for users with both `fronthost` + `instructor` roles; inline `ModeSwitcher` toggle (Front Desk / Instructor) injected into the NavBar `action` slot via the `modeSwitch` prop; defaults to Front Desk mode
 - `studio/RoomsTab.tsx` — room list + layout editor (editor-only, no session features)
 - `studio/PermissionsTab.tsx` — per-instructor permission toggles with accordion UI; toggle fix: explicit `left-1 translate-x-0/translate-x-4` anchoring required; includes `canCreateSchedules` permission

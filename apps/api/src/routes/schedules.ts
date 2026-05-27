@@ -384,12 +384,24 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     Body: { substituteInstructorId: string | null; studioId: string }
   }>(
     '/sessions/:sessionId/substitute',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireInstructor },
     async (request, reply) => {
       const { sessionId } = request.params
       const { substituteInstructorId, studioId } = request.body
       const user = getUser(request)
       if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
+
+      // Instructors need the canSetSubstitute permission; studio_admin+ always allowed
+      if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['studio_admin']) {
+        const instructor = await prisma.instructor.findFirst({
+          where: { studioId, userId: user.id },
+          select: { permissions: true },
+        })
+        const perms = (instructor?.permissions ?? {}) as Record<string, unknown>
+        if (!perms.canSetSubstitute) {
+          return reply.code(403).send({ error: 'You do not have permission to set a substitute' })
+        }
+      }
 
       const session = await prisma.classSession.findFirst({
         where: { id: sessionId, studioId },

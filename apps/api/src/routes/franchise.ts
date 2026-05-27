@@ -33,6 +33,7 @@ interface InstructorPermissions {
   canEditSessionDetails: boolean
   canCancelSession: boolean
   canCreateSchedules: boolean
+  canSetSubstitute: boolean
 }
 
 const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
@@ -43,6 +44,7 @@ const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
   canEditSessionDetails: false,
   canCancelSession: false,
   canCreateSchedules: false,
+  canSetSubstitute: false,
 }
 
 
@@ -250,6 +252,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
       const VALID_PERMISSION_KEYS: (keyof InstructorPermissions)[] = [
         'canCheckInMembers', 'canManageBookings', 'canViewMemberContact',
         'canManageWaitlist', 'canEditSessionDetails', 'canCancelSession', 'canCreateSchedules',
+        'canSetSubstitute',
       ]
       const sanitized = Object.fromEntries(
         Object.entries(request.body).filter(([k, v]) =>

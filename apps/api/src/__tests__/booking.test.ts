@@ -12,6 +12,7 @@ vi.mock('@packd/db', () => {
     create: vi.fn().mockResolvedValue({ id: 'booking-1' }),
     update: vi.fn().mockResolvedValue({ id: 'booking-1' }),
     findUnique: vi.fn().mockResolvedValue(null),   // no existing booking by default
+    findFirst: vi.fn().mockResolvedValue(null),    // no time conflict by default
     findUniqueOrThrow: vi.fn(),
   }
   const creditBalance = { findUnique: vi.fn(), update: vi.fn(), upsert: vi.fn() }

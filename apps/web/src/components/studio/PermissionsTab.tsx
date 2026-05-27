@@ -32,6 +32,7 @@ const ALL_PERMS: PermDef[] = [
   { label: 'Adjust credits',          description: 'Add or deduct credits from member accounts',            fronthost: 'canAdjustCredits' },
   { label: 'Edit session details',    description: 'Change capacity, credits required, or timing',          instructor: 'canEditSessionDetails' },
   { label: 'Cancel a session',        description: 'Mark a session as cancelled',                           instructor: 'canCancelSession' },
+  { label: 'Set a substitute',        description: 'Assign a substitute instructor for a session',          instructor: 'canSetSubstitute' },
   { label: 'Create & edit schedules', description: 'Add recurring schedules and modify existing ones',      instructor: 'canCreateSchedules' },
 ]
 

@@ -24,6 +24,7 @@ export interface InstructorPermissions {
   canEditSessionDetails: boolean
   canCancelSession: boolean
   canCreateSchedules: boolean
+  canSetSubstitute: boolean
 }
 
 export const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
@@ -34,6 +35,7 @@ export const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
   canEditSessionDetails: false,
   canCancelSession: false,
   canCreateSchedules: false,
+  canSetSubstitute: false,
 }
 
 
@@ -138,6 +140,62 @@ export interface StudioLocation {
   city: string
   country: string
   timezone: string
+}
+
+export interface AnalyticsData {
+  heatmap: { dow: number; hour: number; fillRate: number; count: number }[]
+  weeklyTrend: {
+    weekStart: string
+    sessions: number
+    avgFillRate: number
+    checkInRate: number
+    cancelRate: number
+  }[]
+  classStats: {
+    templateId: string
+    name: string
+    sport: string
+    sessions: number
+    avgFillRate: number
+    checkInRate: number
+    totalBookings: number
+  }[]
+  funnel: {
+    confirmed: number
+    checkedIn: number
+    onTimeCancelled: number
+    lateCancelled: number
+    noShow: number
+  }
+  instructors: {
+    id: string
+    name: string
+    sessions: number
+    avgFillRate: number
+    checkInRate: number
+    loyaltyRate: number
+  }[]
+  recurrence: {
+    monthOverMonth: number
+    avgBookingsPerMember: number
+    frequencyBuckets: { label: string; count: number }[]
+  }
+  revenue: {
+    creditsIssued: number
+    creditsConsumed: number
+    lateCancelFees: number
+    noShowFees: number
+    activeSubscriptions: number
+    weeklyCredits: { weekStart: string; issued: number; consumed: number; fees: number }[]
+  }
+  meta: { weeks: number; windowStart: string; generatedAt: string }
+}
+
+export interface QueryResult {
+  columns: string[]
+  rows: unknown[][]
+  rowCount: number
+  duration: number
 }
 
 export interface StudioDetail {
@@ -479,6 +537,10 @@ export const api = {
       apiFetch<{ success: boolean; memberId: string }>('/members/ensure', {
         method: 'POST', body: JSON.stringify({ studioId }), token,
       }),
+    updateMe: (data: { firstName?: string; lastName?: string }, token: string) =>
+      apiFetch<{ success: boolean; data: { firstName: string; lastName: string } }>('/members/me', {
+        method: 'PATCH', body: JSON.stringify(data), token,
+      }),
   },
   admin: {
     stats: (studioId: string, token: string) =>
@@ -516,6 +578,10 @@ export const api = {
       apiFetch<{ id: string; name: string; email: string; creditBalance: number; membershipStatus: string | null }[]>(
         `/admin/members?studioId=${studioId}${q ? `&q=${encodeURIComponent(q)}` : ''}`, { token },
       ),
+    analytics: (studioId: string, token: string, weeks = 12) =>
+      apiFetch<AnalyticsData>(`/admin/analytics?studioId=${studioId}&weeks=${weeks}`, { token }),
+    query: (sql: string, studioId: string, token: string) =>
+      apiFetch<QueryResult>('/admin/query', { token, method: 'POST', body: JSON.stringify({ sql, studioId }) }),
   },
   franchise: {
     myStudios: (token: string) =>
@@ -799,5 +865,9 @@ export const api = {
       apiFetch<{ success: boolean; data: MembershipSubscription }>(`/memberships/${id}`, { method: 'PATCH', body: JSON.stringify(body), token }),
     me: (token: string) =>
       apiFetch<MembershipSubscription | null>('/memberships/me', { token }),
+    publicPlans: (studioId: string, token: string) =>
+      apiFetch<Omit<MembershipPlan, 'activeSubscriptions'>[]>(`/memberships/plans/member?studioId=${studioId}`, { token }),
+    subscribe: (planId: string, token: string) =>
+      apiFetch<{ success: boolean; data: MembershipSubscription }>('/memberships/subscribe', { method: 'POST', body: JSON.stringify({ planId }), token }),
   },
 }

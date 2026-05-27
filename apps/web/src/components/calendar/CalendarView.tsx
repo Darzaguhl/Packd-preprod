@@ -75,6 +75,8 @@ interface Props {
   token: string
   /** When false (instructor default), hide schedule creation/edit/delete UI */
   canCreateSchedules?: boolean
+  /** When false, clicking a session does not open the substitute modal */
+  canSetSubstitute?: boolean
   /** When set, filter displayed sessions to this Instructor record ID; user can toggle off */
   filterInstructorId?: string
 }
@@ -101,7 +103,7 @@ type Modal =
   | { type: 'edit-schedule'; schedule: ClassSchedule }
   | { type: 'substitute'; session: CalendarSession }
 
-export default function CalendarView({ studioId, token, canCreateSchedules = true, filterInstructorId }: Props) {
+export default function CalendarView({ studioId, token, canCreateSchedules = true, canSetSubstitute = true, filterInstructorId }: Props) {
   const timeFormat = useTimeFormat()
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
   const [monthYear, setMonthYear] = useState(() => {
@@ -413,9 +415,9 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
                         return (
                           <div
                             key={s.id}
-                            className={`absolute rounded-md overflow-hidden cursor-pointer border transition-shadow hover:shadow-md hover:z-10 ${cfg.bg} ${isCancelled ? 'opacity-40' : ''}`}
+                            className={`absolute rounded-md overflow-hidden border transition-shadow hover:shadow-md hover:z-10 ${cfg.bg} ${isCancelled ? 'opacity-40' : ''} ${canSetSubstitute ? 'cursor-pointer' : 'cursor-default'}`}
                             style={{ top, height, left: `${leftFrac * 100 + 0.5}%`, width: `${widthFrac * 100 - 1}%` }}
-                            onClick={() => setModal({ type: 'substitute', session: s })}
+                            onClick={() => canSetSubstitute && setModal({ type: 'substitute', session: s })}
                           >
                             <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${cfg.accent}`} />
                             <div className="pl-2 pr-1 py-0.5 h-full flex flex-col justify-start overflow-hidden gap-px">
@@ -738,7 +740,7 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
         />
       )}
 
-      {modal?.type === 'substitute' && data && (
+      {modal?.type === 'substitute' && canSetSubstitute && data && (
         <SubstituteModal
           session={modal.session}
           studioId={studioId}
