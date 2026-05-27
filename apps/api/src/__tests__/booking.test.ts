@@ -315,6 +315,40 @@ describe('POST /bookings — on-behalf booking (walk-in)', () => {
     )
   })
 
+  it('fronthost can book on behalf of a member with insufficient credits (credit guard bypassed)', async () => {
+    vi.mocked(getUser).mockReturnValue({ id: 'staff-user', email: 'desk@packd.test', role: 'fronthost' } as never)
+    vi.mocked(prisma.classSession.findUniqueOrThrow).mockResolvedValue(mockSession({ creditsRequired: 5 }) as never)
+    vi.mocked(prisma.member.findUniqueOrThrow).mockResolvedValue(mockMember({ id: 'member-99', userId: 'other-user' }) as never)
+    // Member only has 1 credit but session requires 5 — should still succeed for on-behalf booking
+    vi.mocked(prisma.creditBalance.findUnique).mockResolvedValue({ balance: 1 } as never)
+    vi.mocked(prisma.booking.create).mockResolvedValue({ id: 'booking-99' } as never)
+
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/bookings',
+      body: { sessionId: 'session-1', memberId: 'member-99' },
+    })
+
+    expect(res.statusCode).toBe(201)
+  })
+
+  it('member with insufficient credits still gets 402 when booking for themselves', async () => {
+    vi.mocked(getUser).mockReturnValue({ id: 'user-1', email: 'member@packd.test', role: 'member' } as never)
+    vi.mocked(prisma.classSession.findUniqueOrThrow).mockResolvedValue(mockSession({ creditsRequired: 5 }) as never)
+    vi.mocked(prisma.member.findUniqueOrThrow).mockResolvedValue(mockMember() as never)
+    vi.mocked(prisma.creditBalance.findUnique).mockResolvedValue({ balance: 1 } as never)
+
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/bookings',
+      body: { sessionId: 'session-1' },
+    })
+
+    expect(res.statusCode).toBe(402)
+  })
+
   it('member role cannot use memberId override — books for themselves instead', async () => {
     vi.mocked(getUser).mockReturnValue({ id: 'user-1', email: 'member@packd.test', role: 'member' } as never)
     vi.mocked(prisma.classSession.findUniqueOrThrow).mockResolvedValue(mockSession() as never)
