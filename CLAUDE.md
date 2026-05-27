@@ -1,6 +1,6 @@
 # Packd — Claude Context
 
-Boutique fitness studio management platform (think Zingfit / Mariana Tek, used by studios like Barry's). Full-stack monorepo.
+Boutique fitness studio management platform (think Zingfit / Mariana Tek). Full-stack monorepo.
 
 ## Stack
 
@@ -14,297 +14,135 @@ Boutique fitness studio management platform (think Zingfit / Mariana Tek, used b
 | Jobs | pg-boss v10 (no Redis) |
 | Payments | Stripe |
 | DnD | @dnd-kit/core + @dnd-kit/sortable |
-| Unit tests | Vitest 3 |
-| E2E tests | Playwright 1.60 |
-| Mobile | Expo (React Native) — not yet built |
+| Tests | Vitest 3 (unit) + Playwright 1.60 (E2E) |
 
 ## Ports
 
-- Web: `http://localhost:3001` (Next.js dev)
-- API: `http://localhost:4000` (Fastify)
+- Web: `http://localhost:3001`
+- API: `http://localhost:4000`
 
 ## Running the project
 
 ```bash
-# From repo root
-npm install          # install all workspace deps
-npm run db:generate  # generate Prisma client (required after fresh install)
+npm install && npm run db:generate   # fresh install
 
-# In separate terminals:
-cd apps/api && npm run dev    # API on :4000
-cd apps/web && npm run dev    # Web on :3001 (or :3000)
+cd apps/api && npm run dev           # API on :4000
+cd apps/web && npm run dev           # Web on :3001
 
-# Tests
-npm test                      # Vitest unit tests (56 tests, all passing)
-npm run test:coverage         # with coverage report
-npm run test:e2e              # Playwright E2E (needs web + API running)
+npm test                             # Vitest unit tests
+npm run test:e2e                     # Playwright (needs both servers)
 ```
 
 ## Key environment files
 
-**`apps/api/.env`**
-```
-DATABASE_URL=postgresql://postgres:<password>@db.<project>.supabase.co:5432/postgres
-SUPABASE_URL=https://<project>.supabase.co
-CORS_ORIGIN=http://localhost:3000,http://localhost:3001
-PORT=4000
-```
+**`apps/api/.env`** — `DATABASE_URL`, `SUPABASE_URL`, `CORS_ORIGIN=http://localhost:3000,http://localhost:3001`, `PORT=4000`
 
-**`apps/web/.env.local`**
-```
-NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
-NEXT_PUBLIC_API_URL=http://localhost:4000
-NEXT_PUBLIC_STUDIO_ID=<seeded-studio-id>
-```
+**`apps/web/.env.local`** — `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (sb_publishable_... format), `NEXT_PUBLIC_API_URL=http://localhost:4000`, `NEXT_PUBLIC_STUDIO_ID`
 
-## Architecture decisions & gotchas
+## Architecture gotchas
 
 ### Auth
-- Supabase uses publishable key format (`sb_publishable_...`), not the legacy anon key
-- JWT verification uses JWKS (`jose` library) — **do not add an issuer check**, Supabase's issuer includes `/auth/v1` suffix which differs from the base URL
-- `requireAuth` is a Fastify preHandler; it stores the decoded user on `request.user`
+- Supabase publishable key format (`sb_publishable_...`), not legacy anon key
+- JWT via JWKS (`jose`) — **no issuer check** (Supabase issuer has `/auth/v1` suffix)
+- Role read from `app_metadata` only — never `user_metadata`
+- Set role: `PUT /auth/v1/admin/users/:userId` `{"app_metadata":{"role":"studio_admin"}}` with service role key
 
 ### Next.js 15 + Supabase SSR
-- Server Components cannot set cookies — `setAll` in `apps/web/src/lib/supabase/server.ts` wraps the cookie setter in `try/catch`
-- Session refresh is handled by `apps/web/src/middleware.ts` (runs on all non-static routes)
-- Token fetching for API calls must happen client-side in `useEffect`, not in Server Components
+- Server Components can't set cookies — `setAll` in `supabase/server.ts` is wrapped in `try/catch`
+- Token fetching for API calls must be client-side in `useEffect`
 
 ### pg-boss v10
-- Queues must be explicitly created with `boss.createQueue(name)` before scheduling jobs
-- Create queues **sequentially** (for…of loop), not with `Promise.all` — parallel DDL causes deadlocks
-
-### Tailwind CSS v4
-- Uses `@import "tailwindcss"` in `globals.css` (not the old `@tailwind` directives)
-- Requires `postcss.config.js` with `@tailwindcss/postcss` plugin
-- No `tailwind.config.js` needed for basic usage
-
-### React versions
-- Root `package.json` has `"overrides"` pinning React 19 — Expo pulled in React 18 which conflicted with `react-dom` 19
-- Do not remove the overrides block
+- `boss.createQueue(name)` before scheduling — queues are not auto-created
+- Create queues **sequentially** (for…of), not `Promise.all` — parallel DDL deadlocks
 
 ### Vitest + Fastify 5
-- `vi.fn()` as a Fastify preHandler causes requests to hang — always use `vi.fn().mockResolvedValue(undefined)` for preHandler mocks
-- This is because Fastify 5 awaits the preHandler return value; synchronous `undefined` stalls the lifecycle
-- Prisma `$transaction` mock: define all model objects as named `vi.fn()` instances at factory scope, then share the same references in BOTH the `prisma` export AND the `$transaction` proxy — this ensures `vi.mocked(prisma.x.y).mockResolvedValue(...)` works for calls inside transactions
-- `$transaction` callback form: `vi.fn(async (fn) => fn(tx))` where `tx` is the shared model object; array form: `vi.fn(async (arr) => Promise.all(arr))`
-- Custom errors in routes must use `{ statusCode: N }` (not `{ code: 'NAME' }`) — Fastify's error handler only reads `err.statusCode`
+- preHandler mocks: `vi.fn().mockResolvedValue(undefined)` — synchronous `undefined` stalls the lifecycle
+- Prisma `$transaction` mock: share the same model `vi.fn()` instances in both the `prisma` export and the `$transaction` proxy
+- `$transaction` callback form: `vi.fn(async (fn) => fn(tx))`; array form: `vi.fn(async (arr) => Promise.all(arr))`
+- Custom errors use `{ statusCode: N }` not `{ code: 'NAME' }`
 
-## Database schema (18 models)
+### Tailwind CSS v4
+- `@import "tailwindcss"` in `globals.css`; `postcss.config.js` with `@tailwindcss/postcss`; no `tailwind.config.js` needed
+
+### React
+- Root `package.json` overrides pin React 19 — do not remove (Expo conflict)
+
+## Database schema
 
 ```
 Studio → Location → Room → RoomLayout → Station
 Studio → Instructor
 Studio → ClassTemplate → ClassSession → Booking → Member
-                      ↗ ClassSchedule (recurring)
-                                     ↘ WaitlistEntry
+                      ↗ ClassSchedule (recurring)   ↘ WaitlistEntry
 Member → CreditBalance + CreditTransaction
 Member → MembershipSubscription → MembershipPlan
 Studio → CancellationPolicy
+Studio → Product
 ```
 
-Key additions:
-- `ClassSchedule` — recurring schedule master (`daysOfWeek Int[]`, `startTime`, `durationMin`, `intervalWeeks @default(1)`, `validFrom/validUntil`, `isActive`)
-- `ClassSession.scheduleId` — links back to `ClassSchedule` (nullable, onDelete: SetNull)
-- `ClassSession.substituteInstructorId` — per-session override, preserved when schedule is edited
-- `RoomLayout` — named layout with `widthM`, `lengthM`, `isActive`; linked to `Room`
-- `Station` — positioned equipment (`type: StationType`, `xM`, `yM`, `rotation`, `label`); linked to `RoomLayout`
-- `Booking.stationId` — links a confirmed booking to a specific station for spot assignment
-- `Member.staffRoles String[] @default([])` — all staff roles for this member (replaces old `staffRole String?`); multi-studio: member can appear in multiple studios' staff lists via `studioIds` in `app_metadata`
-- `Product` — studio retail/service item (`studioId`, `name`, `category @default("Other")`, `priceInCents`, `creditsRequired Int @default(0)`, `imageUrl`, `inStock @default(true)`); free = both price and credits = 0
+Key fields:
+- `ClassSchedule`: `daysOfWeek Int[]`, `startTime`, `durationMin`, `intervalWeeks @default(1)`, `validFrom/validUntil`, `isActive`
+- `ClassSession`: `scheduleId` (nullable → SetNull), `substituteInstructorId`
+- `RoomLayout`: `widthM`, `lengthM`, `isActive`
+- `Station`: `type: StationType`, `xM`, `yM`, `rotation`, `label`
+- `Booking.stationId` — spot assignment
+- `Member.staffRoles String[] @default([])` — all roles; `studioIds` in `app_metadata` for multi-studio
+- `Product`: `category @default("Other")`, `priceInCents`, `creditsRequired Int @default(0)`, `inStock`; free = both price and credits = 0
 
-Seed data lives in `packages/db/src/seed.ts`:
-- 1 studio: Packd Demo Studio
-- 1 location: Stockholm City
-- 2 rooms: Ride Room (cap 20), The Floor (cap 16)
-- 3 class templates: Cycling, HIIT, Yoga
-- 1 instructor: Alex Rivera
-- 3 membership plans
-- ~26 sessions spread over 7 days
+Seed (`packages/db/src/seed.ts`): 1 studio (Packd Demo), Stockholm City location, 2 rooms (Ride Room cap 20, The Floor cap 16), 3 templates, 1 instructor (Alex Rivera), 3 plans, ~26 sessions.
 
 ## Security model
 
-- **Role source**: Role is read exclusively from `app_metadata` in the Supabase JWT (server-controlled). `user_metadata` is never trusted for access control.
-- **Role allowlist**: `'admin' | 'franchise_admin' | 'studio_admin' | 'instructor' | 'fronthost'` get elevated roles — anything else defaults to `'member'`.
-- **Role ranks**: `admin=5`, `franchise_admin=4`, `studio_admin=3`, `instructor=2`, `fronthost=2`, `member=1`. `fronthost` and `instructor` share rank 2 — both pass `requireRole('instructor')` guards but not `requireRole('studio_admin')`.
-- **Dual-role staff**: A user can hold both `fronthost` and `instructor` roles simultaneously. `app_metadata.roles` (string array) tracks all assigned roles; `app_metadata.role` (string) is the primary/highest role (instructor wins over fronthost). `AuthUser.roles` is populated from this array. Dashboard routing checks `roles.includes('fronthost') && roles.includes('instructor')` and renders `DualRoleDashboard` with a mode switcher.
-- **Multi-studio staff**: A staff member can work at multiple studios. `app_metadata.studioIds` (string array) accumulates all studios they're assigned to. `Member.staffRoles` tracks their roles at their home studio.
-- **fronthost permissions**: Can check in members, handle payments (credit adjustments), and access daily session/stats views. Cannot edit layouts, manage schedules, or access franchise-level data. Instructors default `canCheckInMembers: false`.
-- **Instructor permissions** (`InstructorPermissions` JSON on `Instructor` model): `canCheckInMembers`, `canManageWaitlist` (true by default), `canManageBookings`, `canViewMemberContact`, `canEditSessionDetails`, `canCancelSession`, `canCreateSchedules` (all false by default). Managed via PermissionsTab; `canCreateSchedules` gates schedule creation/edit/delete UI in CalendarView.
-- **Tenant isolation**: All admin routes call `assertStudioAccess(userId, studioId)` which checks `Member.studioId === studioId`. An admin from studio A cannot access studio B's data.
-- **Race conditions**: Booking creation, cancellation+waitlist-promote, and waitlist-join all run inside `prisma.$transaction()`. DB-level `@@unique([sessionId, memberId])` is the final guard. P2002 on `booking.create` is caught and re-thrown as 409 to handle TOCTOU races.
-- **Re-booking**: `CANCELLED` and `LATE_CANCELLED` booking rows are reactivated via `update` (not `create`) to avoid violating the unique constraint. Booking route checks for all three statuses before deciding whether to update or create.
-- **Past-class booking**: Members cannot book classes whose `startsAt` has passed (400). Admins, franchise_admins, studio_admins, instructors, and fronthosts bypass this check and can book/adjust past or running classes.
-- **Status validation**: Session status updates validated against explicit allowlist `['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']`.
-- **Setting admin role**: Use Supabase Admin API — `PUT /auth/v1/admin/users/:userId` with body `{"app_metadata": {"role": "admin"}}` and service role key. No script needed; curl works fine.
+- **Roles**: `admin=5`, `franchise_admin=4`, `studio_admin=3`, `instructor=2`, `fronthost=2`, `member=1`
+- `fronthost` and `instructor` share rank 2 — both pass `requireRole('instructor')` but not `requireRole('studio_admin')`
+- **Dual-role**: `app_metadata.roles[]` for all roles, `app_metadata.role` for primary. `DualRoleDashboard` renders for users with both `fronthost` + `instructor`.
+- **Multi-studio**: `app_metadata.studioIds[]` — `assertStudioAccess` checks JWT `studioIds` first (fast path), then DB `member.studioId` + `member.studioIds` (fallback). All three copies of this function (`franchise.ts`, `studios.ts`, `integrations.ts`) use this pattern.
+- **Booking guards**: past-class booking blocked for members (400); privileged roles (rank ≥ fronthost) bypass. LATE_CANCELLED re-books via `update` not `create` (avoids P2002). Cancel clears `stationId`.
+- **Instructor permissions** (JSON on `Instructor`): `canCheckInMembers`, `canManageWaitlist` (true), `canManageBookings`, `canViewMemberContact`, `canEditSessionDetails`, `canCancelSession`, `canCreateSchedules` (all false default).
+- `StudioManagerDashboard`: reads role from `session.user.app_metadata.role` as `sessionRole` fallback; `effectiveRole = role ?? sessionRole`.
 
-## What's been built
-
-### API (`apps/api/src/routes/`)
-- `schedule.ts` — `GET /schedule/:studioId` — lists sessions with booking status per user
-- `bookings.ts` — `POST /bookings`, `DELETE /bookings/:id`, `POST /bookings/:id/checkin`; members (role=member or no role) are blocked from booking past sessions (400); LATE_CANCELLED bookings are re-activated via `update` not `create` to avoid P2002; cancel clears `stationId: null`; optional `memberId` body param for on-behalf booking — privileged roles (rank ≥ fronthost) look up member by `{ id: memberId }`, members always book for themselves via `{ userId }`
-- `waitlist.ts` — `POST /waitlist`, `DELETE /waitlist/:id`, `POST /waitlist/:id/confirm`
-- `members.ts` — `GET /members/me`
-- `studios.ts` — `GET/POST /studios`, `PATCH/DELETE /studios/:id`, `GET /studios/:id/rooms`, `POST /studios/:id/rooms`, `DELETE /studios/:id/rooms/:roomId`, `POST /studios/onboard`
-- `admin.ts` — admin-only routes behind `requireAdmin` (role from `app_metadata`)
-  - `GET /admin/sessions?studioId=&date=` — daily session list with booked counts; includes `instructorUserId` for client-side "my classes" filtering
-  - `GET /admin/sessions/:id/bookings` — attendee list with check-in status
-  - `POST /admin/sessions/:id/checkin/:bookingId` — toggle check-in
-  - `PATCH /admin/sessions/:id` — update session status
-  - `GET /admin/stats?studioId=` — today's headline stats; includes `studioName`, `timeFormat`, `currency` for NavBar and price display
-  - `GET /admin/members/search?studioId=&q=` — fuzzy search members by name/email (up to 10 results, includes creditBalance and membershipStatus)
-  - `POST /admin/members/:memberId/credits` — adjust credit balance (positive or negative integer, type: MANUAL_ADJUSTMENT)
-  - `GET /admin/analytics?studioId=&weeks=12` — utilization analytics: heatmap, weekly trend, class stats, funnel, instructor stats (incl. `loyaltyRate`), recurrence, revenue (studio_admin+)
-  - `POST /admin/query` — run a read-only SELECT query against the live DB; validates SELECT/WITH-only, strips comments, blocks DML/DDL/multi-statement, wraps in `SELECT * FROM (...) LIMIT 500`; returns `{ columns, rows, rowCount, duration }` (studio_admin+)
-- `rooms.ts` — room layout and spot assignment
-  - `GET /rooms/:id/layout` — active layout with stations
-  - `POST /rooms/:id/layout` — save/replace layout
-  - `GET /rooms/:id/sessions/:sessionId/spots` — stations + assignments (includes `creditBalance`, `membershipStatus`)
-  - `POST /rooms/:id/sessions/:sessionId/spots` — assign booking to station
-  - `POST /rooms/:id/sessions/:sessionId/my-spot` — member picks own spot
-- `schedules.ts` — recurring class schedule management
-  - `GET /schedules?studioId=&weekStart=` — sessions + resources for a Mon–Sun week *(instructor+ role)*
-  - `GET /schedules/all?studioId=` — all active ClassSchedule records *(instructor+ role)*
-  - `POST /schedules` — create recurring schedule + generate N weeks of sessions
-  - `PATCH /schedules/:id` — update schedule (deletes future unbooked/unsubstituted sessions, regenerates)
-  - `DELETE /schedules/:id` — deactivate + remove future unbooked sessions
-  - `PATCH /schedules/sessions/:sessionId/substitute` — set/clear substitute instructor
-  - `GET /schedules/month?studioId=&year=&month=` — session counts per day for month grid *(instructor+ role)*
-  - `GET /schedules/orphaned?studioId=` — unique session patterns with no schedule link *(instructor+ role)*
-  - `DELETE /schedules/orphaned` — delete future unbooked orphaned sessions by pattern
-  - Read-only GETs require `instructor` (rank 2); mutating POST/PATCH/DELETE require `studio_admin` (rank 3)
-- `staff.ts` — `GET/POST /staff`, `DELETE /staff/:memberId[?role=]`; valid roles: `fronthost`, `instructor`; role assignment is **additive** — POST merges new role with existing `staffRoles`; DELETE with `?role=X` removes a single role from dual-role member; DELETE without role param removes all roles; creating instructor role upserts `Instructor` DB record; deleting instructor role removes it
-- `franchise.ts` — multi-studio management
-  - `GET /franchise/studios` — all studios summary
-  - `GET /franchise/studios/:id/instructors` — instructors with permissions (studio_admin+)
-  - `GET /franchise/studios/:id/my-instructor` — calling instructor's own id + permissions (instructor+ role)
-  - `PATCH /franchise/studios/:id/instructors/:instructorId/permissions` — update instructor permissions
-- `products.ts` — `GET /products?studioId=` (requireAuth, `?all=true` includes out-of-stock), `POST /products`, `PATCH /products/:id`, `DELETE /products/:id` (studio_admin+)
-- `stripe.ts` — Stripe webhook handler stub
-
-### Web (`apps/web/src/`)
-- `/login` — sign in / sign up with Supabase Auth
-- `/onboarding` — multi-step studio setup wizard (5 steps)
-- `/schedule` — main member-facing schedule view (fully working)
-- `/dashboard` — admin dashboard (admin role required)
-
-### Schedule UI components
-- `ScheduleView.tsx` — main shell, two-column layout (schedule + calendar sidebar); reads `userRole` from `session.user.app_metadata` and derives `isPrivileged` (non-member), passed as `privileged` prop to cards and detail view
-- `schedule/ClassCard.tsx` — drag-ready card; past classes are greyed out and non-clickable for members; accepts `privileged` prop to bypass the past-class lock
-- `schedule/SessionDetailView.tsx` — full session detail view opened when a card is clicked; spot picker with book-by-spot-click flow; cancel button always visible (greyed out until spot picked); members locked out of all actions on past classes via `isPast = !privileged && startsAt < now`; tapping own spot on the map cancels the booking (red hover state with ✕)
-- `schedule/DayTabs.tsx` — 7-day tabs with integrated prev/next arrows, today outline, selected filled
-- `schedule/FilterBar.tsx` — sport filter pills
-- `schedule/CapacityBar.tsx` — green/amber/red fill bar
-- `schedule/MiniCalendar.tsx` — monthly grid with ISO week numbers per row, sport-colored booking dots
-- `schedule/constants.ts` — SPORT_CONFIG color map
-
-### Admin UI components
-- `admin/AdminShell.tsx` — Management | Front Desk pill toggle in NavBar; `studio_admin` dashboard and FranchiseDashboard drill-in both render this; management mode → `StudioManagerDashboard`, front desk mode → `FronthostDashboard` locked to the studio
-- `admin/SessionPanel.tsx` — attendee list with avatar initials + credit balance, check-in toggle; three-segment attendance bar (black=checked-in, amber=booked-not-in, light-gray=empty); `canCancel` prop (default true) — instructors see the panel without the cancel button
-
-### Franchise / studio management components
-- `franchise/FranchiseDashboard.tsx` — multi-studio overview cards, drill into per-studio management; `onStudioUpdate` callback keeps cards in sync after settings save without reload
-- `studio/StudioManagerDashboard.tsx` — tabbed per-studio view; role-aware: instructors see Today + Calendar only; clicking a session opens room map directly; `myClassesOnly` filter defaults ON for instructors; loads own `Instructor` record to pass `myInstructorId` + `myPermissions` to CalendarView; studio name shown in NavBar for all roles; accepts `modeSwitch?: React.ReactNode` prop passed to NavBar `action` slot (used by DualRoleDashboard); reads `sessionRole` from Supabase JWT `app_metadata.role` as fallback when `role` prop is not passed (e.g. from AdminShell); `effectiveRole = role ?? sessionRole` drives tab visibility; passes `canQuery={isAdminRole}` to AnalyticsTab
-- `studio/AnalyticsTab.tsx` — full analytics dashboard; `canQuery` prop (default false) shows "Overview / Custom Query" sub-nav pill for studio_admin+; Overview: SVG line chart (smooth Bézier, animated) for weekly trend, period-over-period deltas on stat cards, heatmap, funnel, class rankings, instructor table with `loyaltyRate` (violet mini-bar), member recurrence, revenue/credit summary
-- `studio/QueryTab.tsx` — custom SQL query runner (studio_admin+); SELECT-only textarea with auto-resize + ⌘↵ shortcut; 6 built-in example queries; localStorage history (last 10); results table with sticky headers, NULL display, row numbers, CSV export; collapsible schema reference panel
-- `dual/DualRoleDashboard.tsx` — renders for users with both `fronthost` + `instructor` roles; inline `ModeSwitcher` toggle (Front Desk / Instructor) injected into the NavBar `action` slot via the `modeSwitch` prop; defaults to Front Desk mode
-- `studio/RoomsTab.tsx` — room list + layout editor (editor-only, no session features)
-- `studio/PermissionsTab.tsx` — per-instructor permission toggles with accordion UI; toggle fix: explicit `left-1 translate-x-0/translate-x-4` anchoring required; includes `canCreateSchedules` permission
-- `studio/SettingsTab.tsx` — studio name, timezone (grouped optgroup, ~80 zones), currency (34 options); calls `onStudioUpdate` on save
-- `studio/StaffTab.tsx` — manage fronthosts and instructors; violet badge for instructors, blue for front desk; additive role assignment — help text explains users can hold both roles; dual-role members show per-role `×` remove button on each badge; single "Remove" button removes all roles entirely; shortcut to Permissions tab for instructor rows
-- `studio/ProductsTab.tsx` — CRUD UI for studio products; grouped by category; price input with `step="0.01"` and currency code prefix; `fmtPrice(cents, currency)` with 2 decimal places; "Free" label only when both price and credits = 0
-- `studio/SocialPhotosTab.tsx` — two sections: "Approved" gallery (`ApprovedPhotosGallery` with per-instructor filter pills and unapprove action) and "Photo Repositories" (instructor selector + `PhotosTab` with `isManager=true`)
-
-### Calendar components (`components/calendar/`)
-- `CalendarView.tsx` — three views: `week` (time grid with overlap layout), `month` (sport-dot grid), `schedules` (master recurring + orphaned sessions)
-  - Critical: `isoDate()` uses `getFullYear()/getMonth()/getDate()` not `.toISOString()` to avoid UTC offset shifting the week
-  - Overlap layout: sessions sorted by start, grouped by overlap, rendered side-by-side with `leftFrac`/`widthFrac`
-  - Props: `canCreateSchedules` (default true) gates all schedule creation/edit/delete UI; `filterInstructorId` enables "My classes" filter pill (defaults ON); `visibleSessions` derived from filter state, includes sessions where instructor is primary or substitute
-- `ScheduleModal.tsx` — create/edit recurring schedule; day-of-week pills; frequency: 1/2/3/4 weeks; pre-fills from orphaned session patterns
-- `SubstituteModal.tsx` — per-session substitute instructor assignment
-
-### Room map components (`components/room/`)
-- `RoomMapView.tsx` — orchestrator with `variant` prop: `'editor'` (layout only) or `'checkin'` (session spots only); also handles check-in toggles via `api.admin.checkin`; always calls `createClient().auth.getSession()` for a fresh token before API calls
-- `RoomMapEditor.tsx` — drag-to-place floor plan editor; palette drag + canvas move + double-click rename + hover delete
-- `SessionRoomMap.tsx` — pixel-scale check-in map (90px/m, 130×100px min per station); two-panel layout: compact station list (w-52, sorted by label, quick ✓ check-in button) + scrollable canvas; shows member name, membership badge, credit balance, check-in toggle; DnD assignment with lock — checked-in members cannot be dragged and their target station blocks drops; drag IDs namespaced: canvas uses bare `bookingId`, list uses `list-drag-{bookingId}`, droppable list rows use `list-{stationId}`
-- `SpotPicker.tsx` — member-facing spot map; own spot shows ✓/"You" normally, red ✕/"Cancel" on hover; clicking own spot calls `onPick(null)` which the parent wires to cancel the booking
-- `constants.ts` — `STATION_META` (icon, color, physical size in metres per type), `GRID_STEP`, `snapToGrid`
-
-### Fronthost components (`components/fronthost/`)
-- `FronthostDashboard.tsx` — full-screen layout: session sidebar (w-72) with today's sessions, LIVE badge, fill bar, date picker; clicking a session loads `<RoomMapView variant="checkin" />`; "Walk-in" button opens `MemberDrawer`; "+ Credits" button opens `CreditModal`; `currency` state populated from stats on mount; accepts `modeSwitch?: React.ReactNode` prop passed to NavBar `action` slot
-- `CreditModal.tsx` — member search via `api.admin.searchMembers`; preset amounts (+5, +10, +20, +30) with deduct toggle; manual amount + optional note; calls `api.admin.adjustCredits`
-- `MemberDrawer.tsx` — slide-over walk-in POS; member search (debounced 300ms, min 2 chars); on-behalf session booking for selected member; product grid with cart; "Charge N cr" (credit cart) or "Record sale" (cash); `fmtPrice` with studio currency; shows "No products configured" hint if catalog is empty
-
-### Tests
-- `apps/api/src/__tests__/booking.test.ts` — 16 unit tests (create 201, full class 409, insufficient credits 402, cancelled session 400, missing body 400, past class rejected for member 400, past class allowed for admin 201, LATE_CANCELLED re-book via update 201, on-time cancel 200, late cancel 200, wrong user cancel 403, cancel clears stationId, fronthost on-behalf booking, studio_admin on-behalf booking, member role ignores memberId override, overlap conflict 409)
-- `apps/api/src/__tests__/query.test.ts` — 16 unit tests (SELECT 200, WITH/CTE 200, empty result 200, Date serialisation, INSERT/UPDATE/DELETE/DROP/TRUNCATE all 400, multi-statement 400, comment-bypass attempt 400, trailing semicolon allowed, missing studioId 400, missing sql 400, empty sql 400, DB error forwarded 400)
-- `apps/api/src/__tests__/products.test.ts` — 10 unit tests (GET: in-stock list, all=true, missing studioId 400; POST: create 201, defaults creditsRequired=0, missing fields 400; PATCH: update, 404; DELETE: success, 404)
-- `apps/api/src/__tests__/waitlist.test.ts` — 6 unit tests (join empty 201, join with queue 201, missing body 400, confirm valid 200, expired window 410, wrong user 403)
-- `apps/api/src/__tests__/checkin.test.ts` — 3 unit tests (toggle on, toggle off + clears checkedInAt, wrong session booking 404)
-- `apps/api/src/__tests__/credits.test.ts` — 5 unit tests (add credits, deduct credits, amount=0 rejected, non-integer rejected, missing member 404)
-- `e2e/auth.spec.ts` — redirect, form render, mode toggle, invalid credentials
-- `e2e/schedule.spec.ts` — day tabs, selected tab, class cards, week nav, sport filter, day switching
-- `e2e/booking.spec.ts` — book button, waitlist button
-- `e2e/performance.spec.ts` — schedule LCP < 2500ms, schedule CLS < 0.1, login TTFB < 800ms, dashboard LCP < 3000ms, dashboard CLS < 0.1, schedule API < 500ms, admin sessions API < 600ms, member search API < 500ms
-- `e2e/fixtures.ts` — `authedPage` (member, lands /schedule) and `adminPage` (admin, lands /dashboard) fixtures
-
-## What's next
-
-### High priority
-- [ ] Member account page — credit balance, upcoming bookings, cancel from there
-- [ ] Booking confirmation flow — post-book state, credit deduction visible to user
-- [ ] Push/email notifications when promoted from waitlist
-
-### Medium priority
-- [ ] Stripe credit purchase flow — buy credit packs, webhook updates CreditBalance
-- [ ] Membership subscription management — upgrade/downgrade/cancel
-- [ ] Admin drag-to-reschedule — wire up the DnD stub in ScheduleView (`handleDragEnd`)
-
-### Lower priority
-- [ ] Expo mobile app — auth, schedule view, booking (Expo Router)
-- [ ] No-show fee job — `session.no-show` queue handler
-- [ ] Nightly maintenance job — `nightly.maintenance` queue handler
-- [ ] Membership renewal reminders — `membership.renewal-reminder` queue handler
-- [ ] Multi-location support — location picker in schedule view
-- [ ] RLS Option B — true API-level tenant isolation: create a non-privileged `api_user` Postgres role (NOBYPASSRLS), change DATABASE_URL, add Prisma middleware using AsyncLocalStorage to wrap every query in a transaction with `SET LOCAL app.current_studio_id = studioId`. Protects against app bugs in the Fastify routes, not just direct DB access. See `packages/db/rls.sql` for context.
-- [ ] Instructor portal — view own schedule, attendance
-
-## File map (key files only)
+## File map
 
 ```
 apps/
-  api/
-    src/
-      server.ts          # Fastify app setup, CORS, plugin registration
-      lib/auth.ts        # requireAuth preHandler, JWKS verification
-      jobs/index.ts      # pg-boss setup and job handlers
-      routes/            # All API route handlers
-      __tests__/         # Vitest unit tests
-  web/
-    src/
-      app/               # Next.js App Router pages
-      components/
-        ScheduleView.tsx  # Main schedule shell
-        schedule/         # Schedule sub-components
-        admin/            # AdminShell (mgmt/front-desk toggle), SessionPanel
-        calendar/         # CalendarView, ScheduleModal, SubstituteModal
-        franchise/        # FranchiseDashboard
-        studio/           # StudioManagerDashboard, RoomsTab, PermissionsTab, SettingsTab, ProductsTab, SocialPhotosTab
-        room/             # RoomMapView, RoomMapEditor, SessionRoomMap, constants
-        fronthost/        # FronthostDashboard, CreditModal, MemberDrawer
-        dual/             # DualRoleDashboard (fronthost+instructor mode switcher)
-        onboarding/       # Onboarding wizard steps
-      lib/
-        api.ts            # Typed API client
-        supabase/         # Supabase client (client.ts + server.ts)
-      middleware.ts       # Session refresh middleware
+  api/src/
+    server.ts            # Fastify setup, CORS, plugins
+    lib/auth.ts          # requireAuth, JWKS, role helpers
+    jobs/index.ts        # pg-boss handlers
+    routes/              # schedule, bookings, waitlist, members, studios,
+                         # admin, rooms, schedules, staff, franchise,
+                         # products, integrations, stripe
+    __tests__/           # Vitest unit tests
+  web/src/
+    app/                 # Next.js pages (login, onboarding, schedule, dashboard)
+    components/
+      ScheduleView.tsx   # Member schedule shell + location picker
+      schedule/          # ClassCard, SessionDetailView, DayTabs, FilterBar, etc.
+      admin/             # AdminShell (mgmt/front-desk toggle), SessionPanel
+      calendar/          # CalendarView (week/month/schedules), ScheduleModal, SubstituteModal
+      franchise/         # FranchiseDashboard
+      studio/            # StudioManagerDashboard, RoomsTab, PermissionsTab,
+                         # SettingsTab, StaffTab, ProductsTab, AnalyticsTab, QueryTab
+      room/              # RoomMapView, RoomMapEditor, SessionRoomMap, SpotPicker, constants
+      fronthost/         # FronthostDashboard, MemberDrawer, CreditModal
+      dual/              # DualRoleDashboard
+    lib/
+      api.ts             # Typed API client
+      supabase/          # client.ts + server.ts
+    middleware.ts        # Session refresh
 packages/
-  db/
-    prisma/schema.prisma  # Full 16-model schema
-    src/
-      index.ts            # Exports prisma client
-      seed.ts             # Demo data seed script
-  types/
-    src/index.ts          # Shared TypeScript types
-e2e/                      # Playwright E2E tests
+  db/prisma/schema.prisma
+  db/src/seed.ts
+  types/src/index.ts     # Shared types (SessionSlot has locationId/locationName)
+e2e/                     # Playwright specs
 ```
+
+## Backlog
+
+### High priority
+- [ ] Push/email notifications when promoted from waitlist
+- [ ] Stripe credit purchase flow
+
+### Lower priority
+- [ ] Expo mobile app
+- [ ] RLS Option B — DB-level tenant isolation via `SET LOCAL app.current_studio_id`

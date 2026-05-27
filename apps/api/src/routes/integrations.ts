@@ -36,10 +36,12 @@ async function assertStudioAccess(
   userId: string,
   role: string,
   studioId: string,
+  studioIds?: string[],
 ): Promise<boolean> {
   if (ROLE_RANK[role as keyof typeof ROLE_RANK] >= ROLE_RANK['franchise_admin']) return true
-  const member = await prisma.member.findUnique({ where: { userId }, select: { studioId: true } })
-  return !!(member && member.studioId === studioId)
+  if (studioIds && studioIds.includes(studioId)) return true
+  const member = await prisma.member.findUnique({ where: { userId }, select: { studioId: true, studioIds: true } })
+  return !!(member && (member.studioIds.includes(studioId) || member.studioId === studioId))
 }
 
 export async function integrationRoutes(app: FastifyInstance) {
@@ -51,7 +53,7 @@ export async function integrationRoutes(app: FastifyInstance) {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId)) return reply.forbidden()
+      if (!await assertStudioAccess(user.id, user.role, studioId, user.studioIds)) return reply.forbidden()
 
       const integration = await prisma.studioIntegration.findUnique({ where: { studioId } })
       if (!integration) return reply.send(null)
@@ -81,7 +83,7 @@ export async function integrationRoutes(app: FastifyInstance) {
         return reply.badRequest('Unsupported provider. Only "mariana_tek" is supported.')
       }
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId)) return reply.forbidden()
+      if (!await assertStudioAccess(user.id, user.role, studioId, user.studioIds)) return reply.forbidden()
 
       let apiKeyEnc: string
       try {
@@ -125,7 +127,7 @@ export async function integrationRoutes(app: FastifyInstance) {
         return reply.badRequest('studioId and a non-empty members array are required')
       }
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId)) return reply.forbidden()
+      if (!await assertStudioAccess(user.id, user.role, studioId, user.studioIds)) return reply.forbidden()
 
       if (members.length > 500) return reply.badRequest('Maximum 500 members per batch')
 
@@ -200,7 +202,7 @@ export async function integrationRoutes(app: FastifyInstance) {
         return reply.badRequest('studioId and a non-empty sessions array are required')
       }
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId)) return reply.forbidden()
+      if (!await assertStudioAccess(user.id, user.role, studioId, user.studioIds)) return reply.forbidden()
 
       if (sessions.length > 200) return reply.badRequest('Maximum 200 sessions per batch')
 

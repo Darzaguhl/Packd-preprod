@@ -136,6 +136,18 @@ export default function AccountView() {
     setTimeout(() => setToast(null), 3000)
   }
 
+  async function handleCancelMembership() {
+    if (!token) return
+    try {
+      await api.memberships.cancelMe(token)
+      const updated = await api.members.me(token)
+      setProfile(updated)
+      showToast('Membership cancelled')
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Failed to cancel membership', false)
+    }
+  }
+
   async function handleSubscribe(planId: string) {
     if (!token) return
     try {
@@ -220,6 +232,7 @@ export default function AccountView() {
             plans={plans}
             onCancelBooking={handleCancelBooking}
             onSubscribe={handleSubscribe}
+            onCancelMembership={handleCancelMembership}
             onEditProfile={() => setEditingProfile(true)}
           />
         </div>

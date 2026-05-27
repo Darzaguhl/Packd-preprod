@@ -11,10 +11,12 @@ async function assertStudioAccess(
   userRole: string,
   studioId: string,
   reply: FastifyReply,
+  studioIds?: string[],
 ): Promise<boolean> {
   if (ROLE_RANK[userRole as keyof typeof ROLE_RANK] >= ROLE_RANK['franchise_admin']) return true
-  const member = await prisma.member.findUnique({ where: { userId }, select: { studioId: true } })
-  if (!member || member.studioId !== studioId) {
+  if (studioIds && studioIds.includes(studioId)) return true
+  const member = await prisma.member.findUnique({ where: { userId }, select: { studioId: true, studioIds: true } })
+  if (!member || (!member.studioIds.includes(studioId) && member.studioId !== studioId)) {
     reply.code(403).send({ error: 'Access denied' })
     return false
   }
@@ -86,7 +88,7 @@ export async function studioRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId } = request.params
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const studio = await prisma.studio.findUnique({
         where: { id: studioId },
@@ -115,7 +117,7 @@ export async function studioRoutes(app: FastifyInstance) {
       const { studioId } = request.params
       const { name, slug, timezone, currency, timeFormat, location } = request.body
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       if (slug) {
         const conflict = await prisma.studio.findFirst({ where: { slug, id: { not: studioId } } })
@@ -166,7 +168,7 @@ export async function studioRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId } = request.params
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const policy = await prisma.cancellationPolicy.findUnique({ where: { studioId } })
       // Return current values or schema defaults
@@ -194,7 +196,7 @@ export async function studioRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId } = request.params
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const { lateCancelWindowHours, lateCancelFeeCredits, noShowFeeCredits, waitlistWindowMinutes } = request.body
 
@@ -239,7 +241,7 @@ export async function studioRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId } = request.params
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const locations = await prisma.location.findMany({
         where: { studioId },
@@ -278,7 +280,7 @@ export async function studioRoutes(app: FastifyInstance) {
       const { studioId } = request.params
       const { name, capacity, locationId } = request.body
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       if (!name || !capacity || capacity < 1) {
         return reply.badRequest('name and capacity (≥1) are required')
@@ -307,7 +309,7 @@ export async function studioRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId, roomId } = request.params
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const room = await prisma.room.findFirst({
         where: { id: roomId, location: { studioId } },

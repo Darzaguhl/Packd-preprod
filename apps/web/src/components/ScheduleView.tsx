@@ -60,6 +60,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
     return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : toIsoDate(new Date())
   })
   const [selectedSport, setSelectedSport] = useState('ALL')
+  const [selectedLocation, setSelectedLocation] = useState('ALL')
   const [weekOffset, setWeekOffset] = useState<number>(() => {
     const w = searchParams.get('week')
     const n = w ? parseInt(w, 10) : 0
@@ -118,7 +119,23 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   // Derived: week number
   const weekNumber = useMemo(() => isoWeekNumber(currentWeekMonday), [currentWeekMonday])
 
-  // Derived: day tabs
+  // Derived: unique locations across all sessions this week
+  const locations = useMemo<{ id: string; name: string }[]>(() => {
+    const seen = new Map<string, string>()
+    sessions.forEach(s => { if (!seen.has(s.locationId)) seen.set(s.locationId, s.locationName) })
+    return Array.from(seen.entries()).map(([id, name]) => ({ id, name }))
+  }, [sessions])
+
+  // Reset location filter when we navigate to a new week (in case the new week has different locations)
+  useEffect(() => { setSelectedLocation('ALL') }, [weekOffset])
+
+  // Derived: sessions filtered by location (used for day tab counts + day sessions)
+  const locationSessions = useMemo(
+    () => selectedLocation === 'ALL' ? sessions : sessions.filter(s => s.locationId === selectedLocation),
+    [sessions, selectedLocation],
+  )
+
+  // Derived: day tabs (counts respect location filter)
   const days = useMemo<DayTab[]>(() => {
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date(currentWeekMonday.getTime() + i * 86400000)
@@ -127,27 +144,27 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
         label: d.toLocaleDateString('en-US', { weekday: 'short' }),
         date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
         iso,
-        count: sessions.filter((s) => toIsoDate(new Date(s.startsAt)) === iso).length,
+        count: locationSessions.filter((s) => toIsoDate(new Date(s.startsAt)) === iso).length,
       }
     })
-  }, [sessions, currentWeekMonday])
+  }, [locationSessions, currentWeekMonday])
 
-  // Derived: sports present in current week
+  // Derived: sports present in current week (respect location filter)
   const availableSports = useMemo(
-    () => [...new Set(sessions.map((s) => s.sport))].sort(),
-    [sessions],
+    () => [...new Set(locationSessions.map((s) => s.sport))].sort(),
+    [locationSessions],
   )
 
   // Derived: filtered sessions for selected day
   const daySessions = useMemo(() => {
-    return sessions
+    return locationSessions
       .filter((s) => {
         const matchDay = toIsoDate(new Date(s.startsAt)) === selectedDay
         const matchSport = selectedSport === 'ALL' || s.sport === selectedSport
         return matchDay && matchSport
       })
       .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
-  }, [sessions, selectedDay, selectedSport])
+  }, [locationSessions, selectedDay, selectedSport])
 
   // Derived: selected day label for subtitle
   const selectedDayLabel = days.find((d) => d.iso === selectedDay)
@@ -256,6 +273,24 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
               onPrev={() => setWeekOffset((w) => w - 1)}
               onNext={() => setWeekOffset((w) => w + 1)}
             />
+            {/* Location picker — only shown when studio has multiple locations */}
+            {locations.length > 1 && (
+              <div className="pt-2 pb-1 flex gap-1.5 overflow-x-auto scrollbar-none">
+                {[{ id: 'ALL', name: 'All locations' }, ...locations].map(loc => (
+                  <button
+                    key={loc.id}
+                    onClick={() => setSelectedLocation(loc.id)}
+                    className={`shrink-0 text-xs font-medium px-3 py-1.5 rounded-full transition-all duration-150 ${
+                      selectedLocation === loc.id
+                        ? 'bg-black text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {loc.name}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="py-3">
               <FilterBar
                 available={availableSports}

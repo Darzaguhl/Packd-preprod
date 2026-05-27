@@ -53,11 +53,13 @@ function fmtPrice(cents: number) {
 function PlanCard({
   plan,
   isCurrent,
+  hasActivePlan,
   onSelect,
   subscribing,
 }: {
   plan: Omit<MembershipPlan, 'activeSubscriptions'>
   isCurrent: boolean
+  hasActivePlan: boolean
   onSelect: (id: string) => void
   subscribing: boolean
 }) {
@@ -95,7 +97,7 @@ function PlanCard({
           disabled={subscribing}
           className="mt-auto w-full py-2 rounded-xl text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-50 transition-colors"
         >
-          {subscribing ? 'Subscribing…' : 'Subscribe'}
+          {subscribing ? 'Switching…' : hasActivePlan ? 'Switch to this plan' : 'Subscribe'}
         </button>
       )}
     </div>
@@ -116,6 +118,8 @@ interface Props {
   onCancelBooking?: (bookingId: string) => Promise<void>
   /** If provided, subscribe button appears on plan cards */
   onSubscribe?: (planId: string) => Promise<void>
+  /** If provided, cancel membership button appears */
+  onCancelMembership?: () => Promise<void>
   /** If provided, an edit button appears on the profile card (member's own view only) */
   onEditProfile?: () => void
   /** Show email — for admin view */
@@ -225,12 +229,15 @@ export default function MemberHistoryView({
   plans = [],
   onCancelBooking,
   onSubscribe,
+  onCancelMembership,
   onEditProfile,
   showEmail = false,
 }: Props) {
   const [tab, setTab] = useState<Tab>('upcoming')
   const [showPlans, setShowPlans] = useState(false)
   const [subscribing, setSubscribing] = useState<string | null>(null)
+  const [cancellingMembership, setCancellingMembership] = useState(false)
+  const [confirmCancelMembership, setConfirmCancelMembership] = useState(false)
 
   async function handleSubscribe(planId: string) {
     if (!onSubscribe) return
@@ -240,6 +247,17 @@ export default function MemberHistoryView({
       setShowPlans(false)
     } finally {
       setSubscribing(null)
+    }
+  }
+
+  async function handleCancelMembership() {
+    if (!onCancelMembership) return
+    setCancellingMembership(true)
+    try {
+      await onCancelMembership()
+      setConfirmCancelMembership(false)
+    } finally {
+      setCancellingMembership(false)
     }
   }
 
@@ -296,14 +314,24 @@ export default function MemberHistoryView({
                   </span>
                 </div>
               </div>
-              {onSubscribe && plans.length > 0 && (
-                <button
-                  onClick={() => setShowPlans(true)}
-                  className="text-xs text-gray-500 hover:text-gray-900 underline underline-offset-2 text-left"
-                >
-                  Change plan
-                </button>
-              )}
+              <div className="flex items-center gap-3">
+                {onSubscribe && plans.length > 0 && (
+                  <button
+                    onClick={() => setShowPlans(true)}
+                    className="text-xs text-gray-500 hover:text-gray-900 underline underline-offset-2"
+                  >
+                    Change plan
+                  </button>
+                )}
+                {onCancelMembership && (
+                  <button
+                    onClick={() => setConfirmCancelMembership(true)}
+                    className="text-xs text-red-400 hover:text-red-600 underline underline-offset-2"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
             </>
           ) : (
             <>
@@ -373,13 +401,41 @@ export default function MemberHistoryView({
         </div>
       )}
 
+      {/* Cancel membership confirmation */}
+      {confirmCancelMembership && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setConfirmCancelMembership(false)} />
+          <div className="fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-2xl px-6 pt-6 pb-8 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-88 sm:rounded-2xl sm:shadow-xl">
+            <h2 className="text-base font-semibold text-gray-900 mb-2">Cancel membership?</h2>
+            <p className="text-sm text-gray-500 mb-6">
+              Your membership will be cancelled immediately. Any credits already granted will remain in your account.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmCancelMembership(false)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Keep membership
+              </button>
+              <button
+                onClick={handleCancelMembership}
+                disabled={cancellingMembership}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-medium hover:bg-red-600 disabled:opacity-50 transition-colors"
+              >
+                {cancellingMembership ? 'Cancelling…' : 'Yes, cancel'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Plans overlay */}
       {showPlans && (
         <>
           <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setShowPlans(false)} />
           <div className="fixed inset-x-0 bottom-0 z-50 bg-gray-50 rounded-t-2xl max-h-[85vh] overflow-y-auto">
             <div className="sticky top-0 bg-gray-50 px-5 pt-5 pb-3 flex items-center justify-between border-b border-gray-100">
-              <h2 className="text-base font-semibold text-gray-900">Membership Plans</h2>
+              <h2 className="text-base font-semibold text-gray-900">{activeSubscription ? 'Switch plan' : 'Membership Plans'}</h2>
               <button onClick={() => setShowPlans(false)} className="text-gray-400 hover:text-gray-600 p-1">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
@@ -392,13 +448,16 @@ export default function MemberHistoryView({
                   key={plan.id}
                   plan={plan}
                   isCurrent={activeSubscription?.planName === plan.name}
+                  hasActivePlan={!!activeSubscription}
                   onSelect={handleSubscribe}
                   subscribing={subscribing === plan.id}
                 />
               ))}
             </div>
             <p className="text-center text-xs text-gray-400 pb-6 px-5">
-              Subscription starts immediately. Credits are added to your account right away.
+              {activeSubscription
+                ? 'Your current plan will be cancelled and the new plan starts immediately.'
+                : 'Subscription starts immediately. Credits are added to your account right away.'}
             </p>
           </div>
         </>

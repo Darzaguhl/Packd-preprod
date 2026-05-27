@@ -487,7 +487,6 @@ export async function classScheduleRoutes(app: FastifyInstance) {
         where: {
           studioId,
           startsAt: { gte: from, lte: until },
-          // Optional instructor filter: primary or substitute
           ...(instructorId ? {
             OR: [
               { instructorId },
@@ -495,17 +494,29 @@ export async function classScheduleRoutes(app: FastifyInstance) {
             ],
           } : {}),
         },
-        include: { template: true },
+        include: {
+          template: true,
+          instructor: { select: { user: { select: { firstName: true, lastName: true } } } },
+        },
         orderBy: { startsAt: 'asc' },
       })
 
       // Group by local date string "YYYY-MM-DD"
-      const byDate: Record<string, { sport: string; count: number }[]> = {}
+      const byDate: Record<string, { id: string; sport: string; name: string; startsAt: string; instructorName: string; status: string }[]> = {}
       for (const s of sessions) {
         const d = s.startsAt
         const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
         if (!byDate[key]) byDate[key] = []
-        byDate[key].push({ sport: s.template.sport, count: 1 })
+        const u = s.instructor?.user
+        const instructorName = u ? `${u.firstName} ${u.lastName}`.trim() : ''
+        byDate[key].push({
+          id: s.id,
+          sport: s.template.sport,
+          name: s.template.name,
+          startsAt: s.startsAt.toISOString(),
+          instructorName,
+          status: s.status,
+        })
       }
 
       return reply.send({ year: y, month: m, days: byDate })

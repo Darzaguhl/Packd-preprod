@@ -370,6 +370,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
             canCreateSchedules={role === 'instructor' ? (myPermissions?.canCreateSchedules ?? false) : true}
             canSetSubstitute={role === 'instructor' ? (myPermissions?.canSetSubstitute ?? false) : true}
             filterInstructorId={role === 'instructor' ? (myInstructorId ?? undefined) : undefined}
+            canReschedule={isAdminRole}
           />
         </div>
       )}

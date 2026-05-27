@@ -36,6 +36,8 @@ export interface SessionSlot {
   instructorName: string
   roomId: string
   roomName: string
+  locationId: string
+  locationName: string
   startsAt: string
   endsAt: string
   capacity: number
@@ -45,7 +47,7 @@ export interface SessionSlot {
   creditsRequired: number
   userBookingId?: string
   userStationId?: string | null
-  userWaitlistPosition?: number
+  userWaitlistPosition?: number | null
 }
 
 // ─── Booking ──────────────────────────────────────────────────────────────────

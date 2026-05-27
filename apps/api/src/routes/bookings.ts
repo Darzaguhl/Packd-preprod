@@ -78,7 +78,11 @@ export async function bookingRoutes(app: FastifyInstance) {
         // Read balance inside the transaction to prevent concurrent overdraft
         const creditBalance = await tx.creditBalance.findUnique({ where: { memberId: member.id } })
         const balance = creditBalance?.balance ?? 0
-        if (balance < session.creditsRequired) {
+        // Privileged staff booking on behalf of a member (fronthost / studio_admin / etc.)
+        // bypass the credit guard — balance can go negative and be topped up at the desk.
+        // Members booking for themselves always need sufficient credits.
+        const onBehalf = isPrivileged && !!targetMemberId
+        if (!onBehalf && balance < session.creditsRequired) {
           throw Object.assign(new Error('Insufficient credits'), { statusCode: 402 })
         }
 

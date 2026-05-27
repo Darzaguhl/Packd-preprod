@@ -30,7 +30,7 @@ export async function scheduleRoutes(app: FastifyInstance) {
           include: {
             template: true,
             instructor: { include: { user: true } },
-            room: true,
+            room: { include: { location: true } },
             _count: { select: { bookings: { where: { status: 'CONFIRMED' } }, waitlist: true } },
           },
           orderBy: { startsAt: 'asc' },
@@ -49,6 +49,28 @@ export async function scheduleRoutes(app: FastifyInstance) {
             })
           : []
 
+      // Waitlist position: for each session the member is waiting on,
+      // count entries with an earlier joinedAt to get their 1-indexed position.
+      const userWaitlistEntries =
+        user.role === 'member'
+          ? await prisma.waitlistEntry.findMany({
+              where: {
+                session: { studioId },
+                member: { userId: user.id },
+                status: 'WAITING',
+              },
+              select: { sessionId: true, joinedAt: true },
+            })
+          : []
+
+      const waitlistPositionMap = new Map<string, number>()
+      for (const entry of userWaitlistEntries) {
+        const ahead = await prisma.waitlistEntry.count({
+          where: { sessionId: entry.sessionId, status: 'WAITING', joinedAt: { lt: entry.joinedAt } },
+        })
+        waitlistPositionMap.set(entry.sessionId, ahead + 1)
+      }
+
       const bookingMap = new Map(userBookings.map((b) => [b.sessionId, b]))
 
       return reply.send({
@@ -62,6 +84,8 @@ export async function scheduleRoutes(app: FastifyInstance) {
             instructorName: `${s.instructor.user.firstName} ${s.instructor.user.lastName}`,
             roomId: s.roomId,
             roomName: s.room.name,
+            locationId: s.room.location.id,
+            locationName: s.room.location.name,
             startsAt: s.startsAt.toISOString(),
             endsAt: s.endsAt.toISOString(),
             capacity: s.capacity,
@@ -71,6 +95,7 @@ export async function scheduleRoutes(app: FastifyInstance) {
             creditsRequired: s.creditsRequired,
             userBookingId: userBooking?.id,
             userStationId: userBooking?.stationId ?? null,
+            userWaitlistPosition: waitlistPositionMap.get(s.id) ?? null,
           }
         }),
       })

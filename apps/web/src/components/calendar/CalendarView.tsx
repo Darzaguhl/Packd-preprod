@@ -8,6 +8,8 @@ import SubstituteModal from './SubstituteModal'
 import ClassTemplatesSection from '@/components/studio/ClassTemplatesSection'
 import { useTimeFormat } from '@/lib/time-format-context'
 import { fmtTime, fmtHHMM } from '@/lib/fmt-time'
+import { DndContext, useDraggable, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { CSS } from '@dnd-kit/utilities'
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const HOUR_START = 6
@@ -79,6 +81,8 @@ interface Props {
   canSetSubstitute?: boolean
   /** When set, filter displayed sessions to this Instructor record ID; user can toggle off */
   filterInstructorId?: string
+  /** When true (studio_admin+), sessions in the week view can be dragged to reschedule */
+  canReschedule?: boolean
 }
 
 type ViewMode = 'week' | 'month' | 'schedules'
@@ -103,14 +107,14 @@ type Modal =
   | { type: 'edit-schedule'; schedule: ClassSchedule }
   | { type: 'substitute'; session: CalendarSession }
 
-export default function CalendarView({ studioId, token, canCreateSchedules = true, canSetSubstitute = true, filterInstructorId }: Props) {
+export default function CalendarView({ studioId, token, canCreateSchedules = true, canSetSubstitute = true, filterInstructorId, canReschedule = false }: Props) {
   const timeFormat = useTimeFormat()
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
   const [monthYear, setMonthYear] = useState(() => {
     const n = new Date(); return { year: n.getFullYear(), month: n.getMonth() + 1 }
   })
   const [data, setData] = useState<CalendarWeek | null>(null)
-  const [monthData, setMonthData] = useState<Record<string, { sport: string; count: number }[]>>({})
+  const [monthData, setMonthData] = useState<Record<string, { id: string; sport: string; name: string; startsAt: string; instructorName: string; status: string }[]>>({})
   const [allSchedules, setAllSchedules] = useState<ClassSchedule[]>([])
   const [orphaned, setOrphaned] = useState<OrphanedPattern[]>([])
   const [loading, setLoading] = useState(true)
@@ -127,6 +131,42 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
   const [schedDay, setSchedDay] = useState<number | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkDeleting, setBulkDeleting] = useState(false)
+
+  // DnD sensors — require 5px movement before drag activates (prevents accidental drags on click)
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+
+  function handleDragEnd(event: DragEndEvent) {
+    if (!canReschedule) return
+    const { active, delta } = event
+    const sessionId = active.id as string
+    const session = data?.sessions.find(s => s.id === sessionId)
+    if (!session || !token) return
+
+    // Convert pixel delta to snapped minutes (5-min grid)
+    const deltaMin = Math.round((delta.y / (HOUR_PX / 60)) / 5) * 5
+    if (deltaMin === 0) return
+
+    const newStart = new Date(new Date(session.startsAt).getTime() + deltaMin * 60000)
+    const newEnd   = new Date(new Date(session.endsAt).getTime()   + deltaMin * 60000)
+
+    // Optimistically update local state
+    setData(prev => prev ? {
+      ...prev,
+      sessions: prev.sessions.map(s => s.id === sessionId
+        ? { ...s, startsAt: newStart.toISOString(), endsAt: newEnd.toISOString() }
+        : s
+      ),
+    } : prev)
+
+    // Persist to API, revert on failure
+    api.admin.rescheduleSession(sessionId, newStart.toISOString(), newEnd.toISOString(), token)
+      .catch(() => {
+        setData(prev => prev ? {
+          ...prev,
+          sessions: prev.sessions.map(s => s.id === sessionId ? session : s),
+        } : prev)
+      })
+  }
 
   const load = useCallback(async () => {
     if (!token) return
@@ -383,6 +423,7 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
               </div>
 
               {/* Time grid */}
+              <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
               <div className="relative grid grid-cols-[48px_repeat(7,1fr)]" style={{ height: TOTAL_HOURS * HOUR_PX }}>
                 {Array.from({ length: TOTAL_HOURS }, (_, h) => (
                   <div key={h} className="absolute left-0 right-0 border-t border-gray-200" style={{ top: h * HOUR_PX }}>
@@ -405,46 +446,26 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
                         const height = Math.max((endMin - startMin) * (HOUR_PX / 60) - 2, 18)
                         if (top < 0 || top > TOTAL_HOURS * HOUR_PX) return null
 
-                        const cfg = SPORT_CONFIG[s.sport] ?? SPORT_CONFIG.OTHER
-                        const hasSubstitute = !!s.substituteInstructorId
-                        const isCancelled = s.status === 'CANCELLED'
-
-                        const durationMin = Math.round((new Date(s.endsAt).getTime() - new Date(s.startsAt).getTime()) / 60000)
-                        const startLabel = fmtTime(s.startsAt, timeFormat)
-
                         return (
-                          <div
+                          <DraggableCalendarSession
                             key={s.id}
-                            className={`absolute rounded-md overflow-hidden border transition-shadow hover:shadow-md hover:z-10 ${cfg.bg} ${isCancelled ? 'opacity-40' : ''} ${canSetSubstitute ? 'cursor-pointer' : 'cursor-default'}`}
-                            style={{ top, height, left: `${leftFrac * 100 + 0.5}%`, width: `${widthFrac * 100 - 1}%` }}
-                            onClick={() => canSetSubstitute && setModal({ type: 'substitute', session: s })}
-                          >
-                            <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${cfg.accent}`} />
-                            <div className="pl-2 pr-1 py-0.5 h-full flex flex-col justify-start overflow-hidden gap-px">
-                              <p className={`text-[10px] font-semibold truncate leading-tight ${cfg.color}`}>{s.templateName}</p>
-                              {height > 22 && (
-                                <p className="text-[9px] text-gray-500 leading-tight tabular-nums">
-                                  {startLabel} · {durationMin}m
-                                </p>
-                              )}
-                              {height > 42 && (
-                                <p className="text-[9px] text-gray-500 truncate leading-tight">
-                                  {hasSubstitute
-                                    ? <span className="inline-flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />{s.substituteInstructorName}</span>
-                                    : s.instructorName}
-                                </p>
-                              )}
-                              {height > 68 && s.roomName && (
-                                <p className="text-[9px] text-gray-400 truncate leading-tight">{s.roomName}</p>
-                              )}
-                            </div>
-                          </div>
+                            session={s}
+                            top={top}
+                            height={height}
+                            leftFrac={leftFrac}
+                            widthFrac={widthFrac}
+                            timeFormat={timeFormat}
+                            canReschedule={canReschedule}
+                            canSetSubstitute={canSetSubstitute}
+                            onSubstitute={() => canSetSubstitute && setModal({ type: 'substitute', session: s })}
+                          />
                         )
                       })}
                     </div>
                   )
                 })}
               </div>
+              </DndContext>
             </div>
           )}
         </div>
@@ -460,7 +481,7 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
               year={monthYear.year}
               month={monthYear.month}
               days={monthData}
-              onDayClick={(date) => {
+              onViewWeek={(date) => {
                 setWeekStart(getMonday(new Date(date)))
                 setView('week')
               }}
@@ -754,16 +775,106 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
   )
 }
 
+// ── Draggable session card for week view ──────────────────────────────────────
+
+function DraggableCalendarSession({
+  session: s,
+  top,
+  height,
+  leftFrac,
+  widthFrac,
+  timeFormat,
+  canReschedule,
+  canSetSubstitute,
+  onSubstitute,
+}: {
+  session: CalendarSession
+  top: number
+  height: number
+  leftFrac: number
+  widthFrac: number
+  timeFormat: '12h' | '24h'
+  canReschedule: boolean
+  canSetSubstitute: boolean
+  onSubstitute: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: s.id,
+    disabled: !canReschedule,
+  })
+
+  const cfg = SPORT_CONFIG[s.sport] ?? SPORT_CONFIG.OTHER
+  const hasSubstitute = !!s.substituteInstructorId
+  const isCancelled = s.status === 'CANCELLED'
+  const durationMin = Math.round((new Date(s.endsAt).getTime() - new Date(s.startsAt).getTime()) / 60000)
+  const startLabel = fmtTime(s.startsAt, timeFormat)
+
+  const style: React.CSSProperties = {
+    top: top + (transform?.y ?? 0),
+    height,
+    left: `${leftFrac * 100 + 0.5}%`,
+    width: `${widthFrac * 100 - 1}%`,
+    zIndex: isDragging ? 50 : undefined,
+    opacity: isDragging ? 0.85 : undefined,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`absolute rounded-md overflow-hidden border transition-shadow hover:shadow-md ${cfg.bg} ${isCancelled ? 'opacity-40' : ''} ${
+        canReschedule ? 'cursor-grab active:cursor-grabbing' : canSetSubstitute ? 'cursor-pointer' : 'cursor-default'
+      } ${isDragging ? 'shadow-xl ring-1 ring-gray-900/20' : 'hover:z-10'}`}
+      onClick={!canReschedule ? onSubstitute : undefined}
+      {...(canReschedule ? { ...attributes, ...listeners } : {})}
+    >
+      <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${cfg.accent}`} />
+      <div className="pl-2 pr-1 py-0.5 h-full flex flex-col justify-start overflow-hidden gap-px">
+        <p className={`text-[10px] font-semibold truncate leading-tight ${cfg.color}`}>{s.templateName}</p>
+        {height > 22 && (
+          <p className="text-[9px] text-gray-500 leading-tight tabular-nums">
+            {startLabel} · {durationMin}m
+          </p>
+        )}
+        {height > 42 && (
+          <p className="text-[9px] text-gray-500 truncate leading-tight">
+            {hasSubstitute
+              ? <span className="inline-flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />{s.substituteInstructorName}</span>
+              : s.instructorName}
+          </p>
+        )}
+        {height > 68 && s.roomName && (
+          <p className="text-[9px] text-gray-400 truncate leading-tight">{s.roomName}</p>
+        )}
+        {canReschedule && canSetSubstitute && height > 32 && (
+          <button
+            className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded bg-white/80 hover:bg-white border border-gray-300 hover:border-gray-500 text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors z-10 shadow-sm leading-none"
+            onPointerDown={e => e.stopPropagation()}
+            onClick={e => { e.stopPropagation(); onSubstitute() }}
+            title="Assign substitute"
+          >
+            +
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Month grid component ──────────────────────────────────────────────────────
 
+type MonthSession = { id: string; sport: string; name: string; startsAt: string; instructorName: string; status: string }
+
 function MonthGrid({
-  year, month, days, onDayClick,
+  year, month, days, onViewWeek,
 }: {
   year: number
   month: number
-  days: Record<string, { sport: string; count: number }[]>
-  onDayClick: (isoDate: string) => void
+  days: Record<string, MonthSession[]>
+  onViewWeek: (isoDate: string) => void
 }) {
+  const [popoverDay, setPopoverDay] = useState<string | null>(null)
+
   const firstDay = new Date(year, month - 1, 1)
   const lastDay = new Date(year, month, 0)
   const startOffset = (firstDay.getDay() + 6) % 7 // Mon=0
@@ -772,8 +883,11 @@ function MonthGrid({
 
   const today = new Date(); today.setHours(0, 0, 0, 0)
 
+  const popoverSessions = popoverDay ? (days[popoverDay] ?? []) : []
+  const popoverDate = popoverDay ? new Date(popoverDay + 'T00:00:00') : null
+
   return (
-    <div className="max-w-3xl">
+    <div className="w-full">
       {/* Day name headers */}
       <div className="grid grid-cols-7 mb-1">
         {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
@@ -786,50 +900,120 @@ function MonthGrid({
         {Array.from({ length: rows * 7 }, (_, cell) => {
           const dayNum = cell - startOffset + 1
           if (dayNum < 1 || dayNum > lastDay.getDate()) {
-            return <div key={cell} className="h-16" />
+            return <div key={cell} className="min-h-[100px]" />
           }
           const date = new Date(year, month - 1, dayNum)
           const dateStr = isoDate(date)
           const sessions = days[dateStr] ?? []
           const isToday = date.getTime() === today.getTime()
           const isWeekend = date.getDay() === 0 || date.getDay() === 6
-
-          // Aggregate sport dots (max 4)
-          const sportDots = sessions
-            .reduce<string[]>((acc, s) => acc.includes(s.sport) ? acc : [...acc, s.sport], [])
-            .slice(0, 4)
+          const CHIP_MAX = 3
+          const visible = sessions.slice(0, CHIP_MAX)
+          const overflow = Math.max(0, sessions.length - CHIP_MAX)
 
           return (
             <div
               key={cell}
-              onClick={() => onDayClick(dateStr)}
-              className={`h-16 rounded-lg p-1.5 cursor-pointer transition-colors border ${
+              onClick={() => sessions.length > 0 && setPopoverDay(dateStr)}
+              className={`min-h-[100px] rounded-lg p-1.5 transition-colors border flex flex-col gap-0.5 ${
+                sessions.length > 0 ? 'cursor-pointer' : ''
+              } ${
                 isToday
                   ? 'border-blue-200 bg-blue-50 hover:bg-blue-100'
                   : 'border-gray-100 bg-white hover:bg-gray-50'
               } ${isWeekend && !isToday ? 'bg-gray-50/50' : ''}`}
             >
-              <span className={`text-xs font-semibold leading-none ${isToday ? 'text-blue-600' : 'text-gray-700'}`}>
+              <span className={`text-xs font-semibold leading-none mb-0.5 ${isToday ? 'text-blue-600' : 'text-gray-700'}`}>
                 {dayNum}
               </span>
-              {sessions.length > 0 && (
-                <div className="flex flex-wrap gap-0.5 mt-1">
-                  {sportDots.map(sport => {
-                    const cfg = SPORT_CONFIG[sport] ?? SPORT_CONFIG.OTHER
-                    return <span key={sport} className={`w-1.5 h-1.5 rounded-full ${cfg.accent}`} />
-                  })}
-                  {sessions.length > 4 && (
-                    <span className="text-[9px] text-gray-400 leading-none self-end">+{sessions.length - 4}</span>
-                  )}
-                </div>
-              )}
-              {sessions.length > 0 && (
-                <p className="text-[9px] text-gray-400 mt-0.5 leading-none">{sessions.length} class{sessions.length !== 1 ? 'es' : ''}</p>
+              {visible.map(s => {
+                const cfg = SPORT_CONFIG[s.sport] ?? SPORT_CONFIG.OTHER
+                const time = new Date(s.startsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+                return (
+                  <div
+                    key={s.id}
+                    className={`rounded px-1 py-0.5 text-[10px] leading-tight truncate flex items-center gap-0.5 ${cfg.bg} ${cfg.color}`}
+                  >
+                    <span className={`w-1 h-1 rounded-full shrink-0 ${cfg.accent}`} />
+                    <span className="font-medium truncate">{s.name}</span>
+                    <span className="opacity-60 shrink-0">{time}</span>
+                  </div>
+                )
+              })}
+              {overflow > 0 && (
+                <span className="text-[9px] text-gray-400 leading-none mt-0.5">+{overflow} more</span>
               )}
             </div>
           )
         })}
       </div>
+
+      {/* Day popover */}
+      {popoverDay && popoverDate && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/20"
+          onClick={() => setPopoverDay(null)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-80 max-h-[70vh] overflow-hidden flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Popover header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <div>
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+                  {popoverDate.toLocaleDateString('en-US', { weekday: 'long' })}
+                </p>
+                <p className="text-base font-semibold text-gray-900">
+                  {popoverDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
+                </p>
+              </div>
+              <button
+                onClick={() => { setPopoverDay(null); onViewWeek(popoverDay) }}
+                className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+              >
+                View week →
+              </button>
+            </div>
+
+            {/* Session list */}
+            <div className="overflow-y-auto divide-y divide-gray-50">
+              {popoverSessions.length === 0 ? (
+                <p className="px-4 py-6 text-sm text-gray-400 text-center">No classes</p>
+              ) : (
+                popoverSessions.map(s => {
+                  const cfg = SPORT_CONFIG[s.sport] ?? SPORT_CONFIG.OTHER
+                  const time = new Date(s.startsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+                  return (
+                    <div key={s.id} className="flex items-start gap-3 px-4 py-3">
+                      <div className={`mt-0.5 w-2.5 h-2.5 rounded-full shrink-0 ${cfg.accent}`} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{s.name}</p>
+                        <p className="text-xs text-gray-500">{time} · {s.instructorName}</p>
+                        {s.status !== 'SCHEDULED' && (
+                          <span className="inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                            {s.status.replace('_', ' ')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            {/* Close */}
+            <div className="px-4 py-3 border-t">
+              <button
+                onClick={() => setPopoverDay(null)}
+                className="w-full text-sm text-gray-500 hover:text-gray-700"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

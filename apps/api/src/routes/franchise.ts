@@ -69,17 +69,23 @@ export async function assertStudioAccess(
   userRole: string,
   studioId: string,
   reply: FastifyReply,
+  studioIds?: string[],
 ): Promise<boolean> {
   if (ROLE_RANK[userRole as keyof typeof ROLE_RANK] >= ROLE_RANK['franchise_admin']) {
     return true
   }
 
+  // Check JWT studioIds first (no DB round-trip needed)
+  if (studioIds && studioIds.includes(studioId)) {
+    return true
+  }
+
   const member = await prisma.member.findUnique({
     where: { userId },
-    select: { studioId: true },
+    select: { studioId: true, studioIds: true },
   })
 
-  if (!member || member.studioId !== studioId) {
+  if (!member || (!member.studioIds.includes(studioId) && member.studioId !== studioId)) {
     reply.code(403).send({ error: 'Access denied to this studio' })
     return false
   }
@@ -238,7 +244,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
       const { studioId, instructorId } = request.params
       const user = getUser(request)
 
-      const hasAccess = await assertStudioAccess(user.id, user.role, studioId, reply)
+      const hasAccess = await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)
       if (!hasAccess) return
 
       const instructor = await prisma.instructor.findUnique({
@@ -285,7 +291,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
       const { studioId } = request.params
       const user = getUser(request)
 
-      const hasAccess = await assertStudioAccess(user.id, user.role, studioId, reply)
+      const hasAccess = await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)
       if (!hasAccess) return
 
       // Find instructor members by their staff assignment (not by Instructor.studioId, which
@@ -531,7 +537,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
       const { studioId, memberId } = request.params
       const user = getUser(request)
 
-      const hasAccess = await assertStudioAccess(user.id, user.role, studioId, reply)
+      const hasAccess = await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)
       if (!hasAccess) return
 
       const member = await prisma.member.findFirst({

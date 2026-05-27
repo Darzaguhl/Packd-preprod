@@ -280,6 +280,30 @@ export async function membershipRoutes(app: FastifyInstance) {
     },
   )
 
+  // DELETE /memberships/me — member cancels their own active subscription
+  app.delete(
+    '/me',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const user = getUser(request)
+      const member = await prisma.member.findUnique({ where: { userId: user.id } })
+      if (!member) return reply.notFound('Member not found')
+
+      const sub = await prisma.membershipSubscription.findFirst({
+        where: { memberId: member.id, status: { in: ['ACTIVE', 'PAUSED'] } },
+        orderBy: { createdAt: 'desc' },
+      })
+      if (!sub) return reply.notFound('No active subscription to cancel')
+
+      await prisma.membershipSubscription.update({
+        where: { id: sub.id },
+        data: { status: 'CANCELLED' },
+      })
+
+      return reply.send({ success: true })
+    },
+  )
+
   // POST /memberships — assign a plan to a member (studio_admin+)
   app.post<{
     Body: {

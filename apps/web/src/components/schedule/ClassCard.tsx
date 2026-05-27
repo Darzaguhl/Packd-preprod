@@ -31,6 +31,7 @@ export default function ClassCard({
   const cfg = sportConfig(s.sport)
   const isFull = s.bookedCount >= s.capacity
   const isBooked = !!s.userBookingId
+  const waitlistPos = s.userWaitlistPosition ?? null
   const isPast = !privileged && new Date(s.startsAt) < new Date()
   const durationMin = Math.round(
     (new Date(s.endsAt).getTime() - new Date(s.startsAt).getTime()) / 60000,
@@ -90,6 +91,11 @@ export default function ClassCard({
             {isBooked && (
               <span className="shrink-0 text-xs bg-black text-white px-1.5 py-0.5 rounded-md font-medium">
                 Booked
+              </span>
+            )}
+            {!isBooked && waitlistPos && (
+              <span className="shrink-0 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-md font-medium">
+                #{waitlistPos} waitlist
               </span>
             )}
           </div>

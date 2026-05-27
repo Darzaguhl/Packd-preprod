@@ -20,6 +20,14 @@ const SCALE = 90 // px per metre
 const STATION_MIN_W = 130
 const STATION_MIN_H = 100
 
+type NameSize = 's' | 'm' | 'l'
+const NAME_SIZE_CLASS: Record<NameSize, string> = {
+  s: 'text-[9px]',
+  m: 'text-[11px]',
+  l: 'text-[14px]',
+}
+const LS_KEY = 'packd-map-name-size'
+
 interface Props {
   layout: RoomLayout
   assignments: SpotAssignment[]
@@ -32,7 +40,9 @@ interface Props {
 }
 
 function initials(name: string) {
-  return name.split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()
+  const parts = name.split(' ').filter(Boolean)
+  if (parts.length === 1) return parts[0][0].toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
 // "Treadmill 1" → "T1", "Floor 2" → "F2"
@@ -137,6 +147,7 @@ function DroppableStation({
   onEmptyStationClick,
   isAssigningTarget,
   ordered,
+  nameSize,
 }: {
   station: Station
   assignment: SpotAssignment | undefined
@@ -147,6 +158,7 @@ function DroppableStation({
   onEmptyStationClick?: (station: Station) => void
   isAssigningTarget?: boolean
   ordered?: boolean
+  nameSize?: NameSize
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: station.id })
   const meta = STATION_META[station.type]
@@ -158,7 +170,7 @@ function DroppableStation({
   return (
     <div
       ref={setNodeRef}
-      className={`absolute rounded-xl border-2 transition-all overflow-hidden ${
+      className={`absolute rounded-xl border-2 transition-all overflow-visible ${
         isOver && !isLocked
           ? 'border-gray-900 bg-gray-100 scale-105 z-20'
           : isAssigningTarget
@@ -177,7 +189,7 @@ function DroppableStation({
       }}
     >
       {assignment ? (
-        <div key={assignment.bookingId} className="flex flex-col h-full p-2 gap-1 animate-[fadeIn_180ms_ease-out]">
+        <div key={assignment.bookingId} className="flex flex-col h-full p-2 gap-1 animate-[fadeIn_180ms_ease-out] rounded-xl bg-inherit">
           {/* Station header */}
           <div className="flex items-center justify-between gap-1">
             <div className="flex items-center gap-1 min-w-0">
@@ -205,7 +217,7 @@ function DroppableStation({
           <div className="h-px bg-black/10" />
 
           {/* Member info — draggable when not checked in */}
-          <DraggableInStation assignment={assignment} onMemberClick={onMemberClick} ordered={ordered} />
+          <DraggableInStation assignment={assignment} onMemberClick={onMemberClick} ordered={ordered} nameSize={nameSize} />
         </div>
       ) : onEmptyStationClick && !isOver ? (
         <button
@@ -227,7 +239,8 @@ function DroppableStation({
   )
 }
 
-function DraggableInStation({ assignment, onMemberClick, ordered }: { assignment: SpotAssignment; onMemberClick?: (a: SpotAssignment) => void; ordered?: boolean }) {
+function DraggableInStation({ assignment, onMemberClick, ordered, nameSize = 'm' }: { assignment: SpotAssignment; onMemberClick?: (a: SpotAssignment) => void; ordered?: boolean; nameSize?: NameSize }) {
+  const nameCls = NAME_SIZE_CLASS[nameSize]
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: assignment.bookingId,
     disabled: assignment.checkedIn,
@@ -251,14 +264,14 @@ function DraggableInStation({ assignment, onMemberClick, ordered }: { assignment
           <button
             onPointerDown={e => e.stopPropagation()}
             onClick={e => { e.stopPropagation(); onMemberClick(assignment) }}
-            className={`text-[11px] font-semibold text-left w-full ${assignment.checkedIn ? 'text-emerald-700 hover:text-emerald-900' : 'text-gray-800 hover:text-gray-950'}`}
+            className={`${nameCls} font-semibold text-left w-full ${assignment.checkedIn ? 'text-emerald-700 hover:text-emerald-900' : 'text-gray-800 hover:text-gray-950'}`}
           >
-            <span className={`inline-block border rounded px-1 py-0 leading-tight transition-colors max-w-full truncate ${assignment.checkedIn ? 'border-emerald-300 hover:border-emerald-500' : 'border-gray-300 hover:border-gray-500'}`}>
+            <span className={`inline border rounded px-1 py-0 leading-snug transition-colors break-words ${assignment.checkedIn ? 'border-emerald-300 hover:border-emerald-500' : 'border-gray-300 hover:border-gray-500'}`}>
               {assignment.memberName}
             </span>
           </button>
         ) : (
-          <p className="text-[11px] font-semibold text-gray-900 truncate leading-tight">{assignment.memberName}</p>
+          <p className={`${nameCls} font-semibold text-gray-900 leading-snug break-words`}>{assignment.memberName}</p>
         )}
         <div className="flex items-center gap-1 mt-0.5 flex-wrap">
           <MembershipBadge status={assignment.membershipStatus} />
@@ -476,10 +489,16 @@ const DROP_ANIMATION: DropAnimation = {
 
 export default function SessionRoomMap({ layout, assignments, onAssign, onCheckin, onMemberClick, onEmptyStationClick, onRemoveBooking, orderedMemberIds }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null)
-  // When the fronthost clicks an empty station and unassigned members exist,
-  // we enter "assign mode": the station is highlighted and clicking any
-  // unassigned member row assigns them directly (no drawer, not checked-in).
   const [assigningStationId, setAssigningStationId] = useState<string | null>(null)
+  const [nameSize, setNameSize] = useState<NameSize>(() => {
+    if (typeof window === 'undefined') return 'm'
+    return (localStorage.getItem(LS_KEY) as NameSize) ?? 'm'
+  })
+
+  function cycleNameSize(size: NameSize) {
+    setNameSize(size)
+    localStorage.setItem(LS_KEY, size)
+  }
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   const assignmentByStation = useCallback(
@@ -547,7 +566,23 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
           {/* Header */}
           <div className="flex items-center justify-between px-1 mb-1">
             <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Stations</p>
-            <span className="text-[11px] font-semibold text-emerald-600">{checkedInCount}/{assignments.length} in</span>
+            <div className="flex items-center gap-2">
+              {/* Name size toggle */}
+              <div className="flex rounded-md border border-gray-200 overflow-hidden">
+                {(['s', 'm', 'l'] as NameSize[]).map(s => (
+                  <button
+                    key={s}
+                    onClick={() => cycleNameSize(s)}
+                    className={`px-1.5 py-0.5 text-[9px] font-bold uppercase transition-colors ${
+                      nameSize === s ? 'bg-gray-900 text-white' : 'text-gray-400 hover:text-gray-700'
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+              <span className="text-[11px] font-semibold text-emerald-600">{checkedInCount}/{assignments.length} in</span>
+            </div>
           </div>
 
           {/* Unassigned members — booked but no station yet */}
@@ -647,6 +682,7 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
                   onEmptyStationClick={handleEmptyStationClick}
                   isAssigningTarget={assigningStationId === station.id}
                   ordered={a ? orderedMemberIds?.has(a.memberId) : false}
+                  nameSize={nameSize}
                 />
               )
             })}

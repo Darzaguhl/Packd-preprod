@@ -30,6 +30,20 @@ interface PaletteGhost {
   overCanvas: boolean
 }
 
+/** Returns true if placing a tile at (xM, yM) with size w×h would overlap any existing station. */
+function hasCollision(
+  xM: number, yM: number, w: number, h: number,
+  others: EditorStation[],
+  skipTempId?: string,
+): boolean {
+  for (const s of others) {
+    if (s.tempId === skipTempId) continue
+    const m = STATION_META[s.type]
+    if (xM < s.xM + m.w && xM + w > s.xM && yM < s.yM + m.h && yM + h > s.yM) return true
+  }
+  return false
+}
+
 // Stable key for comparing station lists (ignores tempId)
 function stationsKey(ss: EditorStation[]): string {
   return JSON.stringify(ss.map(({ tempId: _, ...s }) => s))
@@ -134,17 +148,20 @@ export default function RoomMapEditor({ roomId: _roomId, initial, roomLayouts = 
       const xM = snapToGrid(Math.max(0, Math.min(widthM - meta.w, xPct * widthM - meta.w / 2)))
       const yM = snapToGrid(Math.max(0, Math.min(lengthM - meta.h, yPct * lengthM - meta.h / 2)))
 
-      setStations(prev => [
-        ...prev,
-        {
-          tempId: `${uid}-${Date.now()}`,
-          type,
-          label: `${meta.label} ${prev.filter(s => s.type === type).length + 1}`,
-          xM,
-          yM,
-          rotation: 0,
-        },
-      ])
+      setStations(prev => {
+        if (hasCollision(xM, yM, meta.w, meta.h, prev)) return prev
+        return [
+          ...prev,
+          {
+            tempId: `${uid}-${Date.now()}`,
+            type,
+            label: `${meta.label} ${prev.filter(s => s.type === type).length + 1}`,
+            xM,
+            yM,
+            rotation: 0,
+          },
+        ]
+      })
     }
 
     document.addEventListener('pointermove', onMove)
@@ -179,13 +196,12 @@ export default function RoomMapEditor({ roomId: _roomId, initial, roomLayouts = 
     const dx = (e.clientX - d.pointerStartX) / pxPerM
     const dy = (e.clientY - d.pointerStartY) / pxPerM
     const meta = STATION_META[stations.find(s => s.tempId === d.tempId)!.type]
+    const newX = Math.max(0, Math.min(widthM - meta.w, snapToGrid(d.startXM + dx)))
+    const newY = Math.max(0, Math.min(lengthM - meta.h, snapToGrid(d.startYM + dy)))
     setStations(prev => prev.map(s => {
       if (s.tempId !== d.tempId) return s
-      return {
-        ...s,
-        xM: Math.max(0, Math.min(widthM - meta.w, snapToGrid(d.startXM + dx))),
-        yM: Math.max(0, Math.min(lengthM - meta.h, snapToGrid(d.startYM + dy))),
-      }
+      if (hasCollision(newX, newY, meta.w, meta.h, prev, d.tempId)) return s
+      return { ...s, xM: newX, yM: newY }
     }))
   }
 

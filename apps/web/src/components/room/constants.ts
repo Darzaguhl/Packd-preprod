@@ -13,7 +13,7 @@ export const STATION_META: Record<StationType, { label: string; icon: string; co
 
 export const STATION_TYPES: StationType[] = ['BIKE', 'TREADMILL', 'BENCH', 'ROWER', 'MAT', 'REFORMER', 'BARRE', 'OTHER']
 
-export const GRID_STEP = 0.5 // snap to 0.5m grid
+export const GRID_STEP = 0.1 // snap to 0.1m grid — fine enough for tiles to sit edge-to-edge
 
 export function snapToGrid(val: number): number {
   return Math.round(val / GRID_STEP) * GRID_STEP

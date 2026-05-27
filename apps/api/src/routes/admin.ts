@@ -120,20 +120,39 @@ export async function adminRoutes(app: FastifyInstance) {
   )
 
   // PATCH /admin/sessions/:id — studio_admin or higher
-  app.patch<{ Params: { id: string }; Body: { status: string } }>(
+  // Accepts: { status? } to update status, or { startsAt, endsAt } to reschedule.
+  app.patch<{ Params: { id: string }; Body: { status?: string; startsAt?: string; endsAt?: string } }>(
     '/sessions/:id',
     { preHandler: requireStudioAdmin },
     async (request, reply) => {
-      const { status } = request.body
-      if (!VALID_SESSION_STATUSES.includes(status as SessionStatus)) {
-        return reply.badRequest(`Invalid status. Must be one of: ${VALID_SESSION_STATUSES.join(', ')}`)
-      }
+      const { status, startsAt, endsAt } = request.body
 
       const user = getUser(request)
       const existing = await prisma.classSession.findUniqueOrThrow({
         where: { id: request.params.id },
       })
       if (!await assertStudioAccess(user.id, user.role, existing.studioId, reply, user.studioIds)) return
+
+      // ── Reschedule (drag-to-reschedule) ───────────────────────────────────
+      if (startsAt !== undefined || endsAt !== undefined) {
+        if (!startsAt || !endsAt) return reply.badRequest('Both startsAt and endsAt are required for reschedule')
+        const newStart = new Date(startsAt)
+        const newEnd   = new Date(endsAt)
+        if (isNaN(newStart.getTime()) || isNaN(newEnd.getTime())) return reply.badRequest('Invalid date format')
+        if (newEnd <= newStart) return reply.badRequest('endsAt must be after startsAt')
+
+        const session = await prisma.classSession.update({
+          where: { id: request.params.id },
+          data: { startsAt: newStart, endsAt: newEnd },
+        })
+        return reply.send({ success: true, startsAt: session.startsAt.toISOString(), endsAt: session.endsAt.toISOString() })
+      }
+
+      // ── Status update ──────────────────────────────────────────────────────
+      if (!status) return reply.badRequest('status is required')
+      if (!VALID_SESSION_STATUSES.includes(status as SessionStatus)) {
+        return reply.badRequest(`Invalid status. Must be one of: ${VALID_SESSION_STATUSES.join(', ')}`)
+      }
 
       const session = await prisma.classSession.update({
         where: { id: request.params.id },
@@ -147,7 +166,55 @@ export async function adminRoutes(app: FastifyInstance) {
         )
       }
 
-      return { success: true, status: session.status }
+      return reply.send({ success: true, status: session.status })
+    },
+  )
+
+  // GET /admin/members/:memberId/upcoming — member's upcoming confirmed bookings (fronthost+)
+  app.get<{ Params: { memberId: string } }>(
+    '/members/:memberId/upcoming',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const user = getUser(request)
+      if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden('Insufficient permissions')
+
+      const member = await prisma.member.findUnique({
+        where: { id: request.params.memberId },
+        select: { studioId: true },
+      })
+      if (!member) return reply.notFound('Member not found')
+      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply, user.studioIds)) return
+
+      const bookings = await prisma.booking.findMany({
+        where: {
+          memberId: request.params.memberId,
+          status: 'CONFIRMED',
+          session: { startsAt: { gte: new Date() } },
+        },
+        include: {
+          session: {
+            include: {
+              template: { select: { name: true, sport: true } },
+              instructor: { include: { user: { select: { firstName: true, lastName: true } } } },
+              room: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { session: { startsAt: 'asc' } },
+      })
+
+      return reply.send(bookings.map(b => ({
+        id: b.id,
+        sessionId: b.session.id,
+        startsAt: b.session.startsAt.toISOString(),
+        endsAt: b.session.endsAt.toISOString(),
+        templateName: b.session.template.name,
+        sport: b.session.template.sport,
+        instructorName: `${b.session.instructor.user.firstName} ${b.session.instructor.user.lastName}`,
+        roomName: b.session.room.name,
+        creditsRequired: b.session.creditsRequired,
+        sessionStatus: b.session.status,
+      })))
     },
   )
 

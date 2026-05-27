@@ -582,6 +582,13 @@ export const api = {
       apiFetch<AnalyticsData>(`/admin/analytics?studioId=${studioId}&weeks=${weeks}`, { token }),
     query: (sql: string, studioId: string, token: string) =>
       apiFetch<QueryResult>('/admin/query', { token, method: 'POST', body: JSON.stringify({ sql, studioId }) }),
+    memberUpcoming: (memberId: string, token: string) =>
+      apiFetch<UpcomingBooking[]>(`/admin/members/${memberId}/upcoming`, { token }),
+    rescheduleSession: (sessionId: string, startsAt: string, endsAt: string, token: string) =>
+      apiFetch<{ success: boolean; startsAt: string; endsAt: string }>(
+        `/admin/sessions/${sessionId}`,
+        { token, method: 'PATCH', body: JSON.stringify({ startsAt, endsAt }) },
+      ),
   },
   franchise: {
     myStudios: (token: string) =>
@@ -725,7 +732,7 @@ export const api = {
         method: 'DELETE', token,
       }),
     month: (studioId: string, year: number, month: number, token: string, instructorId?: string) =>
-      apiFetch<{ year: number; month: number; days: Record<string, { sport: string; count: number }[]> }>(
+      apiFetch<{ year: number; month: number; days: Record<string, { id: string; sport: string; name: string; startsAt: string; instructorName: string; status: string }[]> }>(
         `/schedules/month?studioId=${studioId}&year=${year}&month=${month}${instructorId ? `&instructorId=${instructorId}` : ''}`, { token },
       ),
     orphaned: (studioId: string, token: string) =>
@@ -869,5 +876,7 @@ export const api = {
       apiFetch<Omit<MembershipPlan, 'activeSubscriptions'>[]>(`/memberships/plans/member?studioId=${studioId}`, { token }),
     subscribe: (planId: string, token: string) =>
       apiFetch<{ success: boolean; data: MembershipSubscription }>('/memberships/subscribe', { method: 'POST', body: JSON.stringify({ planId }), token }),
+    cancelMe: (token: string) =>
+      apiFetch<{ success: boolean }>('/memberships/me', { token, method: 'DELETE' }),
   },
 }

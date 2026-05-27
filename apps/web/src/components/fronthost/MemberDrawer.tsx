@@ -95,6 +95,10 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
   const [bookingLoading, setBookingLoading]   = useState(false)
   const [booking, setBooking] = useState<AdminBooking | null>(null)
 
+  // Member's upcoming bookings (for cancel-on-behalf)
+  const [memberUpcoming, setMemberUpcoming] = useState<import('@/lib/api').UpcomingBooking[]>([])
+  const [cancellingBookingId, setCancellingBookingId] = useState<string | null>(null)
+
   // Products & cart
   const [products, setProducts]   = useState<Product[]>([])
   const [cart, setCart]           = useState<CartItem[]>([])
@@ -160,6 +164,13 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
     }).catch(() => setBooking(null))
     .finally(() => setBookingLoading(false))
   }, [member?.id, selectedSession?.id])
+
+  // Load member's upcoming bookings when member is selected
+  useEffect(() => {
+    if (!member) { setMemberUpcoming([]); return }
+    getFreshToken().then(t => api.admin.memberUpcoming(member.id, t))
+      .then(setMemberUpcoming).catch(() => setMemberUpcoming([]))
+  }, [member?.id])
 
   function selectMember(m: MemberResult) {
     setMember(m)
@@ -254,6 +265,8 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
       const t = await getFreshToken()
       await api.bookings.create(selectedSession.id, t, member.id)
       onBookingChanged()
+      // Refresh the map so the newly-booked member appears in the unassigned list
+      onAssigned?.()
 
       // Refresh booking status for drawer display (background, non-blocking)
       api.admin.bookings(selectedSession.id, t).then(bookings => {
@@ -390,7 +403,12 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                     </div>
                     <div className="shrink-0 text-right">
                       {targetStation ? (
-                        <p className="text-xs font-semibold text-gray-500">+ add</p>
+                        <>
+                          <p className={`text-xs font-semibold ${r.creditBalance < (selectedSession?.creditsRequired ?? 1) ? 'text-amber-500' : 'text-gray-500'}`}>
+                            {r.creditBalance} cr
+                          </p>
+                          <p className="text-[10px] text-gray-400">+ add</p>
+                        </>
                       ) : (
                         <>
                           <p className="text-xs font-semibold text-gray-700">{r.creditBalance} cr</p>
@@ -501,8 +519,8 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                   )}
 
                   {!booking && member.creditBalance < selectedSession.creditsRequired && (
-                    <p className="text-[10px] text-red-500">
-                      Insufficient credits — needs {selectedSession.creditsRequired}, has {member.creditBalance}
+                    <p className="text-[10px] text-amber-600">
+                      ⚠ Only {member.creditBalance} cr — booking will go negative. Add credits below.
                     </p>
                   )}
                 </div>
@@ -567,6 +585,44 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                     : 'Select amount'}
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* ── Upcoming bookings (cancel on behalf) ── */}
+          {member && memberUpcoming.length > 0 && (
+            <div className="px-5 py-4 space-y-2 border-t border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Upcoming bookings</p>
+              {memberUpcoming.map(b => (
+                <div key={b.id} className="flex items-center gap-3 bg-white border border-gray-100 rounded-xl px-3 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-gray-800 truncate">{b.templateName}</p>
+                    <p className="text-[10px] text-gray-400">
+                      {new Date(b.startsAt).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+                      {' · '}{fmtTime(b.startsAt, timeFormat)}
+                    </p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      setCancellingBookingId(b.id)
+                      try {
+                        const t = await getFreshToken()
+                        await api.bookings.cancel(b.id, t)
+                        setMemberUpcoming(prev => prev.filter(x => x.id !== b.id))
+                        showToast('Booking cancelled')
+                        onBookingChanged()
+                      } catch (e) {
+                        showToast(e instanceof Error ? e.message : 'Failed to cancel', false)
+                      } finally {
+                        setCancellingBookingId(null)
+                      }
+                    }}
+                    disabled={cancellingBookingId === b.id}
+                    className="shrink-0 text-[10px] text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 px-2 py-1 rounded-lg transition-colors disabled:opacity-40"
+                  >
+                    {cancellingBookingId === b.id ? '…' : 'Cancel'}
+                  </button>
+                </div>
+              ))}
             </div>
           )}
 
