@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import FranchiseDashboard from '@/components/franchise/FranchiseDashboard'
@@ -20,11 +21,19 @@ export default async function DashboardPage() {
   const primaryStudioId = studioIds[0] ?? STUDIO_ID
 
   if (role === 'admin' || role === 'franchise_admin') {
-    return <FranchiseDashboard />
+    return (
+      <Suspense>
+        <FranchiseDashboard />
+      </Suspense>
+    )
   }
 
   if (role === 'studio_admin') {
-    return <AdminShell studioId={primaryStudioId} studioIds={studioIds} />
+    return (
+      <Suspense>
+        <AdminShell studioId={primaryStudioId} studioIds={studioIds} />
+      </Suspense>
+    )
   }
 
   // Dual role: has both fronthost and instructor
@@ -35,7 +44,11 @@ export default async function DashboardPage() {
   if (role === 'fronthost') redirect('/fronthost')
 
   if (role === 'instructor') {
-    return <StudioManagerDashboard studioId={STUDIO_ID} role="instructor" />
+    return (
+      <Suspense>
+        <StudioManagerDashboard studioId={STUDIO_ID} role="instructor" />
+      </Suspense>
+    )
   }
 
   // members land on schedule

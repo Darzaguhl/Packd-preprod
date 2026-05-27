@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import type { SessionSlot } from '@packd/types'
 import { api } from '@/lib/api'
 import { createClient } from '@/lib/supabase/client'
@@ -42,6 +43,9 @@ function weekStart(date: Date): Date {
 }
 
 export default function ScheduleView({ studioId }: { studioId: string }) {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
   const [sessions, setSessions] = useState<SessionSlot[]>([])
   const [token, setToken] = useState<string | null>(null)
   const [timeFormat, setTimeFormat] = useState<TimeFormat>('24h')
@@ -49,10 +53,28 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
-  const [selectedDay, setSelectedDay] = useState<string>(toIsoDate(new Date()))
+
+  // Initialise day + week from URL if present, so a hard refresh restores position.
+  const [selectedDay, setSelectedDay] = useState<string>(() => {
+    const d = searchParams.get('day')
+    return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : toIsoDate(new Date())
+  })
   const [selectedSport, setSelectedSport] = useState('ALL')
-  const [weekOffset, setWeekOffset] = useState(0)
+  const [weekOffset, setWeekOffset] = useState<number>(() => {
+    const w = searchParams.get('week')
+    const n = w ? parseInt(w, 10) : 0
+    return Number.isFinite(n) ? n : 0
+  })
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+
+  // Keep URL in sync when day or week changes so refresh restores the same view.
+  useEffect(() => {
+    const p = new URLSearchParams(searchParams.toString())
+    p.set('day', selectedDay)
+    if (weekOffset === 0) p.delete('week')
+    else p.set('week', String(weekOffset))
+    router.replace(`?${p.toString()}`, { scroll: false })
+  }, [selectedDay, weekOffset])
   // Derive the selected session from the live sessions array so mutations stay reflected
   const selectedSession = selectedSessionId ? sessions.find(s => s.id === selectedSessionId) ?? null : null
   // Admins and fronthosts can interact with past/running classes; members cannot

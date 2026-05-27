@@ -401,20 +401,41 @@ export interface AdminMemberHistory {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'
 
+async function doFetch(path: string, token: string | undefined, fetchOptions: RequestInit): Promise<Response> {
+  const hasBody = fetchOptions.body != null
+  return fetch(`${API_URL}${path}`, {
+    ...fetchOptions,
+    headers: {
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(fetchOptions.headers as Record<string, string> | undefined),
+    },
+  })
+}
+
 async function apiFetch<T>(
   path: string,
   options: RequestInit & { token?: string } = {},
 ): Promise<T> {
   const { token, ...fetchOptions } = options
-  const hasBody = fetchOptions.body != null
-  const res = await fetch(`${API_URL}${path}`, {
-    ...fetchOptions,
-    headers: {
-      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...fetchOptions.headers,
-    },
-  })
+
+  let res = await doFetch(path, token, fetchOptions)
+
+  // If the access token expired, refresh the Supabase session and retry once.
+  // Dynamic import keeps this code out of server bundles (supabase browser client
+  // uses window/localStorage which don't exist on the server).
+  if (res.status === 401 && token) {
+    try {
+      const { createClient } = await import('@/lib/supabase/client')
+      const { data } = await createClient().auth.getSession()
+      const fresh = data.session?.access_token
+      if (fresh && fresh !== token) {
+        res = await doFetch(path, fresh, fetchOptions)
+      }
+    } catch {
+      // Refresh failed — fall through and throw the 401 error below
+    }
+  }
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: res.statusText }))

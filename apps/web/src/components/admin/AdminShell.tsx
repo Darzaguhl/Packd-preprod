@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { api } from '@/lib/api'
 import FronthostDashboard from '@/components/fronthost/FronthostDashboard'
@@ -121,8 +122,15 @@ interface Props {
 // ─── Shell ────────────────────────────────────────────────────────────────────
 
 export default function AdminShell({ studioId: initialStudioId, studioName: initialStudioName, studioIds, onBack, onStudioUpdate }: Props) {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
   const [mode, setMode] = useState<Mode>('management')
-  const [selectedStudioId, setSelectedStudioId] = useState(initialStudioId)
+  // Restore selected studio from URL on refresh; fall back to the primary studio.
+  const [selectedStudioId, setSelectedStudioId] = useState(() => {
+    const fromUrl = searchParams.get('studio')
+    return (studioIds && fromUrl && studioIds.includes(fromUrl)) ? fromUrl : initialStudioId
+  })
   const [studios, setStudios] = useState<StudioOption[]>(
     initialStudioName ? [{ id: initialStudioId, name: initialStudioName }] : [],
   )
@@ -160,7 +168,15 @@ export default function AdminShell({ studioId: initialStudioId, studioName: init
         <StudioSwitcher
           studios={studios}
           selectedId={selectedStudioId}
-          onSelect={id => { setSelectedStudioId(id); setMode('management') }}
+          onSelect={id => {
+            setSelectedStudioId(id)
+            setMode('management')
+            // Persist selection in URL so hard refresh restores the same studio
+            const p = new URLSearchParams(searchParams.toString())
+            p.set('studio', id)
+            p.delete('tab') // reset tab when switching studios
+            router.replace(`?${p.toString()}`)
+          }}
         />
       )}
       <ModeSwitcher mode={mode} onSwitch={setMode} />
