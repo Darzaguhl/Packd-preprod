@@ -732,7 +732,7 @@ export const api = {
         method: 'DELETE', token,
       }),
     month: (studioId: string, year: number, month: number, token: string, instructorId?: string) =>
-      apiFetch<{ year: number; month: number; days: Record<string, { id: string; sport: string; name: string; startsAt: string; instructorName: string; status: string }[]> }>(
+      apiFetch<{ year: number; month: number; days: Record<string, { id: string; sport: string; name: string; startsAt: string; instructorId: string | null; instructorName: string; substituteInstructorId: string | null; status: string }[]> }>(
         `/schedules/month?studioId=${studioId}&year=${year}&month=${month}${instructorId ? `&instructorId=${instructorId}` : ''}`, { token },
       ),
     orphaned: (studioId: string, token: string) =>

@@ -496,13 +496,13 @@ export async function classScheduleRoutes(app: FastifyInstance) {
         },
         include: {
           template: true,
-          instructor: { select: { user: { select: { firstName: true, lastName: true } } } },
+          instructor: { select: { id: true, user: { select: { firstName: true, lastName: true } } } },
         },
         orderBy: { startsAt: 'asc' },
       })
 
       // Group by local date string "YYYY-MM-DD"
-      const byDate: Record<string, { id: string; sport: string; name: string; startsAt: string; instructorName: string; status: string }[]> = {}
+      const byDate: Record<string, { id: string; sport: string; name: string; startsAt: string; instructorId: string | null; instructorName: string; substituteInstructorId: string | null; status: string }[]> = {}
       for (const s of sessions) {
         const d = s.startsAt
         const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -514,7 +514,9 @@ export async function classScheduleRoutes(app: FastifyInstance) {
           sport: s.template.sport,
           name: s.template.name,
           startsAt: s.startsAt.toISOString(),
+          instructorId: s.instructor?.id ?? null,
           instructorName,
+          substituteInstructorId: s.substituteInstructorId ?? null,
           status: s.status,
         })
       }

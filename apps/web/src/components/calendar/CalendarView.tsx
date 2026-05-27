@@ -114,7 +114,7 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
     const n = new Date(); return { year: n.getFullYear(), month: n.getMonth() + 1 }
   })
   const [data, setData] = useState<CalendarWeek | null>(null)
-  const [monthData, setMonthData] = useState<Record<string, { id: string; sport: string; name: string; startsAt: string; instructorName: string; status: string }[]>>({})
+  const [monthData, setMonthData] = useState<Record<string, { id: string; sport: string; name: string; startsAt: string; instructorId: string | null; instructorName: string; substituteInstructorId: string | null; status: string }[]>>({})
   const [allSchedules, setAllSchedules] = useState<ClassSchedule[]>([])
   const [orphaned, setOrphaned] = useState<OrphanedPattern[]>([])
   const [loading, setLoading] = useState(true)
@@ -318,6 +318,13 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
       ...prev,
       sessions: prev.sessions.map(s => s.id === sessionId ? { ...s, ...update } : s),
     } : prev)
+    setMonthData(prev => {
+      const next = { ...prev }
+      for (const key of Object.keys(next)) {
+        next[key] = next[key].map(s => s.id === sessionId ? { ...s, substituteInstructorId: update.substituteInstructorId } : s)
+      }
+      return next
+    })
     setModal(null)
   }
 
@@ -485,6 +492,28 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
                 setWeekStart(getMonday(new Date(date)))
                 setView('week')
               }}
+              canSetSubstitute={canSetSubstitute}
+              onSubstitute={canSetSubstitute ? (s) => setModal({
+                type: 'substitute',
+                session: {
+                  id: s.id,
+                  scheduleId: null,
+                  templateId: '',
+                  templateName: s.name,
+                  sport: s.sport,
+                  instructorId: s.instructorId ?? '',
+                  instructorName: s.instructorName,
+                  substituteInstructorId: s.substituteInstructorId,
+                  substituteInstructorName: null,
+                  startsAt: s.startsAt,
+                  endsAt: s.startsAt,
+                  roomId: '',
+                  roomName: '',
+                  capacity: 0,
+                  status: s.status,
+                  creditsRequired: 0,
+                },
+              }) : undefined}
             />
           )}
         </div>
@@ -863,15 +892,17 @@ function DraggableCalendarSession({
 
 // ── Month grid component ──────────────────────────────────────────────────────
 
-type MonthSession = { id: string; sport: string; name: string; startsAt: string; instructorName: string; status: string }
+type MonthSession = { id: string; sport: string; name: string; startsAt: string; instructorId: string | null; instructorName: string; substituteInstructorId: string | null; status: string }
 
 function MonthGrid({
-  year, month, days, onViewWeek,
+  year, month, days, onViewWeek, canSetSubstitute, onSubstitute,
 }: {
   year: number
   month: number
   days: Record<string, MonthSession[]>
   onViewWeek: (isoDate: string) => void
+  canSetSubstitute?: boolean
+  onSubstitute?: (session: MonthSession) => void
 }) {
   const [popoverDay, setPopoverDay] = useState<string | null>(null)
 
@@ -984,18 +1015,37 @@ function MonthGrid({
                 popoverSessions.map(s => {
                   const cfg = SPORT_CONFIG[s.sport] ?? SPORT_CONFIG.OTHER
                   const time = new Date(s.startsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+                  const hasSub = !!s.substituteInstructorId
                   return (
                     <div key={s.id} className="flex items-start gap-3 px-4 py-3">
                       <div className={`mt-0.5 w-2.5 h-2.5 rounded-full shrink-0 ${cfg.accent}`} />
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-gray-900 truncate">{s.name}</p>
-                        <p className="text-xs text-gray-500">{time} · {s.instructorName}</p>
+                        <p className="text-xs text-gray-500">
+                          {time}
+                          {hasSub
+                            ? <> · <span className="line-through opacity-50">{s.instructorName}</span> <span className="text-amber-600 font-medium">sub</span></>
+                            : <> · {s.instructorName}</>}
+                        </p>
                         {s.status !== 'SCHEDULED' && (
                           <span className="inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
                             {s.status.replace('_', ' ')}
                           </span>
                         )}
                       </div>
+                      {canSetSubstitute && onSubstitute && (
+                        <button
+                          onClick={() => { setPopoverDay(null); onSubstitute(s) }}
+                          title="Set substitute instructor"
+                          className={`shrink-0 mt-0.5 text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                            hasSub
+                              ? 'border-amber-300 text-amber-600 hover:bg-amber-50'
+                              : 'border-gray-200 text-gray-400 hover:border-gray-400 hover:text-gray-600'
+                          }`}
+                        >
+                          {hasSub ? '⇄ sub' : '+ sub'}
+                        </button>
+                      )}
                     </div>
                   )
                 })
