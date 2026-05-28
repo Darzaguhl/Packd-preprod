@@ -4,7 +4,9 @@ import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
 import { sendWelcome } from '../lib/email.js'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
+// Lazy-init so tests without STRIPE_SECRET_KEY don't blow up at import time
+let _stripe: Stripe | null = null
+function stripe() { return _stripe ?? (_stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)) }
 
 /**
  * Ensure a Stripe Customer exists for this member.
@@ -18,7 +20,7 @@ async function ensureStripeCustomer(memberId: string, email: string, name: strin
 
   if (member?.stripeCustomerId) return member.stripeCustomerId
 
-  const customer = await stripe.customers.create({ email, name })
+  const customer = await stripe().customers.create({ email, name })
 
   await prisma.member.update({
     where: { id: memberId },
@@ -72,7 +74,7 @@ export async function stripeRoutes(app: FastifyInstance) {
               stripeCouponId = promo.stripeCouponId
             } else {
               const studio = await prisma.studio.findUnique({ where: { id: studioId }, select: { currency: true } })
-              const coupon = await stripe.coupons.create(
+              const coupon = await stripe().coupons.create(
                 promo.type === 'MEMBERSHIP_PCT'
                   ? { percent_off: promo.value, duration: 'once', name: promo.code }
                   : { amount_off: promo.value, currency: (studio?.currency ?? 'usd').toLowerCase(), duration: 'once', name: promo.code },
@@ -84,7 +86,7 @@ export async function stripeRoutes(app: FastifyInstance) {
         }
       }
 
-      const session = await stripe.checkout.sessions.create({
+      const session = await stripe().checkout.sessions.create({
         customer: customerId,
         payment_method_collection: 'always',
         mode: plan.intervalMonths > 0 ? 'subscription' : 'payment',
@@ -111,7 +113,7 @@ export async function stripeRoutes(app: FastifyInstance) {
       })
       if (!member?.stripeCustomerId) return reply.send({ hasCard: false })
 
-      const paymentMethods = await stripe.paymentMethods.list({
+      const paymentMethods = await stripe().paymentMethods.list({
         customer: member.stripeCustomerId,
         type: 'card',
         limit: 1,
@@ -151,7 +153,7 @@ export async function stripeRoutes(app: FastifyInstance) {
       if (!member?.stripeCustomerId) return reply.badRequest('Member has no saved card')
 
       // Get default payment method
-      const paymentMethods = await stripe.paymentMethods.list({
+      const paymentMethods = await stripe().paymentMethods.list({
         customer: member.stripeCustomerId,
         type: 'card',
         limit: 1,
@@ -164,7 +166,7 @@ export async function stripeRoutes(app: FastifyInstance) {
       // Charge the card server-side
       let stripePaymentIntentId: string | undefined
       if (totalCents > 0) {
-        const intent = await stripe.paymentIntents.create({
+        const intent = await stripe().paymentIntents.create({
           amount: totalCents,
           currency: (studio?.currency ?? 'usd').toLowerCase(),
           customer: member.stripeCustomerId,
@@ -232,7 +234,7 @@ export async function stripeRoutes(app: FastifyInstance) {
         `${member.user.firstName} ${member.user.lastName}`.trim(),
       )
 
-      const portalSession = await stripe.billingPortal.sessions.create({
+      const portalSession = await stripe().billingPortal.sessions.create({
         customer: customerId,
         return_url: `${process.env.WEB_URL}/account`,
       })
@@ -247,7 +249,7 @@ export async function stripeRoutes(app: FastifyInstance) {
     let event: Stripe.Event
 
     try {
-      event = stripe.webhooks.constructEvent(
+      event = stripe().webhooks.constructEvent(
         request.rawBody as Buffer,
         sig,
         process.env.STRIPE_WEBHOOK_SECRET!,
@@ -352,7 +354,7 @@ export async function stripeRoutes(app: FastifyInstance) {
       const invoice = event.data.object as Stripe.Invoice
       // Only handle renewals (not the first payment — that's covered by checkout.session.completed)
       if (invoice.billing_reason === 'subscription_cycle' && invoice.subscription) {
-        const sub = await stripe.subscriptions.retrieve(invoice.subscription as string)
+        const sub = await stripe().subscriptions.retrieve(invoice.subscription as string)
         const priceId = sub.items.data[0]?.price.id
         if (!priceId) return { received: true }
 
@@ -458,7 +460,7 @@ export async function stripeRoutes(app: FastifyInstance) {
 
       const refundCents = amountCents ?? sale.totalCents
 
-      const refund = await stripe.refunds.create({
+      const refund = await stripe().refunds.create({
         payment_intent: sale.stripePaymentIntentId,
         amount: refundCents,
       })
