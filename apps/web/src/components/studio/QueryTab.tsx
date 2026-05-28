@@ -27,30 +27,83 @@ const REPORTS: Report[] = [
     id: 'instructor-stats',
     icon: '👤',
     label: 'Instructor Performance',
-    description: 'Sessions taught, fill rate, and check-in rate per instructor',
+    description: 'Fill rate, loyalty rate, repeat visitors, and check-in rate per instructor',
     sql: (studioId, weeks) => `
-SELECT
-  u."firstName" || ' ' || u."lastName"                                     AS instructor,
-  COUNT(DISTINCT cs.id)                                                     AS sessions_taught,
-  SUM(b.confirmed)                                                          AS total_bookings,
-  ROUND(SUM(b.confirmed)::numeric / NULLIF(SUM(cs.capacity), 0) * 100, 1) AS fill_pct,
-  ROUND(SUM(b.checked_in)::numeric / NULLIF(SUM(b.confirmed), 0) * 100, 1) AS checkin_pct
-FROM "Instructor" i
-JOIN "User" u ON u.id = i."userId"
-JOIN "ClassSession" cs
-  ON  cs."instructorId" = i.id
-  AND cs."studioId"     = '${studioId}'
-  AND cs."startsAt"     < NOW()
-  AND cs."startsAt"     > NOW() - INTERVAL '${weeks} weeks'
-  AND cs.status        != 'CANCELLED'
-LEFT JOIN LATERAL (
+WITH session_bookings AS (
   SELECT
-    COUNT(*) FILTER (WHERE status = 'CONFIRMED') AS confirmed,
-    COUNT(*) FILTER (WHERE "checkedIn" = true)   AS checked_in
-  FROM "Booking" WHERE "sessionId" = cs.id
-) b ON true
-GROUP BY i.id, u."firstName", u."lastName"
-ORDER BY fill_pct DESC NULLS LAST`.trim(),
+    cs.id          AS session_id,
+    cs."instructorId",
+    cs."startsAt",
+    cs.capacity,
+    b."memberId",
+    b.status,
+    b."checkedIn"
+  FROM "ClassSession" cs
+  JOIN "Booking" b ON b."sessionId" = cs.id
+  WHERE cs."studioId" = '${studioId}'
+    AND cs."startsAt" < NOW()
+    AND cs."startsAt" > NOW() - INTERVAL '${weeks} weeks'
+    AND cs.status    != 'CANCELLED'
+),
+-- For each session: confirmed count, check-ins, and how many were returning visitors
+session_stats AS (
+  SELECT
+    sb."session_id",
+    sb."instructorId",
+    sb.capacity,
+    COUNT(*) FILTER (WHERE sb.status = 'CONFIRMED')                          AS confirmed,
+    COUNT(*) FILTER (WHERE sb."checkedIn" = true)                            AS checked_in,
+    COUNT(*) FILTER (WHERE sb.status = 'CONFIRMED' AND EXISTS (
+      SELECT 1 FROM session_bookings prev
+      WHERE prev."instructorId" = sb."instructorId"
+        AND prev."memberId"     = sb."memberId"
+        AND prev.status         = 'CONFIRMED'
+        AND prev."startsAt"     < sb."startsAt"
+    ))                                                                       AS prior_visitors
+  FROM session_bookings sb
+  GROUP BY sb."session_id", sb."instructorId", sb.capacity
+),
+-- Loyalty rate: average per-session fraction of returning attendees (sessions with bookings only)
+loyalty AS (
+  SELECT
+    "instructorId",
+    ROUND(AVG(prior_visitors::numeric / NULLIF(confirmed, 0)) * 100, 1) AS loyalty_rate_pct
+  FROM session_stats
+  WHERE confirmed > 0
+  GROUP BY "instructorId"
+),
+-- Unique and repeat members per instructor
+member_visits AS (
+  SELECT "instructorId", "memberId", COUNT(*) AS visits
+  FROM session_bookings
+  WHERE status = 'CONFIRMED'
+  GROUP BY "instructorId", "memberId"
+),
+member_stats AS (
+  SELECT
+    "instructorId",
+    COUNT(*)                               AS unique_members,
+    COUNT(*) FILTER (WHERE visits > 1)     AS repeat_members
+  FROM member_visits
+  GROUP BY "instructorId"
+)
+SELECT
+  u."firstName" || ' ' || u."lastName"                                           AS instructor,
+  COUNT(DISTINCT ss.session_id)                                                   AS sessions,
+  SUM(ss.confirmed)                                                               AS bookings,
+  ms.unique_members,
+  ROUND(ms.repeat_members::numeric / NULLIF(ms.unique_members, 0) * 100, 1)     AS repeat_pct,
+  COALESCE(l.loyalty_rate_pct, 0)                                                AS loyalty_pct,
+  ROUND(SUM(ss.confirmed)::numeric / NULLIF(SUM(ss.capacity), 0) * 100, 1)      AS fill_pct,
+  ROUND(SUM(ss.checked_in)::numeric / NULLIF(SUM(ss.confirmed), 0) * 100, 1)    AS checkin_pct
+FROM session_stats ss
+JOIN "Instructor" i  ON i.id  = ss."instructorId"
+JOIN "User" u        ON u.id  = i."userId"
+LEFT JOIN loyalty l  ON l."instructorId" = ss."instructorId"
+LEFT JOIN member_stats ms ON ms."instructorId" = ss."instructorId"
+GROUP BY i.id, u."firstName", u."lastName", l.loyalty_rate_pct,
+         ms.unique_members, ms.repeat_members
+ORDER BY loyalty_pct DESC NULLS LAST`.trim(),
   },
   {
     id: 'class-fill',
