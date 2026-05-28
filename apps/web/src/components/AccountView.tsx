@@ -18,22 +18,31 @@ function EditProfileModal({
   onSave,
   onClose,
 }: {
-  profile: MemberProfile
+  profile: MemberProfile & { birthday?: string | null; emergencyContactName?: string | null; emergencyContactPhone?: string | null }
   token: string
   onSave: (firstName: string, lastName: string) => void
   onClose: () => void
 }) {
-  const [firstName, setFirstName] = useState(profile.firstName)
-  const [lastName, setLastName]   = useState(profile.lastName)
-  const [saving, setSaving]       = useState(false)
-  const [error, setError]         = useState<string | null>(null)
+  const [firstName, setFirstName]                   = useState(profile.firstName)
+  const [lastName, setLastName]                     = useState(profile.lastName)
+  const [birthday, setBirthday]                     = useState(profile.birthday ? profile.birthday.slice(0, 10) : '')
+  const [emergencyName, setEmergencyName]           = useState(profile.emergencyContactName ?? '')
+  const [emergencyPhone, setEmergencyPhone]         = useState(profile.emergencyContactPhone ?? '')
+  const [saving, setSaving]                         = useState(false)
+  const [error, setError]                           = useState<string | null>(null)
 
   async function handleSave() {
     if (!firstName.trim() || !lastName.trim()) { setError('Both fields are required'); return }
     setSaving(true)
     setError(null)
     try {
-      await api.members.updateMe({ firstName: firstName.trim(), lastName: lastName.trim() }, token)
+      await api.members.updateMe({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        birthday: birthday || null,
+        emergencyContactName: emergencyName.trim() || null,
+        emergencyContactPhone: emergencyPhone.trim() || null,
+      }, token)
       onSave(firstName.trim(), lastName.trim())
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save')
@@ -55,19 +64,49 @@ function EditProfileModal({
           </button>
         </div>
         <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">First name</label>
+              <input
+                value={firstName}
+                onChange={e => setFirstName(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Last name</label>
+              <input
+                value={lastName}
+                onChange={e => setLastName(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+              />
+            </div>
+          </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">First name</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Birthday</label>
             <input
-              value={firstName}
-              onChange={e => setFirstName(e.target.value)}
+              type="date"
+              value={birthday}
+              onChange={e => setBirthday(e.target.value)}
               className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Last name</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Emergency contact name</label>
             <input
-              value={lastName}
-              onChange={e => setLastName(e.target.value)}
+              value={emergencyName}
+              onChange={e => setEmergencyName(e.target.value)}
+              placeholder="Full name"
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Emergency contact phone</label>
+            <input
+              type="tel"
+              value={emergencyPhone}
+              onChange={e => setEmergencyPhone(e.target.value)}
+              placeholder="+1 555 000 0000"
               className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
           </div>
@@ -99,6 +138,10 @@ export default function AccountView() {
   const [token, setToken] = useState<string | null>(null)
   const [timeFormat, setTimeFormat] = useState<'12h' | '24h'>('24h')
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
+  const [memberStats, setMemberStats] = useState<import('@/lib/api').MemberStats | null>(null)
+  const [icalUrl, setIcalUrl] = useState<string | null>(null)
+  const [icalCopied, setIcalCopied] = useState(false)
+  const [profileExtended, setProfileExtended] = useState<{ birthday: string | null; emergencyContactName: string | null; emergencyContactPhone: string | null } | null>(null)
 
   useEffect(() => {
     createClient().auth.getSession().then(async ({ data: { session } }) => {
@@ -117,11 +160,17 @@ export default function AccountView() {
         setPastBookings(historyData.pastBookings)
         setTransactions(historyData.transactions)
 
+        // Capture extended profile fields
+        const extProfile = profileData as typeof profileData & { birthday: string | null; emergencyContactName: string | null; emergencyContactPhone: string | null }
+        setProfileExtended({ birthday: extProfile.birthday ?? null, emergencyContactName: extProfile.emergencyContactName ?? null, emergencyContactPhone: extProfile.emergencyContactPhone ?? null })
+
         // Fetch membership plans for the member's studio
         const studioId = profileData.studioId ?? (session?.user?.app_metadata as { studioId?: string })?.studioId
         if (studioId) {
           api.memberships.publicPlans(studioId, t).then(setPlans).catch(() => {})
           api.admin.stats(studioId, t).then(s => setTimeFormat((s.timeFormat ?? '24h') as '12h' | '24h')).catch(() => {})
+          api.members.stats(studioId, t).then(setMemberStats).catch(() => {})
+          api.ical.getToken(t).then(d => setIcalUrl(d.urls.member)).catch(() => {})
         }
       } catch {
         // non-member user — show empty state
@@ -223,7 +272,7 @@ export default function AccountView() {
     <TimeFormatProvider value={timeFormat}>
       <div className="min-h-screen bg-gray-50">
         <NavBar title="My Account" />
-        <div className="max-w-2xl mx-auto px-4 py-6">
+        <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
           <MemberHistoryView
             profile={profile}
             upcoming={upcoming}
@@ -235,12 +284,69 @@ export default function AccountView() {
             onCancelMembership={handleCancelMembership}
             onEditProfile={() => setEditingProfile(true)}
           />
+
+          {/* ── My stats ── */}
+          {memberStats && (
+            <div className="bg-white border border-gray-100 rounded-2xl px-5 py-4 space-y-3">
+              <h3 className="text-sm font-semibold text-gray-900">My stats</h3>
+              <p className="text-sm text-gray-700">
+                You&apos;ve attended{' '}
+                <span className="font-bold text-gray-900">{memberStats.visits} class{memberStats.visits !== 1 ? 'es' : ''}</span>
+                {memberStats.rank && memberStats.totalMembers > 0 && (
+                  <> — you&apos;re{' '}
+                    <span className="font-bold text-gray-900">#{memberStats.rank}</span>{' '}
+                    of {memberStats.totalMembers} members this month 🏆
+                  </>
+                )}
+              </p>
+              {memberStats.topInstructors.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-2">Your top instructors</p>
+                  <div className="flex flex-wrap gap-2">
+                    {memberStats.topInstructors.map(i => (
+                      <span key={i.instructorId} className="inline-flex items-center gap-1.5 bg-gray-100 rounded-full px-3 py-1 text-xs font-medium text-gray-700">
+                        {i.name}
+                        <span className="text-gray-400">{i.sessionsTogether} together</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Calendar subscribe ── */}
+          {icalUrl && (
+            <div className="bg-white border border-gray-100 rounded-2xl px-5 py-4 space-y-2">
+              <h3 className="text-sm font-semibold text-gray-900">Subscribe to my schedule</h3>
+              <p className="text-xs text-gray-500">Add your upcoming classes to Google Calendar or Apple Calendar.</p>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(icalUrl).then(() => {
+                      setIcalCopied(true)
+                      setTimeout(() => setIcalCopied(false), 2000)
+                    })
+                  }}
+                  className="text-xs font-medium px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  {icalCopied ? '✓ Copied!' : 'Copy iCal URL'}
+                </button>
+                <a
+                  href={`webcal://${icalUrl.replace(/^https?:\/\//, '')}`}
+                  className="text-xs font-medium px-3 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Open in Calendar
+                </a>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {editingProfile && token && (
         <EditProfileModal
-          profile={profile}
+          profile={{ ...profile, ...(profileExtended ?? {}) }}
           token={token}
           onSave={(firstName, lastName) => {
             setProfile(p => p ? { ...p, firstName, lastName } : p)

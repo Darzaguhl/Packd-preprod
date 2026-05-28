@@ -117,6 +117,16 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
   const [memberNotes, setMemberNotes]       = useState<string>('')
   const [notesSaving, setNotesSaving]       = useState(false)
   const [notesSaved, setNotesSaved]         = useState(false)
+
+  // Structured staff notes (MemberNote records)
+  const [staffNotes, setStaffNotes] = useState<import('@/lib/api').StaffNote[]>([])
+  const [newNoteText, setNewNoteText] = useState('')
+  const [noteAdding, setNoteAdding] = useState(false)
+
+  // Promo code redemption
+  const [promoCode, setPromoCode] = useState('')
+  const [promoLoading, setPromoLoading] = useState(false)
+
   const creditAmount = creditPreset ?? (creditCustom ? parseInt(creditCustom, 10) : null)
 
   function showToast(msg: string, ok = true) {
@@ -179,14 +189,20 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
     setCart([])
     setMemberNotes('')
     setNotesSaved(false)
+    setStaffNotes([])
+    setNewNoteText('')
+    setPromoCode('')
   }
 
   // Load member notes when a member is selected
   useEffect(() => {
-    if (!member) return
+    if (!member) { setStaffNotes([]); return }
     getFreshToken().then(t =>
       api.admin.memberProfile(member.id, t)
-    ).then(p => setMemberNotes(p.notes ?? '')).catch(() => {})
+    ).then(p => {
+      setMemberNotes(p.notes ?? '')
+      setStaffNotes(p.staffNotes ?? [])
+    }).catch(() => {})
   }, [member?.id])
 
   /** When the drawer was opened from an empty station click, clicking a member
@@ -338,6 +354,35 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
     } finally { setActionLoading(false) }
   }
 
+  async function handleRedeemPromo() {
+    if (!member || !promoCode.trim()) return
+    setPromoLoading(true)
+    try {
+      const t = await getFreshToken()
+      const result = await api.promos.redeem(promoCode.trim(), studioId, t, member.id)
+      if (result.creditsAdded > 0) {
+        setMember(prev => prev ? { ...prev, creditBalance: prev.creditBalance + result.creditsAdded } : null)
+      }
+      setPromoCode('')
+      showToast(result.message)
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Invalid promo code', false)
+    } finally { setPromoLoading(false) }
+  }
+
+  async function handleAddNote() {
+    if (!member || !newNoteText.trim()) return
+    setNoteAdding(true)
+    try {
+      const t = await getFreshToken()
+      const note = await api.admin.addNote(member.id, newNoteText.trim(), t)
+      setStaffNotes(prev => [note, ...prev])
+      setNewNoteText('')
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Failed to add note', false)
+    } finally { setNoteAdding(false) }
+  }
+
   const categorised = groupByCategory(products)
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -452,7 +497,7 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
               {/* Quick notes */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-gray-500">Staff notes</label>
+                  <label className="text-xs font-medium text-gray-500">Quick note</label>
                   {notesSaved && <span className="text-[10px] text-emerald-600 font-medium">Saved</span>}
                 </div>
                 <textarea
@@ -473,6 +518,38 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                   rows={2}
                   className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-gray-400 resize-none text-gray-700 placeholder:text-gray-300"
                 />
+              </div>
+
+              {/* Staff notes log */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-gray-500">Staff notes log</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newNoteText}
+                    onChange={e => setNewNoteText(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleAddNote() }}
+                    placeholder="Add note…"
+                    className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  />
+                  <button
+                    onClick={handleAddNote}
+                    disabled={noteAdding || !newNoteText.trim()}
+                    className="text-xs font-medium px-3 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors"
+                  >
+                    {noteAdding ? '…' : 'Add'}
+                  </button>
+                </div>
+                {staffNotes.length > 0 && (
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                    {staffNotes.map(n => (
+                      <div key={n.id} className="text-xs bg-gray-50 rounded-lg px-2.5 py-2">
+                        <p className="text-gray-800">{n.content}</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">{n.staffName} · {new Date(n.createdAt).toLocaleDateString()}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Session actions */}
@@ -583,6 +660,30 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                   {actionLoading ? '…' : creditAmount && creditAmount > 0
                     ? `${creditDeduct ? 'Deduct' : 'Add'} ${creditAmount} credit${creditAmount !== 1 ? 's' : ''}`
                     : 'Select amount'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Promo code redemption ── */}
+          {member && (
+            <div className="px-5 py-3 border-t border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Apply promo code</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={promoCode}
+                  onChange={e => setPromoCode(e.target.value.toUpperCase())}
+                  onKeyDown={e => { if (e.key === 'Enter') handleRedeemPromo() }}
+                  placeholder="Enter code…"
+                  className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400 font-mono"
+                />
+                <button
+                  onClick={handleRedeemPromo}
+                  disabled={promoLoading || !promoCode.trim()}
+                  className="text-sm font-medium px-4 py-2 bg-gray-900 text-white rounded-xl hover:bg-gray-700 disabled:opacity-40 transition-colors"
+                >
+                  {promoLoading ? '…' : 'Apply'}
                 </button>
               </div>
             </div>

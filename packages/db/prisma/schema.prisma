@@ -32,6 +32,8 @@ model Studio {
   products       Product[]
   cancellationPolicy CancellationPolicy?
   integration   StudioIntegration?
+  availabilityBlocks InstructorAvailabilityBlock[]
+  promoCodes    PromoCode[]
 }
 
 // ─── External integrations ────────────────────────────────────────────────────
@@ -65,6 +67,7 @@ model User {
 
   member      Member?
   instructors Instructor[]
+  memberNotes MemberNote[] @relation("MemberNoteStaff")
 }
 
 // ─── Location & Rooms ────────────────────────────────────────────────────────
@@ -144,12 +147,13 @@ model Instructor {
   permissions Json    @default("{}")
   externalId  String? // e.g. Mariana Tek instructor ID
 
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  studio        Studio         @relation(fields: [studioId], references: [id], onDelete: Cascade)
-  classSessions ClassSession[]
-  schedules     ClassSchedule[]
-  substituteFor ClassSession[] @relation("SubstituteInstructor")
-  photos        InstructorPhoto[]
+  user               User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  studio             Studio         @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  classSessions      ClassSession[]
+  schedules          ClassSchedule[]
+  substituteFor      ClassSession[] @relation("SubstituteInstructor")
+  photos             InstructorPhoto[]
+  availabilityBlocks InstructorAvailabilityBlock[]
 
   @@unique([userId, studioId])
 }
@@ -294,6 +298,11 @@ model Member {
   studioIds        String[] @default([])  // all studios this staff member is assigned to (mirrors app_metadata.studioIds)
   staffPermissions Json?                  // fronthost permission overrides (FronthostPermissions)
 
+  // Profile enrichment
+  birthday             DateTime?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   studio          Studio           @relation(fields: [studioId], references: [id], onDelete: Cascade)
   bookings        Booking[]
@@ -301,6 +310,8 @@ model Member {
   creditBalance   CreditBalance?
   memberships     MembershipSubscription[]
   transactions    CreditTransaction[]
+  memberNotes     MemberNote[]
+  promoRedemptions PromoCodeRedemption[]
 
   @@unique([studioId, externalId])
   @@index([staffRoles], type: Gin)
@@ -464,4 +475,75 @@ model Product {
   inStock         Boolean @default(true)
 
   studio Studio @relation(fields: [studioId], references: [id], onDelete: Cascade)
+}
+
+// ─── Member notes (staff-authored, audited) ───────────────────────────────────
+
+model MemberNote {
+  id        String   @id @default(cuid())
+  memberId  String
+  staffId   String   // userId of staff who added the note
+  content   String
+  createdAt DateTime @default(now())
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  staff  User   @relation("MemberNoteStaff", fields: [staffId], references: [id])
+
+  @@index([memberId])
+}
+
+// ─── Instructor availability blocks ──────────────────────────────────────────
+
+model InstructorAvailabilityBlock {
+  id           String     @id @default(cuid())
+  instructorId String
+  studioId     String
+  title        String
+  startDate    DateTime
+  endDate      DateTime
+  createdAt    DateTime   @default(now())
+
+  instructor Instructor @relation(fields: [instructorId], references: [id], onDelete: Cascade)
+  studio     Studio     @relation(fields: [studioId], references: [id], onDelete: Cascade)
+
+  @@index([instructorId, startDate])
+  @@index([studioId, startDate])
+}
+
+// ─── Promo codes ──────────────────────────────────────────────────────────────
+
+model PromoCode {
+  id          String    @id @default(cuid())
+  studioId    String
+  code        String
+  description String?
+  // CREDIT_GRANT: add `value` credits · FREE_CLASS: add 1 credit
+  // MEMBERSHIP_PCT: `value` = percent off · MEMBERSHIP_FLAT: `value` = cents off
+  type        String
+  value       Int       @default(0)
+  maxUses     Int?      // null = unlimited
+  usageCount  Int       @default(0)
+  validFrom   DateTime  @default(now())
+  validUntil  DateTime?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  studio      Studio              @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  redemptions PromoCodeRedemption[]
+
+  @@unique([studioId, code])
+  @@index([studioId, isActive])
+}
+
+model PromoCodeRedemption {
+  id          String    @id @default(cuid())
+  promoCodeId String
+  memberId    String
+  redeemedAt  DateTime  @default(now())
+
+  promoCode PromoCode @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  member    Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([promoCodeId, memberId])
+  @@index([memberId])
 }

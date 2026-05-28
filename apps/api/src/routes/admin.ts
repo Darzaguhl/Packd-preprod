@@ -351,19 +351,26 @@ export async function adminRoutes(app: FastifyInstance) {
       const { memberId } = request.params
 
       // Members are franchise-scoped; any staff member (requireInstructor) may view any member.
-      const member = await prisma.member.findUnique({
-        where: { id: memberId },
-        include: {
-          user: true,
-          creditBalance: true,
-          memberships: {
-            where: { status: { in: ['ACTIVE', 'PAUSED'] } },
-            include: { plan: true },
-            take: 1,
-            orderBy: { startDate: 'desc' },
+      const [member, memberNotes] = await Promise.all([
+        prisma.member.findUnique({
+          where: { id: memberId },
+          include: {
+            user: true,
+            creditBalance: true,
+            memberships: {
+              where: { status: { in: ['ACTIVE', 'PAUSED'] } },
+              include: { plan: true },
+              take: 1,
+              orderBy: { startDate: 'desc' },
+            },
           },
-        },
-      })
+        }),
+        prisma.memberNote.findMany({
+          where: { memberId },
+          include: { staff: { select: { firstName: true, lastName: true } } },
+          orderBy: { createdAt: 'desc' },
+        }),
+      ])
       if (!member) return reply.notFound('Member not found')
 
       return reply.send({
@@ -373,6 +380,15 @@ export async function adminRoutes(app: FastifyInstance) {
         email: member.user.email,
         creditBalance: member.creditBalance?.balance ?? 0,
         notes: member.notes ?? null,
+        birthday: member.birthday?.toISOString() ?? null,
+        emergencyContactName: member.emergencyContactName ?? null,
+        emergencyContactPhone: member.emergencyContactPhone ?? null,
+        staffNotes: memberNotes.map(n => ({
+          id: n.id,
+          content: n.content,
+          staffName: `${n.staff.firstName} ${n.staff.lastName}`,
+          createdAt: n.createdAt.toISOString(),
+        })),
         activeSubscription: member.memberships[0]
           ? {
               id: member.memberships[0].id,
@@ -568,15 +584,360 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   )
 
+  // GET /admin/sessions/bulk?studioId=&from=&to=&instructorId=&templateId= — preview (dry-run)
+  app.get<{ Querystring: { studioId: string; from: string; to: string; instructorId?: string; templateId?: string } }>(
+    '/sessions/bulk',
+    { preHandler: requireStudioAdmin },
+    async (request, reply) => {
+      const { studioId, from, to, instructorId, templateId } = request.query
+      if (!studioId || !from || !to) return reply.badRequest('studioId, from and to are required')
+
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
+
+      const sessions = await prisma.classSession.findMany({
+        where: {
+          studioId,
+          startsAt: { gte: new Date(from), lt: new Date(to) },
+          status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+          ...(instructorId ? { instructorId } : {}),
+          ...(templateId   ? { templateId   } : {}),
+        },
+        include: {
+          template: { select: { name: true } },
+          instructor: { include: { user: { select: { firstName: true, lastName: true } } } },
+          _count: { select: { bookings: { where: { status: 'CONFIRMED' } } } },
+        },
+        orderBy: { startsAt: 'asc' },
+      })
+
+      // Summarise by template
+      const byTemplate = new Map<string, { name: string; count: number }>()
+      for (const s of sessions) {
+        const existing = byTemplate.get(s.templateId) ?? { name: s.template.name, count: 0 }
+        byTemplate.set(s.templateId, { ...existing, count: existing.count + 1 })
+      }
+
+      return reply.send({
+        total: sessions.length,
+        sessionIds: sessions.map(s => s.id),
+        byTemplate: Array.from(byTemplate.values()),
+        sessions: sessions.map(s => ({
+          id: s.id,
+          startsAt: s.startsAt.toISOString(),
+          templateName: s.template.name,
+          instructorName: `${s.instructor.user.firstName} ${s.instructor.user.lastName}`,
+          confirmedBookings: s._count.bookings,
+        })),
+      })
+    },
+  )
+
+  // POST /admin/sessions/bulk — execute bulk cancel or substitute
+  app.post<{
+    Body: {
+      studioId: string
+      from: string
+      to: string
+      instructorId?: string
+      templateId?: string
+      action: 'CANCEL' | 'SUBSTITUTE'
+      substituteInstructorId?: string
+    }
+  }>(
+    '/sessions/bulk',
+    { preHandler: requireStudioAdmin },
+    async (request, reply) => {
+      const { studioId, from, to, instructorId, templateId, action, substituteInstructorId } = request.body
+      if (!studioId || !from || !to || !action) return reply.badRequest('studioId, from, to and action are required')
+      if (action === 'SUBSTITUTE' && !substituteInstructorId) return reply.badRequest('substituteInstructorId is required for SUBSTITUTE action')
+
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
+
+      const sessions = await prisma.classSession.findMany({
+        where: {
+          studioId,
+          startsAt: { gte: new Date(from), lt: new Date(to) },
+          status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+          ...(instructorId ? { instructorId } : {}),
+          ...(templateId   ? { templateId   } : {}),
+        },
+        select: { id: true, creditsRequired: true },
+      })
+
+      if (sessions.length === 0) return reply.send({ affected: 0, sessionIds: [] })
+
+      const sessionIds = sessions.map(s => s.id)
+
+      if (action === 'SUBSTITUTE') {
+        await prisma.classSession.updateMany({
+          where: { id: { in: sessionIds } },
+          data: { substituteInstructorId },
+        })
+        return reply.send({ affected: sessionIds.length, sessionIds })
+      }
+
+      // CANCEL: cancel sessions + refund bookings
+      await prisma.$transaction(async (tx) => {
+        // Cancel all sessions
+        await tx.classSession.updateMany({
+          where: { id: { in: sessionIds } },
+          data: { status: 'CANCELLED' },
+        })
+
+        // Find all CONFIRMED bookings for these sessions
+        const bookings = await tx.booking.findMany({
+          where: { sessionId: { in: sessionIds }, status: 'CONFIRMED' },
+          select: { id: true, memberId: true, sessionId: true },
+        })
+
+        if (bookings.length > 0) {
+          // Cancel bookings
+          await tx.booking.updateMany({
+            where: { id: { in: bookings.map(b => b.id) } },
+            data: { status: 'CANCELLED', stationId: null },
+          })
+
+          // Refund credits per session's creditsRequired
+          const sessionCredits = new Map(sessions.map(s => [s.id, s.creditsRequired]))
+          const refundsByMember = new Map<string, number>()
+          for (const b of bookings) {
+            const credits = sessionCredits.get(b.sessionId) ?? 0
+            if (credits > 0) {
+              refundsByMember.set(b.memberId, (refundsByMember.get(b.memberId) ?? 0) + credits)
+            }
+          }
+
+          for (const [memberId, amount] of refundsByMember) {
+            await tx.creditBalance.upsert({
+              where: { memberId },
+              create: { memberId, balance: amount },
+              update: { balance: { increment: amount } },
+            })
+            await tx.creditTransaction.create({
+              data: { memberId, amount, type: 'MANUAL_ADJUSTMENT', note: 'Refund: bulk session cancellation' },
+            })
+          }
+        }
+      })
+
+      return reply.send({ affected: sessionIds.length, sessionIds })
+    },
+  )
+
+  // GET /admin/leaderboard?studioId=&period=week|month|alltime
+  app.get<{ Querystring: { studioId: string; period?: string } }>(
+    '/leaderboard',
+    { preHandler: requireStudioAdmin },
+    async (request, reply) => {
+      const { studioId, period = 'month' } = request.query
+      if (!studioId) return reply.badRequest('studioId is required')
+
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
+
+      const now = new Date()
+      let from: Date | undefined
+      if (period === 'week') {
+        from = new Date(now)
+        from.setDate(from.getDate() - 7)
+      } else if (period === 'month') {
+        from = new Date(now)
+        from.setMonth(from.getMonth() - 1)
+      }
+      // alltime: no from filter
+
+      const bookings = await prisma.booking.findMany({
+        where: {
+          status: 'CONFIRMED',
+          session: {
+            studioId,
+            startsAt: { lt: now, ...(from ? { gte: from } : {}) },
+            status: { not: 'CANCELLED' },
+          },
+        },
+        select: {
+          memberId: true,
+          checkedIn: true,
+          session: {
+            select: {
+              startsAt: true,
+              instructorId: true,
+              substituteInstructorId: true,
+              instructor: { include: { user: { select: { firstName: true, lastName: true } } } },
+            },
+          },
+          member: { include: { user: { select: { firstName: true, lastName: true } } } },
+        },
+      })
+
+      // Members leaderboard
+      const memberMap = new Map<string, { name: string; visits: number; checkIns: number; lastVisit: Date }>()
+      for (const b of bookings) {
+        const existing = memberMap.get(b.memberId) ?? {
+          name: `${b.member.user.firstName} ${b.member.user.lastName}`,
+          visits: 0, checkIns: 0, lastVisit: new Date(0),
+        }
+        memberMap.set(b.memberId, {
+          ...existing,
+          visits: existing.visits + 1,
+          checkIns: existing.checkIns + (b.checkedIn ? 1 : 0),
+          lastVisit: b.session.startsAt > existing.lastVisit ? b.session.startsAt : existing.lastVisit,
+        })
+      }
+      const members = Array.from(memberMap.entries())
+        .sort((a, b) => b[1].visits - a[1].visits)
+        .slice(0, 25)
+        .map(([memberId, v], i) => ({
+          rank: i + 1,
+          memberId,
+          name: v.name,
+          visits: v.visits,
+          checkIns: v.checkIns,
+          lastVisit: v.lastVisit.toISOString(),
+        }))
+
+      // Top instructors by total confirmed attendees
+      const instrMap = new Map<string, { name: string; totalBookings: number }>()
+      for (const b of bookings) {
+        const instr = b.session.instructor
+        if (!instr) continue
+        const id = b.session.substituteInstructorId ?? b.session.instructorId
+        const name = `${instr.user.firstName} ${instr.user.lastName}`
+        const existing = instrMap.get(id) ?? { name, totalBookings: 0 }
+        instrMap.set(id, { ...existing, totalBookings: existing.totalBookings + 1 })
+      }
+      const topInstructors = Array.from(instrMap.entries())
+        .sort((a, b) => b[1].totalBookings - a[1].totalBookings)
+        .slice(0, 5)
+        .map(([id, v], i) => ({ rank: i + 1, instructorId: id, name: v.name, totalBookings: v.totalBookings }))
+
+      return reply.send({ members, topInstructors, period, generatedAt: now.toISOString() })
+    },
+  )
+
+  // GET /admin/members/:memberId/notes — staff notes log (fronthost+)
+  app.get<{ Params: { memberId: string } }>(
+    '/members/:memberId/notes',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const { memberId } = request.params
+      const user = getUser(request)
+      if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
+
+      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true } })
+      if (!member) return reply.notFound('Member not found')
+
+      const notes = await prisma.memberNote.findMany({
+        where: { memberId },
+        include: { staff: { select: { firstName: true, lastName: true } } },
+        orderBy: { createdAt: 'desc' },
+      })
+
+      return reply.send(notes.map(n => ({
+        id: n.id,
+        content: n.content,
+        staffName: `${n.staff.firstName} ${n.staff.lastName}`,
+        createdAt: n.createdAt.toISOString(),
+      })))
+    },
+  )
+
+  // POST /admin/members/:memberId/notes — create staff note (fronthost+)
+  app.post<{ Params: { memberId: string }; Body: { content: string } }>(
+    '/members/:memberId/notes',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const { memberId } = request.params
+      const { content } = request.body
+      const user = getUser(request)
+      if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
+      if (!content?.trim()) return reply.badRequest('content is required')
+
+      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true } })
+      if (!member) return reply.notFound('Member not found')
+
+      const note = await prisma.memberNote.create({
+        data: { memberId, staffId: user.id, content: content.trim() },
+        include: { staff: { select: { firstName: true, lastName: true } } },
+      })
+
+      return reply.code(201).send({
+        id: note.id,
+        content: note.content,
+        staffName: `${note.staff.firstName} ${note.staff.lastName}`,
+        createdAt: note.createdAt.toISOString(),
+      })
+    },
+  )
+
+  // DELETE /admin/members/:memberId/notes/:noteId — delete note (studio_admin+)
+  app.delete<{ Params: { memberId: string; noteId: string } }>(
+    '/members/:memberId/notes/:noteId',
+    { preHandler: requireStudioAdmin },
+    async (request, reply) => {
+      const { noteId } = request.params
+      const note = await prisma.memberNote.findUnique({ where: { id: noteId } })
+      if (!note) return reply.notFound()
+      await prisma.memberNote.delete({ where: { id: noteId } })
+      return reply.send({ success: true })
+    },
+  )
+
+  // PATCH /admin/members/:memberId/profile — update enriched profile fields (fronthost+)
+  app.patch<{
+    Params: { memberId: string }
+    Body: { birthday?: string | null; emergencyContactName?: string | null; emergencyContactPhone?: string | null }
+  }>(
+    '/members/:memberId/profile',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const { memberId } = request.params
+      const { birthday, emergencyContactName, emergencyContactPhone } = request.body
+      const user = getUser(request)
+      if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
+
+      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true } })
+      if (!member) return reply.notFound('Member not found')
+
+      const updated = await prisma.member.update({
+        where: { id: memberId },
+        data: {
+          ...(birthday !== undefined && { birthday: birthday ? new Date(birthday) : null }),
+          ...(emergencyContactName  !== undefined && { emergencyContactName:  emergencyContactName  ?? null }),
+          ...(emergencyContactPhone !== undefined && { emergencyContactPhone: emergencyContactPhone ?? null }),
+        },
+        select: { id: true, birthday: true, emergencyContactName: true, emergencyContactPhone: true },
+      })
+
+      return reply.send({
+        success: true,
+        birthday: updated.birthday?.toISOString() ?? null,
+        emergencyContactName: updated.emergencyContactName,
+        emergencyContactPhone: updated.emergencyContactPhone,
+      })
+    },
+  )
+
   // GET /admin/analytics?studioId=&weeks=12
   // Returns utilization analytics: heatmap, weekly trend, class rankings,
   // instructor stats, booking funnel, and member recurrence rates.
+  // Pass studioId=all (franchise_admin+ only) to aggregate across every studio.
   app.get<{ Querystring: { studioId: string; weeks?: string } }>(
     '/analytics',
     { preHandler: requireStudioAdmin },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
+
+      const user = getUser(request)
+
+      // 'all' mode: franchise_admin+ only
+      const allStudios = studioId === 'all'
+      if (allStudios && ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['franchise_admin']) {
+        return reply.forbidden('franchise_admin role required to view all-studios analytics')
+      }
 
       const weeks = Math.min(Math.max(parseInt(request.query.weeks ?? '12', 10) || 12, 4), 52)
       const now = new Date()
@@ -590,7 +951,7 @@ export async function adminRoutes(app: FastifyInstance) {
       // Fetch all non-cancelled past sessions in the window with their bookings
       const sessions = await prisma.classSession.findMany({
         where: {
-          studioId,
+          ...(allStudios ? {} : { studioId }),
           status: { not: 'CANCELLED' },
           startsAt: { gte: windowStart, lt: now },
         },
@@ -833,10 +1194,11 @@ export async function adminRoutes(app: FastifyInstance) {
 
       // ── Revenue: credit transactions in the window ────────────────────────
 
-      // Fetch all credit transactions for members in this studio within the window
+      // Fetch all credit transactions within the window
+      // For 'all' mode: no studio filter. Per-studio: scope by member.studioId.
       const transactions = await prisma.creditTransaction.findMany({
         where: {
-          member: { studioId },
+          ...(allStudios ? {} : { member: { studioId } }),
           createdAt: { gte: windowStart, lt: now },
         },
         select: { type: true, amount: true, createdAt: true },
@@ -865,7 +1227,10 @@ export async function adminRoutes(app: FastifyInstance) {
 
       // Active membership subscriptions count
       const activeMembers = await prisma.membershipSubscription.count({
-        where: { plan: { studioId }, status: 'ACTIVE' },
+        where: {
+          ...(allStudios ? {} : { plan: { studioId } }),
+          status: 'ACTIVE',
+        },
       })
 
       const revenue = {

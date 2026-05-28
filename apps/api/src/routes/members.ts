@@ -128,6 +128,9 @@ export async function memberRoutes(app: FastifyInstance) {
       lastName: member.user.lastName,
       email: member.user.email,
       creditBalance: member.creditBalance?.balance ?? 0,
+      birthday: member.birthday?.toISOString() ?? null,
+      emergencyContactName: member.emergencyContactName ?? null,
+      emergencyContactPhone: member.emergencyContactPhone ?? null,
       activeSubscription: member.memberships[0]
         ? {
             planName: member.memberships[0].plan.name,
@@ -231,13 +234,21 @@ export async function memberRoutes(app: FastifyInstance) {
     }))
   })
 
-  // PATCH /members/me — update display name
-  app.patch<{ Body: { firstName?: string; lastName?: string } }>(
+  // PATCH /members/me — update display name + profile fields
+  app.patch<{
+    Body: {
+      firstName?: string
+      lastName?: string
+      birthday?: string | null
+      emergencyContactName?: string | null
+      emergencyContactPhone?: string | null
+    }
+  }>(
     '/me',
     { preHandler: requireAuth },
     async (request, reply) => {
       const user = getUser(request)
-      const { firstName, lastName } = request.body
+      const { firstName, lastName, birthday, emergencyContactName, emergencyContactPhone } = request.body
 
       if (firstName !== undefined && (typeof firstName !== 'string' || !firstName.trim())) {
         return reply.badRequest('firstName must be a non-empty string')
@@ -246,16 +257,100 @@ export async function memberRoutes(app: FastifyInstance) {
         return reply.badRequest('lastName must be a non-empty string')
       }
 
-      const updated = await prisma.user.update({
-        where: { id: user.id },
+      const [updatedUser, updatedMember] = await Promise.all([
+        prisma.user.update({
+          where: { id: user.id },
+          data: {
+            ...(firstName !== undefined && { firstName: firstName.trim() }),
+            ...(lastName  !== undefined && { lastName:  lastName.trim() }),
+          },
+          select: { id: true, firstName: true, lastName: true, email: true },
+        }),
+        (birthday !== undefined || emergencyContactName !== undefined || emergencyContactPhone !== undefined)
+          ? prisma.member.update({
+              where: { userId: user.id },
+              data: {
+                ...(birthday              !== undefined && { birthday:              birthday ? new Date(birthday) : null }),
+                ...(emergencyContactName  !== undefined && { emergencyContactName:  emergencyContactName  ?? null }),
+                ...(emergencyContactPhone !== undefined && { emergencyContactPhone: emergencyContactPhone ?? null }),
+              },
+              select: { birthday: true, emergencyContactName: true, emergencyContactPhone: true },
+            })
+          : Promise.resolve(null),
+      ])
+
+      return reply.send({
+        success: true,
         data: {
-          ...(firstName !== undefined && { firstName: firstName.trim() }),
-          ...(lastName !== undefined && { lastName: lastName.trim() }),
+          ...updatedUser,
+          birthday: updatedMember?.birthday?.toISOString() ?? null,
+          emergencyContactName: updatedMember?.emergencyContactName ?? null,
+          emergencyContactPhone: updatedMember?.emergencyContactPhone ?? null,
         },
-        select: { id: true, firstName: true, lastName: true, email: true },
+      })
+    },
+  )
+
+  // GET /members/me/stats?studioId= — member's rank + top 3 instructors
+  app.get<{ Querystring: { studioId: string } }>(
+    '/me/stats',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { studioId } = request.query
+      if (!studioId) return reply.badRequest('studioId is required')
+
+      const user = getUser(request)
+      const member = await prisma.member.findUnique({ where: { userId: user.id }, select: { id: true } })
+      if (!member) return reply.notFound('No member profile found for this user')
+
+      // All confirmed bookings in this studio (past)
+      const allBookings = await prisma.booking.findMany({
+        where: {
+          status: 'CONFIRMED',
+          session: { studioId, startsAt: { lt: new Date() }, status: { not: 'CANCELLED' } },
+        },
+        select: {
+          memberId: true,
+          session: {
+            select: {
+              instructorId: true,
+              substituteInstructorId: true,
+              instructor: { include: { user: { select: { firstName: true, lastName: true } } } },
+            },
+          },
+        },
       })
 
-      return reply.send({ success: true, data: updated })
+      // Build per-member visit count
+      const memberVisits = new Map<string, number>()
+      for (const b of allBookings) {
+        memberVisits.set(b.memberId, (memberVisits.get(b.memberId) ?? 0) + 1)
+      }
+
+      const myVisits = memberVisits.get(member.id) ?? 0
+      const sortedMembers = Array.from(memberVisits.entries()).sort((a, b) => b[1] - a[1])
+      const myRank = sortedMembers.findIndex(([id]) => id === member.id) + 1
+
+      // Top 3 instructors for this member
+      const instrCount = new Map<string, { name: string; count: number }>()
+      for (const b of allBookings) {
+        if (b.memberId !== member.id) continue
+        const id = b.session.substituteInstructorId ?? b.session.instructorId
+        const name = `${b.session.instructor.user.firstName} ${b.session.instructor.user.lastName}`
+        const existing = instrCount.get(id) ?? { name, count: 0 }
+        instrCount.set(id, { ...existing, count: existing.count + 1 })
+      }
+      const topInstructors = Array.from(instrCount.entries())
+        .sort((a, b) => b[1].count - a[1].count)
+        .slice(0, 3)
+        .map(([id, v]) => ({ instructorId: id, name: v.name, sessionsTogether: v.count }))
+
+      return reply.send({
+        visits: myVisits,
+        rank: myRank > 0 ? myRank : null,
+        totalMembers: sortedMembers.length,
+        topInstructors,
+      })
     },
   )
 }

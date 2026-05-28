@@ -16,13 +16,15 @@ import ProductsTab from './ProductsTab'
 import MembersTab from './MembersTab'
 import MembershipsTab from './MembershipsTab'
 import AnalyticsTab from './AnalyticsTab'
+import PromoCodesTab from './PromoCodesTab'
+import LeaderboardTab from './LeaderboardTab'
 import NavBar from '@/components/NavBar'
 import RoomMapView from '@/components/room/RoomMapView'
 import CalendarView from '@/components/calendar/CalendarView'
 import { TimeFormatProvider } from '@/lib/time-format-context'
 import { fmtTime, type TimeFormat } from '@/lib/fmt-time'
 
-type Tab = 'today' | 'calendar' | 'analytics' | 'rooms' | 'room' | 'permissions' | 'staff' | 'members' | 'memberships' | 'settings' | 'photos' | 'social' | 'products'
+type Tab = 'today' | 'calendar' | 'analytics' | 'rooms' | 'room' | 'permissions' | 'staff' | 'members' | 'memberships' | 'settings' | 'photos' | 'social' | 'products' | 'promos' | 'leaderboard'
 
 function toIsoDate(d: Date) {
   const y = d.getFullYear()
@@ -47,7 +49,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
   const [studioName, setStudioName] = useState(initialStudioName)
   const [timeFormat, setTimeFormat] = useState<TimeFormat>('24h')
   const [currency, setCurrency] = useState('USD')
-  const VALID_TABS: Tab[] = ['today', 'calendar', 'analytics', 'rooms', 'room', 'permissions', 'staff', 'members', 'memberships', 'settings', 'photos', 'social', 'products']
+  const VALID_TABS: Tab[] = ['today', 'calendar', 'analytics', 'rooms', 'room', 'permissions', 'staff', 'members', 'memberships', 'settings', 'photos', 'social', 'products', 'promos', 'leaderboard']
   const [tab, setTab] = useState<Tab>(() => {
     const t = searchParams.get('tab') as Tab
     return VALID_TABS.includes(t) ? t : 'today'
@@ -153,6 +155,8 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
     { id: 'memberships', label: 'Memberships' },
     { id: 'social', label: 'Social Photos' },
     { id: 'products', label: 'Products' },
+    { id: 'promos', label: 'Promo Codes' },
+    { id: 'leaderboard', label: 'Leaderboard' },
     { id: 'settings', label: 'Settings' },
     // 'photos' is instructor-only — not in the admin tab bar
     { id: 'photos', label: 'My Photos' },
@@ -471,6 +475,18 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
       {tab === 'memberships' && token && (
         <div className="max-w-3xl mx-auto w-full px-6 py-6">
           <MembershipsTab studioId={studioId} token={token} currency={currency} />
+        </div>
+      )}
+
+      {tab === 'promos' && token && (
+        <div className="max-w-5xl mx-auto w-full px-6 py-6">
+          <PromoCodesTab studioId={studioId} token={token} />
+        </div>
+      )}
+
+      {tab === 'leaderboard' && token && (
+        <div className="max-w-5xl mx-auto w-full px-6 py-6">
+          <LeaderboardTab studioId={studioId} token={token} />
         </div>
       )}
 

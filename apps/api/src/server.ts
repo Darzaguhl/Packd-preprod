@@ -19,6 +19,9 @@ import { photoRoutes } from './routes/photos.js'
 import { templateRoutes } from './routes/templates.js'
 import { productRoutes } from './routes/products.js'
 import { membershipRoutes } from './routes/memberships.js'
+import { availabilityRoutes } from './routes/availability.js'
+import { promoRoutes } from './routes/promos.js'
+import { icalRoutes } from './routes/ical.js'
 import { setupJobs } from './jobs/index.js'
 
 const app = Fastify({ logger: true })
@@ -48,6 +51,9 @@ await app.register(photoRoutes, { prefix: '/photos' })
 await app.register(templateRoutes, { prefix: '/templates' })
 await app.register(productRoutes, { prefix: '/products' })
 await app.register(membershipRoutes, { prefix: '/memberships' })
+await app.register(availabilityRoutes, { prefix: '/availability' })
+await app.register(promoRoutes, { prefix: '/promos' })
+await app.register(icalRoutes, { prefix: '/ical' })
 
 app.get('/health', async () => ({ ok: true }))
 

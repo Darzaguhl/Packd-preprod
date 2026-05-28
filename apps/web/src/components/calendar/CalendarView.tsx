@@ -6,6 +6,7 @@ import { SPORT_CONFIG } from '@/components/schedule/constants'
 import ScheduleModal from './ScheduleModal'
 import SubstituteModal from './SubstituteModal'
 import ClassTemplatesSection from '@/components/studio/ClassTemplatesSection'
+import BulkOpsPanel from '@/components/studio/BulkOpsPanel'
 import { useTimeFormat } from '@/lib/time-format-context'
 import { fmtTime, fmtHHMM } from '@/lib/fmt-time'
 import { DndContext, useDraggable, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
@@ -406,6 +407,16 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
           )}
         </div>
       </div>
+
+      {/* ── BULK OPS PANEL ── (admin+ only, sits between toolbar and calendar body) */}
+      {canReschedule && data && (
+        <BulkOpsPanel
+          studioId={studioId}
+          token={token}
+          instructors={data.instructors.map(i => ({ id: i.id, name: i.name }))}
+          templates={data.templates.map(t => ({ id: t.id, name: t.name }))}
+        />
+      )}
 
       {/* ── WEEK VIEW ── */}
       {view === 'week' && (

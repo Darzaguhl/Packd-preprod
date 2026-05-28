@@ -433,6 +433,13 @@ export interface MemberHistory {
   transactions: CreditTransaction[]
 }
 
+export interface StaffNote {
+  id: string
+  content: string
+  staffName: string
+  createdAt: string
+}
+
 export interface AdminMemberProfile {
   id: string
   firstName: string
@@ -440,6 +447,10 @@ export interface AdminMemberProfile {
   email: string
   creditBalance: number
   notes: string | null
+  birthday: string | null
+  emergencyContactName: string | null
+  emergencyContactPhone: string | null
+  staffNotes: StaffNote[]
   activeSubscription: {
     id: string
     planId: string
@@ -449,6 +460,61 @@ export interface AdminMemberProfile {
     endDate: string | null
   } | null
   joinedAt: string
+}
+
+export interface AvailabilityBlock {
+  id: string
+  instructorId: string
+  instructorName?: string
+  studioId: string
+  title: string
+  startDate: string
+  endDate: string
+  createdAt: string
+}
+
+export interface PromoCode {
+  id: string
+  code: string
+  description?: string | null
+  type: 'CREDIT_GRANT' | 'FREE_CLASS' | 'MEMBERSHIP_PCT' | 'MEMBERSHIP_FLAT'
+  value: number
+  maxUses: number | null
+  usageCount: number
+  validFrom: string
+  validUntil: string | null
+  isActive: boolean
+  createdAt: string
+}
+
+export interface LeaderboardEntry {
+  rank: number
+  memberId: string
+  name: string
+  visits: number
+  checkIns: number
+  lastVisit: string
+}
+
+export interface LeaderboardInstructor {
+  rank: number
+  instructorId: string
+  name: string
+  totalBookings: number
+}
+
+export interface Leaderboard {
+  members: LeaderboardEntry[]
+  topInstructors: LeaderboardInstructor[]
+  period: string
+  generatedAt: string
+}
+
+export interface MemberStats {
+  visits: number
+  rank: number | null
+  totalMembers: number
+  topInstructors: { instructorId: string; name: string; sessionsTogether: number }[]
 }
 
 export interface AdminMemberHistory {
@@ -530,17 +596,19 @@ export const api = {
       }),
   },
   members: {
-    me: (token: string) => apiFetch<MemberProfile>('/members/me', { token }),
+    me: (token: string) => apiFetch<MemberProfile & { birthday: string | null; emergencyContactName: string | null; emergencyContactPhone: string | null }>('/members/me', { token }),
     bookings: (token: string) => apiFetch<UpcomingBooking[]>('/members/me/bookings', { token }),
     history: (token: string) => apiFetch<MemberHistory>('/members/me/history', { token }),
     ensure: (token: string, studioId?: string) =>
       apiFetch<{ success: boolean; memberId: string }>('/members/ensure', {
         method: 'POST', body: JSON.stringify({ studioId }), token,
       }),
-    updateMe: (data: { firstName?: string; lastName?: string }, token: string) =>
+    updateMe: (data: { firstName?: string; lastName?: string; birthday?: string | null; emergencyContactName?: string | null; emergencyContactPhone?: string | null }, token: string) =>
       apiFetch<{ success: boolean; data: { firstName: string; lastName: string } }>('/members/me', {
         method: 'PATCH', body: JSON.stringify(data), token,
       }),
+    stats: (studioId: string, token: string) =>
+      apiFetch<MemberStats>(`/members/me/stats?studioId=${studioId}`, { token }),
   },
   admin: {
     stats: (studioId: string, token: string) =>
@@ -589,6 +657,24 @@ export const api = {
         `/admin/sessions/${sessionId}`,
         { token, method: 'PATCH', body: JSON.stringify({ startsAt, endsAt }) },
       ),
+    leaderboard: (studioId: string, period: string, token: string) =>
+      apiFetch<Leaderboard>(`/admin/leaderboard?studioId=${studioId}&period=${period}`, { token }),
+    bulkPreview: (params: { studioId: string; from: string; to: string; instructorId?: string; templateId?: string }, token: string) => {
+      const qs = new URLSearchParams({ studioId: params.studioId, from: params.from, to: params.to })
+      if (params.instructorId) qs.set('instructorId', params.instructorId)
+      if (params.templateId) qs.set('templateId', params.templateId)
+      return apiFetch<{ total: number; sessionIds: string[]; byTemplate: { name: string; count: number }[]; sessions: { id: string; startsAt: string; templateName: string; instructorName: string; confirmedBookings: number }[] }>(`/admin/sessions/bulk?${qs}`, { token })
+    },
+    bulkExecute: (body: { studioId: string; from: string; to: string; instructorId?: string; templateId?: string; action: 'CANCEL' | 'SUBSTITUTE'; substituteInstructorId?: string }, token: string) =>
+      apiFetch<{ affected: number; sessionIds: string[] }>('/admin/sessions/bulk', { method: 'POST', body: JSON.stringify(body), token }),
+    memberNotes: (memberId: string, token: string) =>
+      apiFetch<StaffNote[]>(`/admin/members/${memberId}/notes`, { token }),
+    addNote: (memberId: string, content: string, token: string) =>
+      apiFetch<StaffNote>(`/admin/members/${memberId}/notes`, { method: 'POST', body: JSON.stringify({ content }), token }),
+    deleteNote: (memberId: string, noteId: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/admin/members/${memberId}/notes/${noteId}`, { method: 'DELETE', token }),
+    updateMemberProfile: (memberId: string, data: { birthday?: string | null; emergencyContactName?: string | null; emergencyContactPhone?: string | null }, token: string) =>
+      apiFetch<{ success: boolean }>(`/admin/members/${memberId}/profile`, { method: 'PATCH', body: JSON.stringify(data), token }),
   },
   franchise: {
     myStudios: (token: string) =>
@@ -878,5 +964,43 @@ export const api = {
       apiFetch<{ success: boolean; data: MembershipSubscription }>('/memberships/subscribe', { method: 'POST', body: JSON.stringify({ planId }), token }),
     cancelMe: (token: string) =>
       apiFetch<{ success: boolean }>('/memberships/me', { token, method: 'DELETE' }),
+  },
+  availability: {
+    list: (studioId: string, token: string, from?: string, to?: string) => {
+      const qs = new URLSearchParams({ studioId })
+      if (from) qs.set('from', from)
+      if (to) qs.set('to', to)
+      return apiFetch<AvailabilityBlock[]>(`/availability?${qs}`, { token })
+    },
+    listForInstructor: (instructorId: string, token: string, from?: string, to?: string) => {
+      const qs = new URLSearchParams()
+      if (from) qs.set('from', from)
+      if (to) qs.set('to', to)
+      return apiFetch<AvailabilityBlock[]>(`/availability/instructor/${instructorId}?${qs}`, { token })
+    },
+    create: (body: { instructorId: string; studioId: string; title: string; startDate: string; endDate: string }, token: string) =>
+      apiFetch<AvailabilityBlock>('/availability', { method: 'POST', body: JSON.stringify(body), token }),
+    update: (id: string, body: { title?: string; startDate?: string; endDate?: string }, token: string) =>
+      apiFetch<AvailabilityBlock>(`/availability/${id}`, { method: 'PATCH', body: JSON.stringify(body), token }),
+    delete: (id: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/availability/${id}`, { method: 'DELETE', token }),
+  },
+  promos: {
+    list: (studioId: string, token: string) =>
+      apiFetch<PromoCode[]>(`/promos?studioId=${studioId}`, { token }),
+    create: (body: { studioId: string; code: string; description?: string; type: string; value: number; maxUses?: number | null; validFrom?: string; validUntil?: string | null }, token: string) =>
+      apiFetch<PromoCode>('/promos', { method: 'POST', body: JSON.stringify(body), token }),
+    update: (id: string, body: { description?: string; value?: number; maxUses?: number | null; validFrom?: string; validUntil?: string | null; isActive?: boolean }, token: string) =>
+      apiFetch<PromoCode>(`/promos/${id}`, { method: 'PATCH', body: JSON.stringify(body), token }),
+    delete: (id: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/promos/${id}`, { method: 'DELETE', token }),
+    redeem: (code: string, studioId: string, token: string, memberId?: string) =>
+      apiFetch<{ success: boolean; type: string; creditsAdded: number; discount: { type: string; value: number } | null; message: string }>(
+        '/promos/redeem', { method: 'POST', body: JSON.stringify({ code, studioId, ...(memberId ? { memberId } : {}) }), token },
+      ),
+  },
+  ical: {
+    getToken: (token: string) =>
+      apiFetch<{ token: string; urls: { member: string; instructor?: string } }>('/ical/token', { token }),
   },
 }
