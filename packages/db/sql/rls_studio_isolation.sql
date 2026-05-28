@@ -334,6 +334,29 @@ CREATE POLICY studio_isolation ON "Franchise"
   AS PERMISSIVE FOR ALL
   USING (true);
 
+-- ─────────────────────────────────────────────────────────────
+-- ProductSale (has studioId directly)
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "ProductSale" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "ProductSale" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "ProductSale";
+CREATE POLICY studio_isolation ON "ProductSale"
+  AS PERMISSIVE FOR ALL
+  USING (
+    app.current_studio() = '' OR "studioId" = app.current_studio()
+  );
+
+-- ─────────────────────────────────────────────────────────────
+-- StripeEvent (global dedup table — no studioId)
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "StripeEvent" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "StripeEvent" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "StripeEvent";
+CREATE POLICY studio_isolation ON "StripeEvent"
+  AS PERMISSIVE FOR ALL USING (true);
+
 -- ── Verification query ───────────────────────────────────────
 -- Run this after applying to confirm RLS is enabled:
 --

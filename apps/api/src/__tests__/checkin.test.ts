@@ -4,7 +4,7 @@ vi.mock('@packd/db', () => ({
   prisma: {
     classSession: { findUniqueOrThrow: vi.fn() },
     member: { findUnique: vi.fn() },
-    booking: { findUniqueOrThrow: vi.fn(), update: vi.fn() },
+    booking: { findUniqueOrThrow: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
   },
 }))
 
@@ -17,7 +17,12 @@ vi.mock('../lib/auth.js', () => ({
 import Fastify from 'fastify'
 import sensible from '@fastify/sensible'
 import { adminRoutes } from '../routes/admin.js'
+import { bookingRoutes } from '../routes/bookings.js'
 import { prisma } from '@packd/db'
+import { getUser } from '../lib/auth.js'
+
+vi.mock('../jobs/index.js', () => ({ enqueueLateCancelCheck: vi.fn() }))
+vi.mock('../routes/members.js', () => ({ ensureMemberForAdmin: vi.fn() }))
 
 async function buildApp() {
   const app = Fastify()
@@ -93,5 +98,60 @@ describe('POST /admin/sessions/:id/checkin/:bookingId', () => {
     })
 
     expect(res.statusCode).toBe(404)
+  })
+})
+
+// ── Self-checkin role guard (POST /bookings/:id/checkin) ─────────────────────
+
+describe('POST /bookings/:id/checkin', () => {
+  async function buildBookingApp() {
+    const app = Fastify()
+    await app.register(sensible)
+    await app.register(bookingRoutes, { prefix: '/bookings' })
+    return app
+  }
+
+  beforeEach(() => vi.clearAllMocks())
+
+  it('allows a member to check into their own booking', async () => {
+    vi.mocked(getUser).mockReturnValue({ id: 'user-1', role: 'member', studioIds: [] } as never)
+    vi.mocked(prisma.booking.findUniqueOrThrow).mockResolvedValue({
+      id: 'booking-1',
+      member: { userId: 'user-1' },
+    } as never)
+    vi.mocked(prisma.booking.update).mockResolvedValue({ id: 'booking-1', checkedIn: true } as never)
+
+    const app = await buildBookingApp()
+    const res = await app.inject({ method: 'POST', url: '/bookings/booking-1/checkin' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).success).toBe(true)
+  })
+
+  it('returns 403 when a member tries to check in another member\'s booking', async () => {
+    vi.mocked(getUser).mockReturnValue({ id: 'user-member', role: 'member', studioIds: [] } as never)
+    vi.mocked(prisma.booking.findUniqueOrThrow).mockResolvedValue({
+      id: 'booking-other',
+      member: { userId: 'user-other' },
+    } as never)
+
+    const app = await buildBookingApp()
+    const res = await app.inject({ method: 'POST', url: '/bookings/booking-other/checkin' })
+
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('allows a fronthost to check in any member\'s booking', async () => {
+    vi.mocked(getUser).mockReturnValue({ id: 'user-staff', role: 'fronthost', studioIds: ['studio-1'] } as never)
+    vi.mocked(prisma.booking.findUniqueOrThrow).mockResolvedValue({
+      id: 'booking-1',
+      member: { userId: 'user-other' },
+    } as never)
+    vi.mocked(prisma.booking.update).mockResolvedValue({ id: 'booking-1', checkedIn: true } as never)
+
+    const app = await buildBookingApp()
+    const res = await app.inject({ method: 'POST', url: '/bookings/booking-1/checkin' })
+
+    expect(res.statusCode).toBe(200)
   })
 })

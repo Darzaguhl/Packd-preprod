@@ -351,7 +351,7 @@ export async function bookingRoutes(app: FastifyInstance) {
         include: { member: true },
       })
 
-      if (booking.member.userId !== user.id && user.role !== 'admin') {
+      if (booking.member.userId !== user.id && ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['fronthost']) {
         return reply.forbidden()
       }
 

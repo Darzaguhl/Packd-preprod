@@ -4,7 +4,9 @@ import { requireAuth, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import Stripe from 'stripe'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
+// Lazy-init so tests without STRIPE_SECRET_KEY don't blow up at import time
+let _stripe: Stripe | null = null
+function stripe() { return _stripe ?? (_stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)) }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -129,7 +131,7 @@ export async function memberRoutes(app: FastifyInstance) {
     const activeSub = member.memberships[0]
     if (activeSub?.stripeSubId && activeSub.status === 'ACTIVE') {
       try {
-        const stripeSub = await stripe.subscriptions.retrieve(activeSub.stripeSubId)
+        const stripeSub = await stripe().subscriptions.retrieve(activeSub.stripeSubId)
         nextBillingDate = new Date(stripeSub.current_period_end * 1000).toISOString()
       } catch {
         // non-fatal

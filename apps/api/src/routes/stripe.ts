@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
 import { sendWelcome } from '../lib/email.js'
+import { ROLE_RANK } from '@packd/types'
 
 // Lazy-init so tests without STRIPE_SECRET_KEY don't blow up at import time
 let _stripe: Stripe | null = null
@@ -106,6 +107,10 @@ export async function stripeRoutes(app: FastifyInstance) {
     '/customer-card',
     { preHandler: requireAuth },
     async (request, reply) => {
+      const user = getUser(request)
+      if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['fronthost']) {
+        return reply.forbidden()
+      }
       const { memberId } = request.query
       const member = await prisma.member.findUnique({
         where: { id: memberId },
@@ -145,6 +150,9 @@ export async function stripeRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { memberId, studioId, items, totalCents, totalCredits } = request.body
       const user = getUser(request)
+      if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['fronthost']) {
+        return reply.forbidden()
+      }
 
       const member = await prisma.member.findUnique({
         where: { id: memberId },
@@ -451,6 +459,9 @@ export async function stripeRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { saleId, amountCents } = request.body
       const user = getUser(request)
+      if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['fronthost']) {
+        return reply.forbidden()
+      }
 
       const sale = await prisma.productSale.findUnique({ where: { id: saleId } })
       if (!sale) return reply.notFound('Sale not found')

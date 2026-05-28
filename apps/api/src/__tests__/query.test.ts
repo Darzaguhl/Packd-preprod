@@ -231,6 +231,35 @@ describe('POST /admin/query', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  // ── Dangerous function blocking ────────────────────────────────────────────
+
+  it('400 — rejects pg_sleep (DoS vector)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/query',
+      body: { sql: "SELECT pg_sleep(10)", studioId: 'studio-1' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('400 — rejects dblink (SSRF vector)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/query',
+      body: { sql: "SELECT dblink('host=evil.com', 'SELECT 1')", studioId: 'studio-1' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('400 — rejects set_config (session manipulation)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/query',
+      body: { sql: "SELECT set_config('app.current_studio_id', '', false)", studioId: 'studio-1' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
   // ── DB error forwarding ────────────────────────────────────────────────────
 
   it('400 — forwards Postgres error message to client', async () => {

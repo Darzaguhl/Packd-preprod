@@ -950,9 +950,11 @@ export async function adminRoutes(app: FastifyInstance) {
     '/members/:memberId/notes/:noteId',
     { preHandler: requireStudioAdmin },
     async (request, reply) => {
-      const { noteId } = request.params
+      const { memberId, noteId } = request.params
       const note = await prisma.memberNote.findUnique({ where: { id: noteId } })
       if (!note) return reply.notFound()
+      // Scope guard: note must belong to the member in the URL (prevents cross-studio delete)
+      if (note.memberId !== memberId) return reply.notFound()
       await prisma.memberNote.delete({ where: { id: noteId } })
       return reply.send({ success: true })
     },
@@ -1108,24 +1110,25 @@ export async function adminRoutes(app: FastifyInstance) {
 
       const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true, guestPassBalance: true } })
       if (!member) return reply.notFound('Member not found')
-      if (member.guestPassBalance < 1) return reply.badRequest('Member has no guest passes remaining')
 
-      await prisma.$transaction([
-        prisma.member.update({
-          where: { id: memberId },
-          data: { guestPassBalance: { decrement: 1 } },
-        }),
-        prisma.guestPass.create({
-          data: {
-            memberId,
-            studioId,
-            guestName: guestName.trim(),
-            sessionId: sessionId ?? null,
-            amount: -1,
-            note: `Guest check-in: ${guestName.trim()}`,
-          },
-        }),
-      ])
+      // Atomic check-and-decrement: updateMany with balance guard prevents double-spend
+      // under concurrent requests for the same member.
+      const { count } = await prisma.member.updateMany({
+        where: { id: memberId, guestPassBalance: { gte: 1 } },
+        data: { guestPassBalance: { decrement: 1 } },
+      })
+      if (count === 0) return reply.badRequest('Member has no guest passes remaining')
+
+      await prisma.guestPass.create({
+        data: {
+          memberId,
+          studioId,
+          guestName: guestName.trim(),
+          sessionId: sessionId ?? null,
+          amount: -1,
+          note: `Guest check-in: ${guestName.trim()}`,
+        },
+      })
 
       const updated = await prisma.member.findUnique({ where: { id: memberId }, select: { guestPassBalance: true } })
       return reply.send({ success: true, guestPassBalance: updated!.guestPassBalance })
@@ -1673,7 +1676,10 @@ function validateSelectQuery(sql: string): string | null {
   }
 
   // Block DML, DDL, and dangerous functions
-  const forbidden = /\b(insert\s+into|update\s+\w|delete\s+from|drop\s+|create\s+|alter\s+|truncate\s+|grant\s+|revoke\s+|pg_read_file|pg_write_file|lo_import|lo_export|execute\s*\()\b/
+  // Two passes: word-bounded keywords (DML/DDL), then function-call patterns
+  const forbiddenKeywords = /\b(insert\s+into|update\s+\w|delete\s+from|drop\s+|create\s+|alter\s+|truncate\s+|grant\s+|revoke\s+|pg_read_file|pg_write_file|pg_read_binary_file|lo_import|lo_export)\b/
+  const forbiddenFunctions = /\b(execute|dblink|pg_sleep|set_config|current_setting)\s*\(/
+  const forbidden = { test: (s: string) => forbiddenKeywords.test(s) || forbiddenFunctions.test(s) }
   if (forbidden.test(stripped)) {
     return 'Query contains forbidden keywords (DML/DDL is not allowed)'
   }

@@ -53,6 +53,14 @@ await app.register(rateLimit, {
   }),
 })
 
+// Raw-body capture — Stripe webhook signature verification requires the
+// unparsed buffer. We store it on request.rawBody for all JSON requests
+// (same parse result, zero overhead for non-webhook routes).
+app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req, body, done) => {
+  ;(req as unknown as { rawBody: Buffer }).rawBody = body as Buffer
+  try { done(null, JSON.parse((body as Buffer).toString())) } catch (e) { done(e as Error) }
+})
+
 // Routes
 await app.register(studioRoutes, { prefix: '/studios' })
 await app.register(scheduleRoutes, { prefix: '/schedule' })
