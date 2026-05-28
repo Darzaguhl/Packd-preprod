@@ -202,6 +202,12 @@ function formatCell(v: unknown): string {
 // ─── Results table ────────────────────────────────────────────────────────────
 
 function ResultsTable({ result, filename }: { result: QueryResult; filename: string }) {
+  // Detect which columns are numeric by checking the first non-null value per column
+  const isNumericCol = result.columns.map((_, ci) => {
+    const firstVal = result.rows.find(r => r[ci] !== null && r[ci] !== undefined)?.[ci]
+    return typeof firstVal === 'number'
+  })
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -237,8 +243,13 @@ function ResultsTable({ result, filename }: { result: QueryResult; filename: str
               <thead className="sticky top-0 z-10">
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <th className="text-right text-[10px] font-medium text-gray-300 px-3 py-2.5 w-10 select-none border-r border-gray-100">#</th>
-                  {result.columns.map(col => (
-                    <th key={col} className="text-left text-xs font-semibold text-gray-500 px-3 py-2.5 whitespace-nowrap">
+                  {result.columns.map((col, ci) => (
+                    <th
+                      key={col}
+                      className={`text-xs font-semibold text-gray-500 px-3 py-2.5 whitespace-nowrap ${
+                        isNumericCol[ci] ? 'text-right' : 'text-left'
+                      }`}
+                    >
                       {col.replace(/_/g, ' ')}
                     </th>
                   ))}
@@ -256,7 +267,7 @@ function ResultsTable({ result, filename }: { result: QueryResult; filename: str
                         className={`px-3 py-2 max-w-xs truncate text-xs ${
                           cell === null || cell === undefined
                             ? 'text-gray-300 italic'
-                            : typeof cell === 'number'
+                            : isNumericCol[ci]
                               ? 'text-right tabular-nums text-gray-700 font-mono'
                               : 'text-gray-800'
                         }`}
