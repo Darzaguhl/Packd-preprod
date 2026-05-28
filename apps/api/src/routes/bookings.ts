@@ -4,6 +4,7 @@ import { requireAuth, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { enqueueLateCancelCheck } from '../jobs/index.js'
 import { ensureMemberForAdmin } from './members.js'
+import { sendBookingConfirmation, sendBookingCancellation } from '../lib/email.js'
 
 /** Format a human-readable note for credit transactions, e.g. "Cycling · 26 May, 09:00" */
 function fmtClassNote(className: string | null | undefined, startsAt: Date): string {
@@ -182,6 +183,28 @@ export async function bookingRoutes(app: FastifyInstance) {
 
       await enqueueLateCancelCheck(booking.booking.id, booking.session.startsAt)
 
+      // Send booking confirmation email (non-fatal)
+      prisma.classSession.findUnique({
+        where: { id: sessionId },
+        include: {
+          studio: { select: { name: true } },
+          room: { select: { name: true } },
+        },
+      }).then(async sess => {
+        if (!sess) return
+        const userRecord = await prisma.user.findUnique({ where: { id: member.userId }, select: { email: true, firstName: true } })
+        if (!userRecord) return
+        sendBookingConfirmation({
+          to: userRecord.email,
+          firstName: userRecord.firstName,
+          studioName: sess.studio.name,
+          className: booking.session.template?.name ?? 'Class',
+          startsAt: booking.session.startsAt.toISOString(),
+          roomName: sess.room?.name ?? '',
+          webUrl: process.env.WEB_URL ?? 'http://localhost:3001',
+        }).catch(() => {})
+      }).catch(() => {})
+
       return reply.code(201).send({ success: true, data: booking.booking })
     },
   )
@@ -285,6 +308,31 @@ export async function bookingRoutes(app: FastifyInstance) {
           })
         }
       })
+
+      // Send cancellation email (non-fatal)
+      prisma.booking.findUnique({
+        where: { id: request.params.id },
+        include: {
+          session: {
+            include: {
+              template: { select: { name: true } },
+              studio: { select: { name: true } },
+            },
+          },
+          member: { include: { user: { select: { email: true, firstName: true } } } },
+        },
+      }).then(b => {
+        if (!b) return
+        sendBookingCancellation({
+          to: b.member.user.email,
+          firstName: b.member.user.firstName,
+          studioName: b.session.studio.name,
+          className: b.session.template?.name ?? 'Class',
+          startsAt: b.session.startsAt.toISOString(),
+          reason: isLateCancel ? 'This was a late cancellation.' : undefined,
+          webUrl: process.env.WEB_URL ?? 'http://localhost:3001',
+        }).catch(() => {})
+      }).catch(() => {})
 
       return { success: true, isLateCancel }
     },

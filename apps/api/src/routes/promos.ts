@@ -163,7 +163,7 @@ export async function promoRoutes(app: FastifyInstance) {
   // Body: { code, studioId }
   app.post<{ Body: { code: string; studioId: string; memberId?: string } }>(
     '/redeem',
-    { preHandler: requireAuth },
+    { preHandler: requireAuth, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (request, reply) => {
       const { code, studioId, memberId: bodyMemberId } = request.body
       const user = getUser(request)
@@ -208,24 +208,25 @@ export async function promoRoutes(app: FastifyInstance) {
         return reply.status(422).send({ error: 'You have already redeemed this code' })
       }
 
-      // Apply the promo in a transaction
       let creditsAdded = 0
-      let discount: { type: string; value: number } | null = null
+      let discount: { type: string; value: number; promoCodeId: string } | null = null
 
-      await prisma.$transaction(async (tx) => {
-        // Record redemption
-        await tx.promoCodeRedemption.create({
-          data: { promoCodeId: promo.id, memberId: member!.id },
-        })
-        await tx.promoCode.update({
-          where: { id: promo.id },
-          data: { usageCount: { increment: 1 } },
-        })
+      if (promo.type === 'MEMBERSHIP_PCT' || promo.type === 'MEMBERSHIP_FLAT') {
+        // Discount types are NOT consumed here — they are applied and consumed at Stripe checkout.
+        // Just validate and return the discount info + promoCodeId for the checkout call.
+        discount = { type: promo.type, value: promo.value, promoCodeId: promo.id }
+      } else {
+        // CREDIT_GRANT / FREE_CLASS — consume immediately
+        await prisma.$transaction(async (tx) => {
+          await tx.promoCodeRedemption.create({
+            data: { promoCodeId: promo.id, memberId: member!.id },
+          })
+          await tx.promoCode.update({
+            where: { id: promo.id },
+            data: { usageCount: { increment: 1 } },
+          })
 
-        if (promo.type === 'CREDIT_GRANT' || promo.type === 'FREE_CLASS') {
           const credits = promo.type === 'FREE_CLASS' ? 1 : promo.value
-
-          // Ensure credit balance row exists
           await tx.creditBalance.upsert({
             where: { memberId: member!.id },
             create: { memberId: member!.id, balance: credits },
@@ -240,15 +241,12 @@ export async function promoRoutes(app: FastifyInstance) {
             },
           })
           creditsAdded = credits
-        } else {
-          // MEMBERSHIP_PCT or MEMBERSHIP_FLAT — return discount info for frontend
-          discount = { type: promo.type, value: promo.value }
-        }
-      })
+        })
+      }
 
       const message = creditsAdded > 0
         ? `${creditsAdded} credit${creditsAdded !== 1 ? 's' : ''} added to your balance`
-        : `Discount applied: ${promo.type === 'MEMBERSHIP_PCT' ? `${promo.value}% off` : `${promo.value / 100} off`} your next membership`
+        : `Discount applied: ${promo.type === 'MEMBERSHIP_PCT' ? `${promo.value}% off` : `${(promo.value / 100).toFixed(2)} off`} your next membership`
 
       return reply.send({ success: true, type: promo.type, creditsAdded, discount, message })
     },

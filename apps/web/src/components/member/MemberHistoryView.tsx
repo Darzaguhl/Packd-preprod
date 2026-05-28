@@ -1,6 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
+import { api } from '@/lib/api'
+import { createClient } from '@/lib/supabase/client'
 import type { UpcomingBooking, PastBooking, CreditTransaction, AdminMemberProfile, MembershipPlan } from '@/lib/api'
 import type { MemberProfile } from '@packd/types'
 import { sportConfig } from '@/components/schedule/constants'
@@ -55,12 +57,14 @@ function PlanCard({
   isCurrent,
   hasActivePlan,
   onSelect,
+  onBuy,
   subscribing,
 }: {
   plan: Omit<MembershipPlan, 'activeSubscriptions'>
   isCurrent: boolean
   hasActivePlan: boolean
   onSelect: (id: string) => void
+  onBuy?: (id: string) => void
   subscribing: boolean
 }) {
   const intervalLabel = plan.intervalMonths === 1 ? 'month' : `${plan.intervalMonths} months`
@@ -92,13 +96,31 @@ function PlanCard({
         </p>
       )}
       {!isCurrent && (
-        <button
-          onClick={() => onSelect(plan.id)}
-          disabled={subscribing}
-          className="mt-auto w-full py-2 rounded-xl text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-50 transition-colors"
-        >
-          {subscribing ? 'Switching…' : hasActivePlan ? 'Switch to this plan' : 'Subscribe'}
-        </button>
+        <div className="mt-auto flex flex-col gap-2">
+          {plan.priceInCents > 0 ? (
+            // Paid plan — must go through Stripe
+            onBuy && plan.stripePriceId ? (
+              <button
+                onClick={() => onBuy(plan.id)}
+                disabled={subscribing}
+                className="w-full py-2 rounded-xl text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-50 transition-colors"
+              >
+                {subscribing ? '…' : 'Buy online'}
+              </button>
+            ) : (
+              <p className="text-xs text-gray-400 text-center">Contact your studio to subscribe</p>
+            )
+          ) : (
+            // Free plan — direct subscribe
+            <button
+              onClick={() => onSelect(plan.id)}
+              disabled={subscribing}
+              className="w-full py-2 rounded-xl text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-50 transition-colors"
+            >
+              {subscribing ? 'Activating…' : hasActivePlan ? 'Switch to this plan' : 'Subscribe'}
+            </button>
+          )}
+        </div>
       )}
     </div>
   )
@@ -118,6 +140,8 @@ interface Props {
   onCancelBooking?: (bookingId: string) => Promise<void>
   /** If provided, subscribe button appears on plan cards */
   onSubscribe?: (planId: string) => Promise<void>
+  /** If provided, "Buy online" button appears on plans with a stripePriceId */
+  onBuyCredits?: (planId: string, promoCodeId?: string) => Promise<void>
   /** If provided, cancel membership button appears */
   onCancelMembership?: () => Promise<void>
   /** If provided, an edit button appears on the profile card (member's own view only) */
@@ -162,7 +186,15 @@ function UpcomingCard({
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-gray-900 truncate">{booking.templateName}</p>
           <p className="text-xs text-gray-500 truncate">{booking.instructorName} · {booking.roomName}</p>
-          <p className="text-xs text-gray-400 mt-0.5">{booking.creditsRequired} cr</p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {booking.creditsRequired} cr
+            {booking.stationLabel && (
+              <span className="ml-2 inline-flex items-center gap-1">
+                <span className="text-gray-300">·</span>
+                <span className="font-medium text-gray-500">Spot {booking.stationLabel}</span>
+              </span>
+            )}
+          </p>
         </div>
         {onCancel && (
           <button
@@ -233,6 +265,7 @@ export default function MemberHistoryView({
   plans = [],
   onCancelBooking,
   onSubscribe,
+  onBuyCredits,
   onCancelMembership,
   onEditProfile,
   showEmail = false,
@@ -245,6 +278,45 @@ export default function MemberHistoryView({
   const [subscribing, setSubscribing] = useState<string | null>(null)
   const [cancellingMembership, setCancellingMembership] = useState(false)
   const [confirmCancelMembership, setConfirmCancelMembership] = useState(false)
+  const [promoInput, setPromoInput] = useState('')
+  const [promoValidating, setPromoValidating] = useState(false)
+  const [promoResult, setPromoResult] = useState<{ promoCodeId: string; label: string } | null>(null)
+  const [promoError, setPromoError] = useState<string | null>(null)
+
+  async function handleValidatePromo(studioId?: string) {
+    if (!promoInput.trim() || !studioId) return
+    setPromoValidating(true)
+    setPromoResult(null)
+    setPromoError(null)
+    try {
+      const { data: { session } } = await createClient().auth.getSession()
+      const t = session?.access_token
+      if (!t) return
+      const res = await api.promos.redeem(promoInput.trim(), studioId, t)
+      if (res.discount) {
+        const label = res.discount.type === 'MEMBERSHIP_PCT'
+          ? `${res.discount.value}% off`
+          : `${(res.discount.value / 100).toFixed(2)} off`
+        setPromoResult({ promoCodeId: res.discount.promoCodeId, label })
+      } else {
+        setPromoError('This code gives credits, not a membership discount')
+      }
+    } catch (e) {
+      setPromoError(e instanceof Error ? e.message : 'Invalid promo code')
+    } finally {
+      setPromoValidating(false)
+    }
+  }
+
+  async function handleBuy(planId: string) {
+    if (!onBuyCredits) return
+    setSubscribing(planId)
+    try {
+      await onBuyCredits(planId, promoResult?.promoCodeId)
+    } finally {
+      setSubscribing(null)
+    }
+  }
 
   async function handleSubscribe(planId: string) {
     if (!onSubscribe) return
@@ -325,11 +397,18 @@ export default function MemberHistoryView({
               <div>
                 <p className="text-sm font-semibold text-gray-900 leading-tight">{activeSubscription.planName}</p>
                 <div className="flex items-center gap-1.5 mt-1">
-                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span className={`inline-block w-1.5 h-1.5 rounded-full ${
+                    activeSubscription.status === 'PAST_DUE' ? 'bg-red-400' :
+                    activeSubscription.status === 'PAUSED' ? 'bg-amber-400' : 'bg-emerald-400'
+                  }`} />
                   <span className="text-xs text-gray-400">
-                    {activeSubscription.endDate
-                      ? `Renews ${new Date(activeSubscription.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-                      : 'Active'}
+                    {activeSubscription.status === 'PAST_DUE' ? 'Payment failed — please update your card' :
+                     activeSubscription.status === 'PAUSED' ? 'Paused' :
+                     activeSubscription.nextBillingDate
+                       ? `Next billing ${new Date(activeSubscription.nextBillingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                       : activeSubscription.endDate
+                         ? `Renews ${new Date(activeSubscription.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                         : 'Active'}
                   </span>
                 </div>
               </div>
@@ -461,6 +540,35 @@ export default function MemberHistoryView({
                 </svg>
               </button>
             </div>
+            {/* Promo code input for membership discounts */}
+            {onBuyCredits && (
+              <div className="px-5 pb-2">
+                <p className="text-xs text-gray-500 mb-1.5">Have a promo code?</p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={promoInput}
+                    onChange={e => { setPromoInput(e.target.value.toUpperCase()); setPromoResult(null); setPromoError(null) }}
+                    placeholder="ENTER CODE"
+                    className="flex-1 text-xs border border-gray-200 rounded-xl px-3 py-2 font-mono uppercase outline-none focus:border-gray-400"
+                  />
+                  <button
+                    onClick={() => handleValidatePromo(profile.studioId ?? undefined)}
+                    disabled={promoValidating || !promoInput.trim()}
+                    className="text-xs px-3 py-2 bg-gray-900 text-white rounded-xl disabled:opacity-40 hover:bg-gray-700 transition-colors"
+                  >
+                    {promoValidating ? '…' : 'Apply'}
+                  </button>
+                </div>
+                {promoResult && (
+                  <p className="text-xs text-emerald-600 mt-1.5 font-medium">✓ {promoResult.label} applied — select a plan below</p>
+                )}
+                {promoError && (
+                  <p className="text-xs text-red-500 mt-1.5">{promoError}</p>
+                )}
+              </div>
+            )}
+
             <div className="px-5 py-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
               {plans.map(plan => (
                 <PlanCard
@@ -469,6 +577,7 @@ export default function MemberHistoryView({
                   isCurrent={activeSubscription?.planName === plan.name}
                   hasActivePlan={!!activeSubscription}
                   onSelect={handleSubscribe}
+                  onBuy={onBuyCredits ? handleBuy : undefined}
                   subscribing={subscribing === plan.id}
                 />
               ))}

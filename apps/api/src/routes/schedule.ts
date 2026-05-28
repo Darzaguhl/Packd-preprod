@@ -31,8 +31,9 @@ export async function scheduleRoutes(app: FastifyInstance) {
         }
       }
 
-      const [studioSettings, sessions] = await Promise.all([
-        prisma.studio.findUnique({ where: { id: studioId }, select: { timeFormat: true } }),
+      const [studioSettings, cancelPolicy, sessions] = await Promise.all([
+        prisma.studio.findUnique({ where: { id: studioId }, select: { timeFormat: true, timezone: true } }),
+        prisma.cancellationPolicy.findUnique({ where: { studioId }, select: { lateCancelWindowHours: true, lateCancelFeeCredits: true } }),
         prisma.classSession.findMany({
           where: {
             studioId,
@@ -87,6 +88,9 @@ export async function scheduleRoutes(app: FastifyInstance) {
 
       return reply.send({
         timeFormat: studioSettings?.timeFormat ?? '24h',
+        timezone: studioSettings?.timezone ?? 'UTC',
+        lateCancelWindowHours: cancelPolicy?.lateCancelWindowHours ?? 12,
+        lateCancelFeeCredits: cancelPolicy?.lateCancelFeeCredits ?? 1,
         sessions: sessions.map((s) => {
           const userBooking = bookingMap.get(s.id)
           return {

@@ -3,6 +3,11 @@ import { prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK, type UserRole } from '@packd/types'
 import { enqueueNoShowCheck } from '../jobs/index.js'
+import Stripe from 'stripe'
+
+// Lazy-init so tests without STRIPE_SECRET_KEY don't blow up at import time
+let _stripe: Stripe | null = null
+function getStripe() { return _stripe ?? (_stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)) }
 
 const requireStudioAdmin = requireRole('studio_admin')
 const requireInstructor = requireRole('instructor')
@@ -525,6 +530,70 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   )
 
+  // POST /admin/product-sales — record a cash/terminal product sale (fronthost+)
+  app.post<{
+    Body: {
+      memberId: string
+      studioId: string
+      items: { productId: string; name: string; qty: number; priceInCents: number; creditsRequired: number }[]
+      totalCents: number
+      totalCredits: number
+      paymentMethod: 'cash' | 'credits' | 'free'
+    }
+  }>(
+    '/product-sales',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const { memberId, studioId, items, totalCents, totalCredits, paymentMethod } = request.body
+      const user = getUser(request)
+
+      await prisma.$transaction(async (tx) => {
+        if (totalCredits > 0) {
+          await tx.creditBalance.update({
+            where: { memberId },
+            data: { balance: { decrement: totalCredits } },
+          })
+          await tx.creditTransaction.create({
+            data: {
+              memberId,
+              amount: -totalCredits,
+              type: 'PURCHASE',
+              note: `Products: ${items.map(i => i.name).join(', ')}`,
+            },
+          })
+        }
+        await tx.productSale.create({
+          data: { memberId, studioId, items, totalCents, totalCredits, paymentMethod, staffUserId: user.id },
+        })
+      })
+
+      return reply.send({ success: true })
+    },
+  )
+
+  // GET /admin/product-sales?studioId=&date= — member IDs who had products charged today (fronthost+)
+  app.get<{ Querystring: { studioId: string; date?: string } }>(
+    '/product-sales',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const user = getUser(request)
+      if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
+      const { studioId, date } = request.query
+
+      const dayStart = date ? new Date(`${date}T00:00:00`) : new Date(new Date().setHours(0, 0, 0, 0))
+      const dayEnd = new Date(dayStart)
+      dayEnd.setDate(dayEnd.getDate() + 1)
+
+      const sales = await prisma.productSale.findMany({
+        where: { studioId, soldAt: { gte: dayStart, lt: dayEnd } },
+        select: { memberId: true },
+        distinct: ['memberId'],
+      })
+
+      return reply.send({ memberIds: sales.map(s => s.memberId) })
+    },
+  )
+
   // PATCH /admin/members/:memberId — update member notes (fronthost or higher)
   app.patch<{ Params: { memberId: string }; Body: { notes?: string | null } }>(
     '/members/:memberId',
@@ -950,6 +1019,14 @@ export async function adminRoutes(app: FastifyInstance) {
           pausedUntil: pausedUntil ? new Date(pausedUntil) : null,
         },
       })
+
+      // Pause Stripe billing so the member isn't charged while paused
+      if (sub.stripeSubId) {
+        await getStripe().subscriptions.update(sub.stripeSubId, {
+          pause_collection: { behavior: 'void' },
+        }).catch(() => {}) // non-fatal — DB is source of truth
+      }
+
       return reply.send({ success: true, status: updated.status, pausedUntil: updated.pausedUntil?.toISOString() ?? null })
     },
   )
@@ -973,6 +1050,14 @@ export async function adminRoutes(app: FastifyInstance) {
         where: { id: sub.id },
         data: { status: 'ACTIVE', pausedUntil: null },
       })
+
+      // Resume Stripe billing
+      if (sub.stripeSubId) {
+        await getStripe().subscriptions.update(sub.stripeSubId, {
+          pause_collection: '',
+        } as Parameters<typeof Stripe.prototype.subscriptions.update>[1]).catch(() => {})
+      }
+
       return reply.send({ success: true, status: updated.status })
     },
   )
@@ -1401,6 +1486,168 @@ export async function adminRoutes(app: FastifyInstance) {
         revenue,
         meta: { weeks, windowStart: windowStart.toISOString(), generatedAt: now.toISOString() },
       })
+    },
+  )
+
+  // GET /admin/members/:memberId/purchases — member purchase history (fronthost+)
+  app.get<{ Params: { memberId: string }; Querystring: { studioId?: string } }>(
+    '/members/:memberId/purchases',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const user = getUser(request)
+      if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
+      const { memberId } = request.params
+      const { studioId } = request.query
+
+      const sales = await prisma.productSale.findMany({
+        where: { memberId, ...(studioId ? { studioId } : {}) },
+        orderBy: { soldAt: 'desc' },
+        take: 50,
+      })
+
+      return reply.send(sales)
+    },
+  )
+
+  // ─── CSV Exports (studio_admin+) ────────────────────────────────────────────
+
+  /** Escape a value for CSV */
+  function csvEscape(val: unknown): string {
+    if (val === null || val === undefined) return ''
+    const str = String(val)
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+      return `"${str.replace(/"/g, '""')}"`
+    }
+    return str
+  }
+
+  function toCsv(headers: string[], rows: unknown[][]): string {
+    const lines = [headers.map(csvEscape).join(',')]
+    for (const row of rows) lines.push(row.map(csvEscape).join(','))
+    return lines.join('\r\n')
+  }
+
+  // GET /admin/export/members?studioId= — member list CSV (studio_admin+)
+  app.get<{ Querystring: { studioId: string } }>(
+    '/export/members',
+    { preHandler: requireStudioAdmin },
+    async (request, reply) => {
+      const { studioId } = request.query
+      if (!studioId) return reply.badRequest('studioId is required')
+      if (!await assertStudioAccess(getUser(request).id, getUser(request).role, studioId, reply, getUser(request).studioIds)) return
+
+      const members = await prisma.member.findMany({
+        where: { studioId, staffRoles: { isEmpty: true } },
+        include: {
+          user: { select: { email: true, firstName: true, lastName: true, createdAt: true } },
+          creditBalance: { select: { balance: true } },
+          memberships: {
+            where: { status: { in: ['ACTIVE', 'PAUSED'] } },
+            select: { plan: { select: { name: true } }, status: true, endDate: true },
+            take: 1,
+            orderBy: { createdAt: 'desc' },
+          },
+        },
+        orderBy: { user: { lastName: 'asc' } },
+      })
+
+      const headers = ['First Name', 'Last Name', 'Email', 'Credits', 'Plan', 'Status', 'Plan End', 'Joined']
+      const rows = members.map(m => {
+        const sub = m.memberships[0]
+        return [
+          m.user.firstName,
+          m.user.lastName,
+          m.user.email,
+          m.creditBalance?.balance ?? 0,
+          sub?.plan.name ?? '',
+          sub?.status ?? '',
+          sub?.endDate?.toISOString().slice(0, 10) ?? '',
+          m.user.createdAt.toISOString().slice(0, 10),
+        ]
+      })
+
+      reply.header('Content-Type', 'text/csv; charset=utf-8')
+      reply.header('Content-Disposition', 'attachment; filename="members.csv"')
+      return reply.send(toCsv(headers, rows))
+    },
+  )
+
+  // GET /admin/export/attendance?studioId=&from=&to= — attendance CSV (studio_admin+)
+  app.get<{ Querystring: { studioId: string; from?: string; to?: string } }>(
+    '/export/attendance',
+    { preHandler: requireStudioAdmin },
+    async (request, reply) => {
+      const { studioId, from, to } = request.query
+      if (!studioId) return reply.badRequest('studioId is required')
+      if (!await assertStudioAccess(getUser(request).id, getUser(request).role, studioId, reply, getUser(request).studioIds)) return
+
+      const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+      const toDate = to ? new Date(to) : new Date()
+
+      const bookings = await prisma.booking.findMany({
+        where: {
+          session: { studioId, startsAt: { gte: fromDate, lte: toDate } },
+          status: { in: ['CONFIRMED', 'NO_SHOW', 'LATE_CANCELLED'] },
+        },
+        include: {
+          session: { include: { template: { select: { name: true } } } },
+          member: { include: { user: { select: { firstName: true, lastName: true, email: true } } } },
+        },
+        orderBy: { session: { startsAt: 'asc' } },
+      })
+
+      const headers = ['Date', 'Class', 'Member First', 'Member Last', 'Email', 'Status', 'Checked In']
+      const rows = bookings.map(b => [
+        b.session.startsAt.toISOString().slice(0, 10),
+        b.session.template.name,
+        b.member.user.firstName,
+        b.member.user.lastName,
+        b.member.user.email,
+        b.status,
+        b.checkedIn ? 'Yes' : 'No',
+      ])
+
+      reply.header('Content-Type', 'text/csv; charset=utf-8')
+      reply.header('Content-Disposition', 'attachment; filename="attendance.csv"')
+      return reply.send(toCsv(headers, rows))
+    },
+  )
+
+  // GET /admin/export/revenue?studioId=&from=&to= — revenue CSV (studio_admin+)
+  app.get<{ Querystring: { studioId: string; from?: string; to?: string } }>(
+    '/export/revenue',
+    { preHandler: requireStudioAdmin },
+    async (request, reply) => {
+      const { studioId, from, to } = request.query
+      if (!studioId) return reply.badRequest('studioId is required')
+      if (!await assertStudioAccess(getUser(request).id, getUser(request).role, studioId, reply, getUser(request).studioIds)) return
+
+      const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+      const toDate = to ? new Date(to) : new Date()
+
+      const sales = await prisma.productSale.findMany({
+        where: { studioId, soldAt: { gte: fromDate, lte: toDate }, failedAt: null },
+        include: {
+          member: { include: { user: { select: { firstName: true, lastName: true, email: true } } } },
+        },
+        orderBy: { soldAt: 'asc' },
+      })
+
+      const headers = ['Date', 'Member First', 'Member Last', 'Email', 'Items', 'Total (cents)', 'Payment Method', 'Refunded']
+      const rows = sales.map(s => [
+        s.soldAt.toISOString().slice(0, 10),
+        s.member.user.firstName,
+        s.member.user.lastName,
+        s.member.user.email,
+        (s.items as { name: string; qty: number }[]).map(i => `${i.name}×${i.qty}`).join('; '),
+        s.totalCents,
+        s.paymentMethod,
+        s.refundedAt ? 'Yes' : 'No',
+      ])
+
+      reply.header('Content-Type', 'text/csv; charset=utf-8')
+      reply.header('Content-Disposition', 'attachment; filename="revenue.csv"')
+      return reply.send(toCsv(headers, rows))
     },
   )
 }

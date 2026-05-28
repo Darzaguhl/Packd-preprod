@@ -115,6 +115,21 @@ export async function franchiseRoutes(app: FastifyInstance) {
     },
   )
 
+  // GET /franchise/info — name of the franchise the caller belongs to (franchise_admin only)
+  app.get(
+    '/info',
+    { preHandler: requireRole('franchise_admin') },
+    async (request, reply) => {
+      const user = getUser(request)
+      if (!user.franchiseId) return reply.send({ id: null, name: null })
+      const franchise = await prisma.franchise.findUnique({
+        where: { id: user.franchiseId },
+        select: { id: true, name: true },
+      })
+      return reply.send(franchise ?? { id: null, name: null })
+    },
+  )
+
   app.get(
     '/studios',
     { preHandler: requireRole('franchise_admin') },

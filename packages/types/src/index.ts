@@ -6,11 +6,12 @@ export type ApiResponse<T> =
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
-export type UserRole = 'admin' | 'franchise_admin' | 'studio_admin' | 'instructor' | 'fronthost' | 'member'
+export type UserRole = 'admin' | 'brand_admin' | 'franchise_admin' | 'studio_admin' | 'instructor' | 'fronthost' | 'member'
 
 /** Numeric rank — higher = more privilege. Used for requireRole() checks. */
 export const ROLE_RANK: Record<UserRole, number> = {
-  admin: 5,
+  admin: 6,
+  brand_admin: 5,
   franchise_admin: 4,
   studio_admin: 3,
   instructor: 2,
@@ -25,6 +26,8 @@ export interface AuthUser {
   roles: string[]         // all assigned roles — used for dashboard routing (e.g. dual fronthost+instructor)
   studioId?: string       // first assigned studio (backward compat)
   studioIds?: string[]    // all studios this user is assigned to (staff only)
+  brandId?: string        // set for brand_admin users
+  franchiseId?: string    // set for franchise_admin users
 }
 
 // ─── Schedule ─────────────────────────────────────────────────────────────────
@@ -93,6 +96,7 @@ export interface MemberProfile {
     planName: string
     status: string
     endDate?: string
+    nextBillingDate?: string | null
   }
 }
 

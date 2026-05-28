@@ -34,7 +34,70 @@ model Studio {
   integration   StudioIntegration?
   availabilityBlocks InstructorAvailabilityBlock[]
   promoCodes    PromoCode[]
-  networkMemberships StudioNetworkMembership[]
+  networkMemberships   StudioNetworkMembership[]
+  brandMemberships     BrandStudio[]
+  franchiseMemberships FranchiseStudio[]
+  productSales         ProductSale[]
+}
+
+// ─── Brand (top-level hierarchy above franchise) ────────────────────────────
+
+model Brand {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  logoUrl     String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  studios    BrandStudio[]
+  franchises Franchise[]
+}
+
+model BrandStudio {
+  id       String   @id @default(cuid())
+  brandId  String
+  studioId String
+  joinedAt DateTime @default(now())
+
+  brand  Brand  @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  studio Studio @relation(fields: [studioId], references: [id], onDelete: Cascade)
+
+  @@unique([brandId, studioId])
+  @@index([brandId])
+  @@index([studioId])
+}
+
+// ─── Franchise (sits between Brand and Studios) ──────────────────────────────
+
+model Franchise {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  brandId     String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  brand   Brand?           @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  studios FranchiseStudio[]
+
+  @@index([brandId])
+}
+
+model FranchiseStudio {
+  id          String   @id @default(cuid())
+  franchiseId String
+  studioId    String
+  joinedAt    DateTime @default(now())
+
+  franchise Franchise @relation(fields: [franchiseId], references: [id], onDelete: Cascade)
+  studio    Studio    @relation(fields: [studioId], references: [id], onDelete: Cascade)
+
+  @@unique([franchiseId, studioId])
+  @@index([franchiseId])
+  @@index([studioId])
 }
 
 // ─── Studio Networks (multi-location booking) ────────────────────────────────
@@ -329,6 +392,9 @@ model Member {
   emergencyContactPhone String?
   guestPassBalance     Int      @default(0)
 
+  // Stripe
+  stripeCustomerId     String?
+
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   studio          Studio           @relation(fields: [studioId], references: [id], onDelete: Cascade)
   bookings        Booking[]
@@ -339,6 +405,7 @@ model Member {
   memberNotes     MemberNote[]
   promoRedemptions PromoCodeRedemption[]
   guestPasses     GuestPass[]
+  productSales    ProductSale[]
 
   @@unique([studioId, externalId])
   @@index([staffRoles], type: Gin)
@@ -446,7 +513,8 @@ model MembershipPlan {
   intervalMonths Int     @default(1)
   creditsPerCycle    Int?   // null = unlimited
   guestPassesPerCycle Int   @default(0)
-  stripePriceId  String?
+  stripeProductId String?
+  stripePriceId   String?
 
   studio        Studio                   @relation(fields: [studioId], references: [id], onDelete: Cascade)
   subscriptions MembershipSubscription[]
@@ -476,6 +544,7 @@ enum SubscriptionStatus {
   PAUSED
   CANCELLED
   EXPIRED
+  PAST_DUE
 }
 
 // ─── Cancellation Policy ─────────────────────────────────────────────────────
@@ -494,16 +563,51 @@ model CancellationPolicy {
 // ─── Products (retail) ───────────────────────────────────────────────────────
 
 model Product {
-  id              String  @id @default(cuid())
-  studioId        String
-  name            String
-  category        String  @default("Other")   // e.g. "Drinks", "Food", "Merchandise"
-  priceInCents    Int
-  creditsRequired Int     @default(0)
-  imageUrl        String?
-  inStock         Boolean @default(true)
+  id               String  @id @default(cuid())
+  studioId         String
+  name             String
+  category         String  @default("Other")   // e.g. "Drinks", "Food", "Merchandise"
+  priceInCents     Int
+  creditsRequired  Int     @default(0)
+  imageUrl         String?
+  inStock          Boolean @default(true)
+  stripeProductId  String?
+  stripePriceId    String?
 
   studio Studio @relation(fields: [studioId], references: [id], onDelete: Cascade)
+}
+
+// ─── Product sales log ────────────────────────────────────────────────────────
+
+model ProductSale {
+  id            String   @id @default(cuid())
+  memberId      String
+  studioId      String
+  items         Json     // [{ productId, name, qty, priceInCents, creditsRequired }]
+  totalCents    Int      @default(0)
+  totalCredits  Int      @default(0)
+  paymentMethod String   // 'card' | 'cash' | 'credits' | 'free'
+  stripePaymentIntentId String?
+  staffUserId   String?
+  soldAt        DateTime @default(now())
+  refundedAt    DateTime?
+  refundedCents Int?
+  stripeRefundId String?
+  failedAt      DateTime?
+
+  member  Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  studio  Studio @relation(fields: [studioId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+  @@index([studioId, soldAt])
+}
+
+// ─── Stripe webhook deduplication ────────────────────────────────────────────
+
+model StripeEvent {
+  id          String   @id  // Stripe event ID (evt_...)
+  type        String
+  processedAt DateTime @default(now())
 }
 
 // ─── Member notes (staff-authored, audited) ───────────────────────────────────
@@ -554,8 +658,9 @@ model PromoCode {
   usageCount  Int       @default(0)
   validFrom   DateTime  @default(now())
   validUntil  DateTime?
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  stripeCouponId String?   // cached Stripe coupon ID for MEMBERSHIP_PCT/FLAT types
 
   studio      Studio              @relation(fields: [studioId], references: [id], onDelete: Cascade)
   redemptions PromoCodeRedemption[]

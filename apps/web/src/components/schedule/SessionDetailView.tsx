@@ -8,12 +8,14 @@ import SpotPicker from '@/components/room/SpotPicker'
 import CapacityBar from './CapacityBar'
 import { sportConfig } from './constants'
 import { useTimeFormat } from '@/lib/time-format-context'
+import { useTimezone } from '@/lib/timezone-context'
 import { fmtTime } from '@/lib/fmt-time'
 
 interface Props {
   session: SessionSlot
   /** Admins and fronthosts bypass the past-class lock */
   privileged?: boolean
+  cancelPolicy?: { windowHours: number; feeCredits: number }
   onBack: () => void
   onBook: (sessionId: string) => Promise<void>
   onCancel: (bookingId: string, sessionId: string) => Promise<void>
@@ -29,6 +31,7 @@ async function getFreshToken() {
 export default function SessionDetailView({
   session: s,
   privileged = false,
+  cancelPolicy,
   onBack,
   onBook,
   onCancel,
@@ -39,6 +42,7 @@ export default function SessionDetailView({
   const [spotsLoading, setSpotsLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
 const timeFormat = useTimeFormat()
+  const timezone = useTimezone()
   const cfg = sportConfig(s.sport)
   const isBooked = !!s.userBookingId
   const isWaitlisted = !!s.userWaitlistPosition
@@ -50,8 +54,8 @@ const timeFormat = useTimeFormat()
   const durationMin = Math.round(
     (new Date(s.endsAt).getTime() - new Date(s.startsAt).getTime()) / 60000,
   )
-  const startTime = fmtTime(s.startsAt, timeFormat)
-  const endTime = fmtTime(s.endsAt, timeFormat)
+  const startTime = fmtTime(s.startsAt, timeFormat, timezone)
+  const endTime = fmtTime(s.endsAt, timeFormat, timezone)
 
   async function refreshSpots() {
     const t = await getFreshToken()
@@ -119,6 +123,31 @@ const timeFormat = useTimeFormat()
       setActionLoading(false)
     }
   }
+
+  // Cancellation window hint
+  const cancelHint = (() => {
+    if (!isBooked || isPast || privileged || !cancelPolicy) return null
+    const now = Date.now()
+    const classStart = new Date(s.startsAt).getTime()
+    const windowMs = cancelPolicy.windowHours * 60 * 60 * 1000
+    const windowCutoff = classStart - windowMs
+    const msUntilCutoff = windowCutoff - now
+    if (msUntilCutoff <= 0) {
+      // Already in late-cancel window
+      return cancelPolicy.feeCredits > 0
+        ? { type: 'late' as const, text: `Late cancellation — ${cancelPolicy.feeCredits} credit fee applies` }
+        : { type: 'late' as const, text: 'Late cancellation window active' }
+    }
+    const hoursLeft = Math.floor(msUntilCutoff / (60 * 60 * 1000))
+    const minsLeft = Math.floor((msUntilCutoff % (60 * 60 * 1000)) / 60000)
+    const timeStr = hoursLeft > 0 ? `${hoursLeft}h ${minsLeft}m` : `${minsLeft}m`
+    return {
+      type: 'free' as const,
+      text: cancelPolicy.feeCredits > 0
+        ? `Free cancellation for ${timeStr} · ${cancelPolicy.feeCredits} credit fee after`
+        : `Free cancellation for ${timeStr}`,
+    }
+  })()
 
   // What hint to show above the map
   const mapHint = isBooked
@@ -213,6 +242,21 @@ const timeFormat = useTimeFormat()
                 >
                   {actionLoading ? '…' : isFull ? 'Join waitlist' : 'Book class'}
                 </button>
+              )}
+
+              {/* Cancellation window hint */}
+              {cancelHint && (
+                <div className={`flex items-start gap-1.5 text-xs rounded-xl px-3 py-2 ${
+                  cancelHint.type === 'late'
+                    ? 'bg-red-50 text-red-600'
+                    : 'bg-blue-50 text-blue-700'
+                }`}>
+                  <svg className="w-3.5 h-3.5 mt-0.5 shrink-0" viewBox="0 0 16 16" fill="none">
+                    <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5"/>
+                    <path d="M8 5v3.5l2 1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                  </svg>
+                  {cancelHint.text}
+                </div>
               )}
 
               {/* Cancel: always visible; active only when booked + spot picked (or no layout) */}

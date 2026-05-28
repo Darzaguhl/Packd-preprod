@@ -3,6 +3,7 @@ import { prisma } from '@packd/db'
 import { requireRole, requireAuth, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole } from '../lib/supabase-admin.js'
+import { sendStaffInvite } from '../lib/email.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 
@@ -215,6 +216,46 @@ export async function staffRoutes(app: FastifyInstance) {
       }
 
       return reply.send({ success: true, remainingRoles, remainingStudios: remainingStudios.length })
+    },
+  )
+
+  // POST /staff/invite — send an invitation email to a prospective staff member (studio_admin+)
+  // Body: { email, firstName, role: 'fronthost' | 'instructor', studioId }
+  app.post<{ Body: { email: string; firstName: string; role: string; studioId: string } }>(
+    '/invite',
+    { preHandler: requireStudioAdmin, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const { email, firstName, role, studioId } = request.body
+      const user = getUser(request)
+
+      if (!email || !firstName || !studioId) return reply.badRequest('email, firstName, and studioId are required')
+      if (!VALID_STAFF_ROLES.includes(role as StaffRole)) {
+        return reply.badRequest('role must be fronthost or instructor')
+      }
+      if (!await assertStudioAccess(user.id, user.role, studioId, user.studioIds)) {
+        return reply.forbidden('Access denied to this studio')
+      }
+
+      const studio = await prisma.studio.findUnique({ where: { id: studioId }, select: { name: true } })
+      if (!studio) return reply.notFound('Studio not found')
+
+      const inviterUser = await prisma.user.findUnique({ where: { id: user.id }, select: { firstName: true, lastName: true } })
+      const inviterName = inviterUser ? `${inviterUser.firstName} ${inviterUser.lastName}` : 'A studio admin'
+
+      const webUrl = process.env.WEB_URL ?? 'http://localhost:3001'
+      const signupUrl = `${webUrl}/onboarding?invite=1&email=${encodeURIComponent(email)}&studio=${encodeURIComponent(studio.name)}&role=${role}`
+
+      await sendStaffInvite({
+        to: email,
+        firstName,
+        studioName: studio.name,
+        role,
+        inviterName,
+        signupUrl,
+        webUrl,
+      })
+
+      return reply.send({ success: true, message: `Invitation sent to ${email}` })
     },
   )
 }

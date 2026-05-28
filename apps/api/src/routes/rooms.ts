@@ -28,11 +28,22 @@ async function assertRoomAccess(
     return false
   }
   const member = await prisma.member.findUnique({ where: { userId }, select: { studioId: true } })
-  if (!member || member.studioId !== room.location.studioId) {
+  if (!member) {
     reply.code(403).send({ error: 'Access denied' })
     return false
   }
-  return true
+  // Same studio — allow immediately
+  if (member.studioId === room.location.studioId) return true
+  // Cross-studio — allow if both studios are in the same network
+  const [homeMembership, targetMembership] = await Promise.all([
+    prisma.studioNetworkMembership.findFirst({ where: { studioId: member.studioId }, select: { networkId: true } }),
+    prisma.studioNetworkMembership.findFirst({ where: { studioId: room.location.studioId }, select: { networkId: true } }),
+  ])
+  if (homeMembership && targetMembership && homeMembership.networkId === targetMembership.networkId) {
+    return true
+  }
+  reply.code(403).send({ error: 'Access denied' })
+  return false
 }
 
 export async function roomRoutes(app: FastifyInstance) {

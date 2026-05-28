@@ -383,7 +383,7 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
       {/* ── Sub-nav + window selector ── */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         {subNav}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <p className="text-sm text-gray-500">
             <span className="font-semibold text-gray-900">{totalSessions}</span> sessions · {weeks}w window
           </p>
@@ -400,6 +400,24 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
               </button>
             ))}
           </div>
+          {/* CSV export buttons */}
+          {isPerStudio && (
+            <div className="flex gap-1">
+              {(['members', 'attendance', 'revenue'] as const).map(type => (
+                <button
+                  key={type}
+                  onClick={() => api.admin.exportCsv(type, selectedStudio, token).catch(() => alert('Export failed'))}
+                  className="text-xs font-medium px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-colors flex items-center gap-1"
+                  title={`Download ${type} CSV`}
+                >
+                  <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
+                    <path d="M6 1v7M3 5l3 3 3-3M2 10h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  {type.charAt(0).toUpperCase() + type.slice(1)}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

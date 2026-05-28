@@ -60,6 +60,8 @@ export default function MemberProfilePage({ memberId }: Props) {
   const [pauseUntilDate, setPauseUntilDate] = useState('')
   const [subActioning, setSubActioning] = useState(false)
   const [subActionError, setSubActionError] = useState<string | null>(null)
+  const [purchases, setPurchases] = useState<import('@/lib/api').ProductSale[]>([])
+  const [refundingId, setRefundingId] = useState<string | null>(null)
 
   useEffect(() => {
     createClient().auth.getSession().then(async ({ data: { session } }) => {
@@ -82,6 +84,7 @@ export default function MemberProfilePage({ memberId }: Props) {
         setPastBookings(history.pastBookings)
         setTransactions(history.transactions)
         api.admin.guestPassLog(memberId, t).then(setGuestPasses).catch(() => {})
+        api.admin.memberPurchases(memberId, t).then(setPurchases).catch(() => {})
 
         // Use the member's studioId (always present) rather than the viewer's app_metadata
         const effectiveStudioId = prof.studioId ?? sid
@@ -327,6 +330,58 @@ export default function MemberProfilePage({ memberId }: Props) {
               <p className="text-xs text-gray-400">No guest pass history yet.</p>
             )}
           </div>
+
+          {/* Purchase history */}
+          {purchases.length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 px-5 py-5">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">Purchase history</h3>
+              <div className="space-y-2.5">
+                {purchases.map(sale => (
+                  <div key={sale.id} className="flex items-start justify-between gap-2 text-xs">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-gray-800 font-medium truncate">
+                        {(sale.items as import('@/lib/api').CartSaleItem[]).map(i => `${i.name}${i.qty > 1 ? ` ×${i.qty}` : ''}`).join(', ')}
+                      </p>
+                      <p className="text-gray-400 mt-0.5">
+                        {new Date(sale.soldAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {' · '}
+                        <span className="capitalize">{sale.paymentMethod}</span>
+                        {sale.refundedAt && <span className="text-red-400 ml-1">· Refunded</span>}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {sale.totalCents > 0 && (
+                        <span className={`font-semibold tabular-nums ${sale.refundedAt ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+                          {(sale.totalCents / 100).toFixed(2)}
+                        </span>
+                      )}
+                      {sale.totalCredits > 0 && !sale.totalCents && (
+                        <span className="text-gray-500">{sale.totalCredits} cr</span>
+                      )}
+                      {sale.paymentMethod === 'card' && !sale.refundedAt && sale.stripePaymentIntentId && token && (
+                        <button
+                          onClick={async () => {
+                            if (!confirm('Refund this sale to the member\'s card?')) return
+                            setRefundingId(sale.id)
+                            try {
+                              await api.stripe.refund(sale.id, token)
+                              setPurchases(prev => prev.map(s => s.id === sale.id ? { ...s, refundedAt: new Date().toISOString(), refundedCents: s.totalCents } : s))
+                            } catch (e) {
+                              alert(e instanceof Error ? e.message : 'Refund failed')
+                            } finally { setRefundingId(null) }
+                          }}
+                          disabled={refundingId === sale.id}
+                          className="text-[10px] text-red-500 hover:text-red-700 disabled:opacity-40 font-medium"
+                        >
+                          {refundingId === sale.id ? '…' : 'Refund'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Subscription management (admin only — requires studioId + plans) */}
           {studioId && (

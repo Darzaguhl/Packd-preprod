@@ -6,6 +6,7 @@ import type { SessionSlot } from '@packd/types'
 import CapacityBar from './CapacityBar'
 import { sportConfig } from './constants'
 import { useTimeFormat } from '@/lib/time-format-context'
+import { useTimezone } from '@/lib/timezone-context'
 import { fmtTime } from '@/lib/fmt-time'
 
 interface ClassCardProps {
@@ -28,6 +29,7 @@ export default function ClassCard({
   })
 
   const timeFormat = useTimeFormat()
+  const timezone = useTimezone()
   const cfg = sportConfig(s.sport)
   const isFull = s.bookedCount >= s.capacity
   const isBooked = !!s.userBookingId
@@ -36,7 +38,7 @@ export default function ClassCard({
   const durationMin = Math.round(
     (new Date(s.endsAt).getTime() - new Date(s.startsAt).getTime()) / 60000,
   )
-  const startTime = fmtTime(s.startsAt, timeFormat)
+  const startTime = fmtTime(s.startsAt, timeFormat, timezone)
 
   const style = {
     transform: CSS.Transform.toString(transform),

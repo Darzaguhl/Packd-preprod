@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { api } from '@/lib/api'
 import type { MemberProfile } from '@packd/types'
@@ -128,6 +128,7 @@ function EditProfileModal({
 
 export default function AccountView() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [profile, setProfile] = useState<MemberProfile | null>(null)
   const [upcoming, setUpcoming] = useState<UpcomingBooking[]>([])
   const [pastBookings, setPastBookings] = useState<PastBooking[]>([])
@@ -144,6 +145,15 @@ export default function AccountView() {
   const [profileExtended, setProfileExtended] = useState<{ birthday: string | null; emergencyContactName: string | null; emergencyContactPhone: string | null } | null>(null)
   const [guestPassBalance, setGuestPassBalance] = useState(0)
   const [guestPasses, setGuestPasses] = useState<import('@/lib/api').GuestPassEntry[]>([])
+  const [purchases, setPurchases] = useState<import('@/lib/api').ProductSale[]>([])
+
+  // Show success toast when Stripe redirects back after payment
+  useEffect(() => {
+    if (searchParams.get('checkout') === 'success') {
+      showToast('Payment successful! Your membership is now active.')
+      router.replace('/account')
+    }
+  }, [searchParams])
 
   useEffect(() => {
     createClient().auth.getSession().then(async ({ data: { session } }) => {
@@ -175,6 +185,7 @@ export default function AccountView() {
           api.members.stats(studioId, t).then(setMemberStats).catch(() => {})
           api.ical.getToken(t).then(d => setIcalUrl(d.urls.member)).catch(() => {})
           api.admin.guestPassLog(profileData.id ?? '', t).then(setGuestPasses).catch(() => {})
+          api.members.purchases(t, studioId).then(setPurchases).catch(() => {})
         }
       } catch {
         // non-member user — show empty state
@@ -198,6 +209,26 @@ export default function AccountView() {
       showToast('Membership cancelled')
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Failed to cancel membership', false)
+    }
+  }
+
+  async function handleBuyCredits(planId: string, promoCodeId?: string) {
+    if (!token || !profile) return
+    try {
+      const res = await api.stripe.checkout(planId, profile.studioId, token, promoCodeId)
+      if (res.url) window.location.href = res.url
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Failed to start checkout', false)
+    }
+  }
+
+  async function handleManagePayments() {
+    if (!token) return
+    try {
+      const res = await api.stripe.portal(token)
+      if (res.url) window.location.href = res.url
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Failed to open payment portal', false)
     }
   }
 
@@ -285,6 +316,7 @@ export default function AccountView() {
             plans={plans}
             onCancelBooking={handleCancelBooking}
             onSubscribe={handleSubscribe}
+            onBuyCredits={handleBuyCredits}
             onCancelMembership={handleCancelMembership}
             onEditProfile={() => setEditingProfile(true)}
             birthday={profileExtended?.birthday}
@@ -344,6 +376,52 @@ export default function AccountView() {
               )}
             </div>
           ) : null}
+
+          {/* ── Payment methods ── */}
+          <div className="bg-white border border-gray-100 rounded-2xl px-5 py-4 space-y-2">
+            <h3 className="text-sm font-semibold text-gray-900">Payment methods</h3>
+            <p className="text-xs text-gray-500">Manage your saved cards, view invoices and billing history.</p>
+            <button
+              onClick={handleManagePayments}
+              className="text-xs font-medium px-3 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors"
+            >
+              Manage payment methods →
+            </button>
+          </div>
+
+          {/* ── Purchase history ── */}
+          {purchases.length > 0 && (
+            <div className="bg-white border border-gray-100 rounded-2xl px-5 py-4 space-y-3">
+              <h3 className="text-sm font-semibold text-gray-900">Purchase history</h3>
+              <div className="space-y-2">
+                {purchases.map(sale => (
+                  <div key={sale.id} className="flex items-start justify-between gap-2 text-xs">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-gray-700 font-medium truncate">
+                        {(sale.items as import('@/lib/api').CartSaleItem[]).map(i => `${i.name}${i.qty > 1 ? ` ×${i.qty}` : ''}`).join(', ')}
+                      </p>
+                      <p className="text-gray-400">
+                        {new Date(sale.soldAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {' · '}
+                        <span className="capitalize">{sale.paymentMethod}</span>
+                        {sale.refundedAt && <span className="text-red-500 ml-1">· Refunded</span>}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      {sale.totalCents > 0 && (
+                        <p className={`font-semibold tabular-nums ${sale.refundedAt ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+                          {(sale.totalCents / 100).toFixed(2)}
+                        </p>
+                      )}
+                      {sale.totalCredits > 0 && (
+                        <p className="text-gray-500">{sale.totalCredits} cr</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ── Calendar subscribe ── */}
           {icalUrl && (

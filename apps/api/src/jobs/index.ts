@@ -1,5 +1,6 @@
 import PgBoss from 'pg-boss'
 import { prisma } from '@packd/db'
+import { sendWaitlistPromotion, sendClassReminder } from '../lib/email.js'
 
 let boss: PgBoss
 
@@ -19,6 +20,7 @@ export async function setupJobs() {
     'waitlist.expire',
     'booking.late-cancel-fee',
     'session.no-show',
+    'session.reminder',
     'nightly.maintenance',
     'membership.renewal-reminder',
   ]) {
@@ -49,7 +51,30 @@ export async function setupJobs() {
         data: { status: 'NOTIFIED', notifiedAt: new Date(), expiresAt },
       })
       await boss.sendAfter('waitlist.expire', { waitlistEntryId: next.id }, {}, expiresAt)
-      // TODO: send push notification
+
+      // Send waitlist promotion email
+      const promoted = await prisma.waitlistEntry.findUnique({
+        where: { id: next.id },
+        include: {
+          member: { include: { user: true } },
+          session: {
+            include: {
+              template: { select: { name: true } },
+              studio: { select: { name: true } },
+            },
+          },
+        },
+      })
+      if (promoted) {
+        sendWaitlistPromotion({
+          to: promoted.member.user.email,
+          firstName: promoted.member.user.firstName,
+          studioName: promoted.session.studio.name,
+          className: promoted.session.template?.name ?? 'Class',
+          startsAt: promoted.session.startsAt.toISOString(),
+          webUrl: process.env.WEB_URL ?? 'http://localhost:3001',
+        }).catch(() => {})
+      }
     }
   })
 
@@ -203,7 +228,7 @@ export async function setupJobs() {
       data: { status: 'EXPIRED' },
     })
 
-    // Schedule no-show checks for sessions starting in the next 24 hours
+    // Schedule no-show checks + reminders for sessions starting in the next 24 hours
     const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000)
     const upcomingSessions = await prisma.classSession.findMany({
       where: { startsAt: { gt: now, lt: tomorrow }, status: 'SCHEDULED' },
@@ -211,6 +236,7 @@ export async function setupJobs() {
     })
     for (const session of upcomingSessions) {
       await enqueueNoShowCheck(session.id, session.startsAt)
+      await enqueueClassReminder(session.id, session.startsAt)
     }
 
     // Mark subscriptions past their end date as EXPIRED
@@ -230,6 +256,43 @@ export async function setupJobs() {
     }
   })
 
+  // Class reminder — send 24h before session to all confirmed bookings
+  await boss.work('session.reminder', async ([job]) => {
+    const { sessionId } = job.data as { sessionId: string }
+    const session = await prisma.classSession.findUnique({
+      where: { id: sessionId },
+      include: {
+        template: { select: { name: true } },
+        studio: { select: { name: true } },
+        room: { select: { name: true } },
+        instructor: { include: { user: { select: { firstName: true, lastName: true } } } },
+        bookings: {
+          where: { status: 'CONFIRMED' },
+          include: {
+            member: { include: { user: { select: { email: true, firstName: true } } } },
+            station: { select: { label: true } },
+          },
+        },
+      },
+    })
+    if (!session || session.status === 'CANCELLED') return
+
+    const webUrl = process.env.WEB_URL ?? 'http://localhost:3001'
+    for (const booking of session.bookings) {
+      sendClassReminder({
+        to: booking.member.user.email,
+        firstName: booking.member.user.firstName,
+        studioName: session.studio.name,
+        className: session.template?.name ?? 'Class',
+        startsAt: session.startsAt.toISOString(),
+        instructorName: `${session.instructor.user.firstName} ${session.instructor.user.lastName}`,
+        roomName: session.room?.name ?? '',
+        stationLabel: booking.station?.label ?? null,
+        webUrl,
+      }).catch(() => {})
+    }
+  })
+
   console.log('pg-boss jobs registered')
 }
 
@@ -244,4 +307,11 @@ export async function enqueueNoShowCheck(sessionId: string, sessionStartsAt: Dat
   // singletonKey ensures only one job per session, so nightly + on-completion calls are idempotent.
   const runAt = new Date(sessionStartsAt.getTime() + 30 * 60 * 1000)
   await boss.sendAfter('session.no-show', { sessionId }, { singletonKey: `session-${sessionId}` }, runAt)
+}
+
+export async function enqueueClassReminder(sessionId: string, sessionStartsAt: Date) {
+  // Send reminder ~24h before class starts
+  const runAt = new Date(sessionStartsAt.getTime() - 24 * 60 * 60 * 1000)
+  if (runAt <= new Date()) return // already past — skip
+  await boss.sendAfter('session.reminder', { sessionId }, { singletonKey: `reminder-${sessionId}` }, runAt)
 }

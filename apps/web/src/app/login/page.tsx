@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 function roleHomePath(role: string | undefined): string {
   switch (role) {
     case 'admin':
+    case 'brand_admin':
     case 'franchise_admin':
     case 'studio_admin':
       return '/dashboard'
@@ -52,10 +53,17 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-1">Packd</h1>
-        <p className="text-sm text-gray-500 mb-6">
-          {mode === 'sign_in' ? 'Sign in to your account' : 'Create an account'}
-        </p>
+
+        {/* Logo */}
+        <div className="mb-6">
+          <div className="flex items-baseline gap-1.5 mb-1">
+            <span className="text-xl font-black leading-none select-none">⚡</span>
+            <span className="text-3xl font-black italic tracking-tight leading-none text-gray-900">PACKD</span>
+          </div>
+          <p className="text-sm text-gray-500">
+            {mode === 'sign_in' ? 'Sign in to your account' : 'Create an account'}
+          </p>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

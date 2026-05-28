@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { api, type AdminSession, type AdminBooking, type Product } from '@/lib/api'
+import { api, type AdminSession, type AdminBooking, type Product, type CartSaleItem } from '@/lib/api'
 import { createClient } from '@/lib/supabase/client'
 import { useTimeFormat } from '@/lib/time-format-context'
 import { fmtTime } from '@/lib/fmt-time'
@@ -102,6 +102,7 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
   // Products & cart
   const [products, setProducts]   = useState<Product[]>([])
   const [cart, setCart]           = useState<CartItem[]>([])
+  const [savedCard, setSavedCard] = useState<{ last4: string; brand: string } | null | undefined>(undefined)
 
   // Action states
   const [actionLoading, setActionLoading] = useState(false)
@@ -126,6 +127,10 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
   const [memberGuestPassBalance, setMemberGuestPassBalance] = useState<number | null>(null)
   const [guestName, setGuestName] = useState('')
   const [guestCheckinLoading, setGuestCheckinLoading] = useState(false)
+
+  // Purchase history
+  const [memberPurchases, setMemberPurchases] = useState<import('@/lib/api').ProductSale[]>([])
+  const [refundingId, setRefundingId] = useState<string | null>(null)
 
   const creditAmount = creditPreset ?? (creditCustom ? parseInt(creditCustom, 10) : null)
 
@@ -193,18 +198,26 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
     setMemberEmergencyPhone(null)
   }
 
-  // Load extended profile fields when a member is selected (birthday + emergency contact for at-a-glance display)
+  // Load extended profile fields + saved card when a member is selected
   useEffect(() => {
     if (!member) {
       setMemberBirthday(null); setMemberEmergencyName(null); setMemberEmergencyPhone(null)
-      setMemberGuestPassBalance(null); setGuestName('')
+      setMemberGuestPassBalance(null); setGuestName(''); setSavedCard(undefined)
+      setMemberPurchases([])
       return
     }
-    getFreshToken().then(t => api.admin.memberProfile(member.id, t)).then(p => {
-      setMemberBirthday(p.birthday ?? null)
-      setMemberEmergencyName(p.emergencyContactName ?? null)
-      setMemberEmergencyPhone(p.emergencyContactPhone ?? null)
-      setMemberGuestPassBalance(p.guestPassBalance ?? 0)
+    getFreshToken().then(async t => {
+      const [profile, card, purchases] = await Promise.all([
+        api.admin.memberProfile(member.id, t),
+        api.stripe.customerCard(member.id, t).catch(() => ({ hasCard: false as const })),
+        api.admin.memberPurchases(member.id, t, studioId).catch(() => [] as import('@/lib/api').ProductSale[]),
+      ])
+      setMemberBirthday(profile.birthday ?? null)
+      setMemberEmergencyName(profile.emergencyContactName ?? null)
+      setMemberEmergencyPhone(profile.emergencyContactPhone ?? null)
+      setMemberGuestPassBalance(profile.guestPassBalance ?? 0)
+      setSavedCard(card.hasCard && card.last4 && card.brand ? { last4: card.last4, brand: card.brand } : null)
+      setMemberPurchases(purchases)
     }).catch(() => {})
   }, [member?.id])
 
@@ -321,20 +334,50 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
     } finally { setActionLoading(false) }
   }
 
-  async function handleChargeProducts() {
+  const cartItems: CartSaleItem[] = cart.map(i => ({
+    productId: i.product.id,
+    name: i.product.name,
+    qty: i.qty,
+    priceInCents: i.product.priceInCents,
+    creditsRequired: i.product.creditsRequired,
+  }))
+  const cartCashTotal = cart.reduce((sum, i) => sum + i.product.priceInCents * i.qty, 0)
+
+  async function handleChargeCard() {
     if (!member || cart.length === 0) return
     setActionLoading(true)
     try {
       const t = await getFreshToken()
-      if (cartTotal > 0) {
-        await api.admin.adjustCredits(member.id, -cartTotal, `Products: ${cartLabel}`, t)
+      await api.stripe.chargeMember({
+        memberId: member.id, studioId, items: cartItems,
+        totalCents: cartCashTotal, totalCredits: cartTotal,
+      }, t)
+      if (cartTotal > 0) setMember(prev => prev ? { ...prev, creditBalance: prev.creditBalance - cartTotal } : null)
+      setCart([])
+      onProductsCharged?.(member.id)
+      showToast(`Charged to card: ${cartLabel}`)
+      api.admin.memberPurchases(member.id, t, studioId).then(setMemberPurchases).catch(() => {})
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Card charge failed', false)
+    } finally { setActionLoading(false) }
+  }
+
+  async function handleMarkAsPaid(method: 'cash' | 'credits' | 'free') {
+    if (!member || cart.length === 0) return
+    setActionLoading(true)
+    try {
+      const t = await getFreshToken()
+      await api.admin.recordProductSale({
+        memberId: member.id, studioId, items: cartItems,
+        totalCents: cartCashTotal, totalCredits: cartTotal, paymentMethod: method,
+      }, t)
+      if (method === 'credits' && cartTotal > 0) {
         setMember(prev => prev ? { ...prev, creditBalance: prev.creditBalance - cartTotal } : null)
       }
       setCart([])
       onProductsCharged?.(member.id)
-      showToast(cartTotal > 0
-        ? `Charged ${cartTotal} credit${cartTotal !== 1 ? 's' : ''} for ${cartLabel}`
-        : `Recorded: ${cartLabel}`)
+      showToast(method === 'cash' ? `Recorded as cash: ${cartLabel}` : method === 'credits' ? `Charged ${cartTotal} cr: ${cartLabel}` : `Recorded: ${cartLabel}`)
+      api.admin.memberPurchases(member.id, t, studioId).then(setMemberPurchases).catch(() => {})
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Charge failed', false)
     } finally { setActionLoading(false) }
@@ -385,6 +428,19 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Guest check-in failed', false)
     } finally { setGuestCheckinLoading(false) }
+  }
+
+  async function handleRefund(saleId: string) {
+    if (!confirm('Refund this sale to the member\'s card?')) return
+    setRefundingId(saleId)
+    try {
+      const t = await getFreshToken()
+      await api.stripe.refund(saleId, t)
+      setMemberPurchases(prev => prev.map(s => s.id === saleId ? { ...s, refundedAt: new Date().toISOString(), refundedCents: s.totalCents } : s))
+      showToast('Refund issued successfully')
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Refund failed', false)
+    } finally { setRefundingId(null) }
   }
 
   const categorised = groupByCategory(products)
@@ -489,6 +545,16 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                       {member.name}
                     </a>
                     <MembershipBadge status={member.membershipStatus} />
+                    {savedCard && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        💳 <span className="capitalize">{savedCard.brand}</span> ••{savedCard.last4}
+                      </span>
+                    )}
+                    {savedCard === null && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-400">
+                        No card
+                      </span>
+                    )}
                   </div>
                   {member.email && <p className="text-xs text-gray-400 truncate">{member.email}</p>}
                   {memberBirthday && (
@@ -780,30 +846,123 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
 
         {/* ── Cart footer ── */}
         {member && cart.length > 0 && (
-          <div className="px-5 py-4 border-t border-gray-100 bg-white shrink-0">
-            <div className="flex items-center justify-between mb-3">
-              <div className="min-w-0 flex-1 mr-3">
-                <p className="text-xs font-medium text-gray-700 truncate">{cartLabel}</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">
-                  {cartTotal > 0
-                    ? `${cartTotal} credit${cartTotal !== 1 ? 's' : ''} · member has ${member.creditBalance}`
-                    : 'No charge'}
-                </p>
-              </div>
-              <button
-                onClick={handleChargeProducts}
-                disabled={actionLoading || (cartTotal > 0 && member.creditBalance < cartTotal)}
-                className="shrink-0 text-sm font-semibold bg-gray-900 text-white px-4 py-2.5 rounded-xl hover:bg-gray-700 disabled:opacity-40 transition-colors"
-              >
-                {actionLoading ? '…' : cartTotal > 0 ? `Charge ${cartTotal} cr` : 'Record sale'}
-              </button>
+          <div className="px-5 py-4 border-t border-gray-100 bg-white shrink-0 space-y-3">
+            {/* Summary */}
+            <div>
+              <p className="text-xs font-medium text-gray-700 truncate">{cartLabel}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">
+                {cartCashTotal > 0 && cartTotal > 0
+                  ? `${cartCashTotal / 100} cash + ${cartTotal} cr`
+                  : cartCashTotal > 0
+                  ? `${cartCashTotal / 100} cash`
+                  : cartTotal > 0
+                  ? `${cartTotal} credit${cartTotal !== 1 ? 's' : ''} · balance: ${member.creditBalance}`
+                  : 'Free'}
+              </p>
             </div>
-            {cartTotal > 0 && member.creditBalance < cartTotal && (
+
+            {/* Payment buttons */}
+            <div className="flex flex-col gap-2">
+              {/* Card on file */}
+              {savedCard && (cartCashTotal > 0 || cartTotal > 0) && (
+                <button
+                  onClick={handleChargeCard}
+                  disabled={actionLoading}
+                  className="w-full text-sm font-semibold bg-gray-900 text-white px-4 py-2.5 rounded-xl hover:bg-gray-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
+                >
+                  {actionLoading ? '…' : (
+                    <>
+                      <span>Charge {savedCard.brand} ••{savedCard.last4}</span>
+                      {cartCashTotal > 0 && <span className="text-gray-300 text-xs">({cartCashTotal / 100})</span>}
+                    </>
+                  )}
+                </button>
+              )}
+
+              {/* Credits only (no cash) */}
+              {cartCashTotal === 0 && cartTotal > 0 && (
+                <button
+                  onClick={() => handleMarkAsPaid('credits')}
+                  disabled={actionLoading || member.creditBalance < cartTotal}
+                  className="w-full text-sm font-semibold bg-gray-900 text-white px-4 py-2.5 rounded-xl hover:bg-gray-700 disabled:opacity-40 transition-colors"
+                >
+                  {actionLoading ? '…' : `Charge ${cartTotal} cr`}
+                </button>
+              )}
+
+              {/* Cash / terminal */}
+              {cartCashTotal > 0 && (
+                <button
+                  onClick={() => handleMarkAsPaid('cash')}
+                  disabled={actionLoading}
+                  className="w-full text-sm font-medium bg-gray-100 text-gray-700 px-4 py-2.5 rounded-xl hover:bg-gray-200 disabled:opacity-40 transition-colors"
+                >
+                  {actionLoading ? '…' : 'Mark as paid (cash / terminal)'}
+                </button>
+              )}
+
+              {/* Free items */}
+              {cartCashTotal === 0 && cartTotal === 0 && (
+                <button
+                  onClick={() => handleMarkAsPaid('free')}
+                  disabled={actionLoading}
+                  className="w-full text-sm font-medium bg-gray-100 text-gray-700 px-4 py-2.5 rounded-xl hover:bg-gray-200 disabled:opacity-40 transition-colors"
+                >
+                  {actionLoading ? '…' : 'Record (free)'}
+                </button>
+              )}
+            </div>
+
+            {cartTotal > 0 && member.creditBalance < cartTotal && cartCashTotal === 0 && (
               <p className="text-[10px] text-red-500">Insufficient credits for this purchase</p>
             )}
           </div>
         )}
       </div>
+
+      {/* ── Purchase history ── */}
+      {member && memberPurchases.length > 0 && (
+        <div className="px-5 py-4 border-t border-gray-100">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recent purchases</p>
+          <div className="space-y-2">
+            {memberPurchases.slice(0, 5).map(sale => (
+              <div key={sale.id} className="flex items-start justify-between gap-2 text-xs">
+                <div className="flex-1 min-w-0">
+                  <p className="text-gray-700 font-medium truncate">
+                    {(sale.items as import('@/lib/api').CartSaleItem[]).map(i => `${i.name}${i.qty > 1 ? ` ×${i.qty}` : ''}`).join(', ')}
+                  </p>
+                  <p className="text-gray-400">
+                    {new Date(sale.soldAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                    {' · '}
+                    <span className="capitalize">{sale.paymentMethod}</span>
+                    {sale.failedAt && <span className="text-red-400 ml-1">· Failed</span>}
+                    {sale.refundedAt && <span className="text-red-400 ml-1">· Refunded</span>}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {sale.totalCents > 0 && (
+                    <span className={`font-semibold tabular-nums ${sale.refundedAt ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+                      {(sale.totalCents / 100).toFixed(2)}
+                    </span>
+                  )}
+                  {sale.totalCredits > 0 && !sale.totalCents && (
+                    <span className="text-gray-500">{sale.totalCredits} cr</span>
+                  )}
+                  {sale.paymentMethod === 'card' && !sale.refundedAt && !sale.failedAt && sale.stripePaymentIntentId && (
+                    <button
+                      onClick={() => handleRefund(sale.id)}
+                      disabled={refundingId === sale.id}
+                      className="text-[10px] text-red-500 hover:text-red-700 disabled:opacity-40 font-medium"
+                    >
+                      {refundingId === sale.id ? '…' : 'Refund'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (

@@ -1,6 +1,7 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import sensible from '@fastify/sensible'
+import rateLimit from '@fastify/rate-limit'
 
 import { scheduleRoutes } from './routes/schedule.js'
 import { classScheduleRoutes } from './routes/schedules.js'
@@ -23,6 +24,7 @@ import { availabilityRoutes } from './routes/availability.js'
 import { promoRoutes } from './routes/promos.js'
 import { icalRoutes } from './routes/ical.js'
 import { networkRoutes } from './routes/networks.js'
+import { brandRoutes } from './routes/brands.js'
 import { setupJobs } from './jobs/index.js'
 
 const app = Fastify({ logger: true })
@@ -33,6 +35,23 @@ await app.register(cors, {
 })
 
 await app.register(sensible)
+
+// Rate limiting — 200 req/min per IP for general use, 20 req/min for auth-sensitive routes
+await app.register(rateLimit, {
+  global: true,
+  max: 200,
+  timeWindow: '1 minute',
+  // Skip rate limiting for health check
+  skipOnError: true,
+  keyGenerator: (request) => {
+    return request.ip
+  },
+  errorResponseBuilder: (_request, context) => ({
+    statusCode: 429,
+    error: 'Too Many Requests',
+    message: `Rate limit exceeded. Try again in ${Math.ceil(context.ttl / 1000)}s`,
+  }),
+})
 
 // Routes
 await app.register(studioRoutes, { prefix: '/studios' })
@@ -56,6 +75,7 @@ await app.register(availabilityRoutes, { prefix: '/availability' })
 await app.register(promoRoutes, { prefix: '/promos' })
 await app.register(icalRoutes, { prefix: '/ical' })
 await app.register(networkRoutes, { prefix: '/networks' })
+await app.register(brandRoutes, { prefix: '/brands' })
 
 app.get('/health', async () => ({ ok: true }))
 

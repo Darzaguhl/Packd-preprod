@@ -60,6 +60,7 @@ export async function studioRoutes(app: FastifyInstance) {
       const existing = await prisma.studio.findUnique({ where: { slug } })
       if (existing) return reply.conflict('A studio with that slug already exists')
 
+      const creator = getUser(request)
       const studio = await prisma.$transaction(async (tx) => {
         const s = await tx.studio.create({
           data: { name, slug, timezone, currency, cancellationPolicy: { create: {} } },
@@ -74,6 +75,12 @@ export async function studioRoutes(app: FastifyInstance) {
             timezone,
           },
         })
+        // Auto-link to franchise if the creating user has franchiseId in their JWT
+        if (creator.franchiseId) {
+          await tx.franchiseStudio.create({
+            data: { franchiseId: creator.franchiseId, studioId: s.id },
+          }).catch(() => {}) // ignore if already linked
+        }
         return s
       })
 

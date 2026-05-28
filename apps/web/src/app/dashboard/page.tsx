@@ -2,6 +2,7 @@ import { Suspense } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import FranchiseDashboard from '@/components/franchise/FranchiseDashboard'
+import BrandDashboard from '@/components/brand/BrandDashboard'
 import StudioManagerDashboard from '@/components/studio/StudioManagerDashboard'
 import DualRoleDashboard from '@/components/dual/DualRoleDashboard'
 import AdminShell from '@/components/admin/AdminShell'
@@ -13,12 +14,20 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const appMeta = user.app_metadata as { role?: string; roles?: string[]; studioId?: string; studioIds?: string[] } | undefined
+  const appMeta = user.app_metadata as { role?: string; roles?: string[]; studioId?: string; studioIds?: string[]; brandId?: string } | undefined
   const role = appMeta?.role
   const roles: string[] = appMeta?.roles ?? (role && role !== 'member' ? [role] : [])
   // All studio IDs the user is assigned to (multi-studio support)
   const studioIds: string[] = appMeta?.studioIds ?? (appMeta?.studioId ? [appMeta.studioId] : [STUDIO_ID])
   const primaryStudioId = studioIds[0] ?? STUDIO_ID
+
+  if (role === 'brand_admin') {
+    return (
+      <Suspense>
+        <BrandDashboard />
+      </Suspense>
+    )
+  }
 
   if (role === 'admin' || role === 'franchise_admin') {
     return (

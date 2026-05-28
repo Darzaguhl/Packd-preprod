@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
+import { syncStripePrice, archiveStripeProduct } from '../lib/stripe-sync.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 
@@ -39,6 +40,14 @@ export async function membershipRoutes(app: FastifyInstance) {
 
       const plan = await prisma.membershipPlan.findUnique({ where: { id: planId } })
       if (!plan) return reply.notFound('Plan not found')
+
+      // Paid plans must go through Stripe checkout — not directly subscribable
+      if (plan.priceInCents > 0) {
+        return reply.code(402).send({
+          error: 'This plan requires payment. Use the checkout flow.',
+          code: 'PAYMENT_REQUIRED',
+        })
+      }
 
       const start = new Date()
       start.setHours(0, 0, 0, 0)
@@ -134,13 +143,12 @@ export async function membershipRoutes(app: FastifyInstance) {
       intervalMonths?: number
       creditsPerCycle?: number | null
       guestPassesPerCycle?: number
-      stripePriceId?: string
     }
   }>(
     '/plans',
     { preHandler: requireStudioAdmin },
     async (request, reply) => {
-      const { studioId, name, description, priceInCents, intervalMonths = 1, creditsPerCycle, guestPassesPerCycle = 0, stripePriceId } = request.body
+      const { studioId, name, description, priceInCents, intervalMonths = 1, creditsPerCycle, guestPassesPerCycle = 0 } = request.body
       if (!studioId || !name || priceInCents === undefined) {
         return reply.badRequest('studioId, name and priceInCents are required')
       }
@@ -152,8 +160,28 @@ export async function membershipRoutes(app: FastifyInstance) {
         return reply.badRequest('creditsPerCycle must be a non-negative integer or null (unlimited)')
       }
 
+      // Sync with Stripe (fire-and-forget on failure — don't block plan creation)
+      let stripeProductId: string | undefined
+      let stripePriceId: string | undefined
+      if (priceInCents > 0) {
+        try {
+          const studio = await prisma.studio.findUnique({ where: { id: studioId }, select: { currency: true } })
+          const synced = await syncStripePrice({
+            name,
+            description,
+            priceInCents,
+            currency: studio?.currency ?? 'usd',
+            recurring: { interval: 'month', interval_count: intervalMonths },
+          })
+          stripeProductId = synced.stripeProductId
+          stripePriceId = synced.stripePriceId
+        } catch (e) {
+          console.error('Stripe sync failed (plan create):', e)
+        }
+      }
+
       const plan = await prisma.membershipPlan.create({
-        data: { studioId, name, description, priceInCents, intervalMonths, creditsPerCycle, guestPassesPerCycle, stripePriceId },
+        data: { studioId, name, description, priceInCents, intervalMonths, creditsPerCycle, guestPassesPerCycle, stripeProductId, stripePriceId },
       })
       return reply.code(201).send({ success: true, data: plan })
     },
@@ -169,17 +197,39 @@ export async function membershipRoutes(app: FastifyInstance) {
       intervalMonths?: number
       creditsPerCycle?: number | null
       guestPassesPerCycle?: number
-      stripePriceId?: string | null
     }
   }>(
     '/plans/:planId',
     { preHandler: requireStudioAdmin },
     async (request, reply) => {
       const { planId } = request.params
-      const { name, description, priceInCents, intervalMonths, creditsPerCycle, guestPassesPerCycle, stripePriceId } = request.body
+      const { name, description, priceInCents, intervalMonths, creditsPerCycle, guestPassesPerCycle } = request.body
 
       const existing = await prisma.membershipPlan.findUnique({ where: { id: planId } })
       if (!existing) return reply.notFound('Plan not found')
+
+      // Re-sync Stripe if price-relevant fields changed
+      let stripeProductId = existing.stripeProductId ?? undefined
+      let stripePriceId = existing.stripePriceId ?? undefined
+      const newPrice = priceInCents ?? existing.priceInCents
+      if (newPrice > 0) {
+        try {
+          const studio = await prisma.studio.findUnique({ where: { id: existing.studioId }, select: { currency: true } })
+          const synced = await syncStripePrice({
+            stripeProductId: existing.stripeProductId,
+            stripePriceId: existing.stripePriceId,
+            name: name ?? existing.name,
+            description: description ?? existing.description,
+            priceInCents: newPrice,
+            currency: studio?.currency ?? 'usd',
+            recurring: { interval: 'month', interval_count: intervalMonths ?? existing.intervalMonths },
+          })
+          stripeProductId = synced.stripeProductId
+          stripePriceId = synced.stripePriceId
+        } catch (e) {
+          console.error('Stripe sync failed (plan update):', e)
+        }
+      }
 
       const plan = await prisma.membershipPlan.update({
         where: { id: planId },
@@ -190,7 +240,8 @@ export async function membershipRoutes(app: FastifyInstance) {
           ...(intervalMonths !== undefined && { intervalMonths }),
           ...(creditsPerCycle !== undefined && { creditsPerCycle }),
           ...(guestPassesPerCycle !== undefined && { guestPassesPerCycle }),
-          ...(stripePriceId !== undefined && { stripePriceId }),
+          stripeProductId,
+          stripePriceId,
         },
       })
       return reply.send({ success: true, data: plan })
@@ -215,6 +266,10 @@ export async function membershipRoutes(app: FastifyInstance) {
         })
       }
       await prisma.membershipPlan.delete({ where: { id: planId } })
+      // Archive Stripe product after DB delete (non-blocking)
+      if (plan.stripeProductId) {
+        archiveStripeProduct(plan.stripeProductId).catch(e => console.error('Stripe archive failed:', e))
+      }
       return reply.send({ success: true })
     },
   )

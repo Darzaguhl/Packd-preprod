@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { api, type StudioSummary, type NetworkWithStudios } from '@/lib/api'
+import { api, type StudioSummary, type NetworkWithStudios, type Brand } from '@/lib/api'
 import PermissionsTab from '@/components/studio/PermissionsTab'
 import StaffTab from '@/components/studio/StaffTab'
 import StudioAdminsTab from './StudioAdminsTab'
@@ -11,7 +11,7 @@ import AdminShell from '@/components/admin/AdminShell'
 import NavBar from '@/components/NavBar'
 import AnalyticsTab from '@/components/studio/AnalyticsTab'
 
-type Tab = 'studios' | 'admins' | 'staff' | 'permissions' | 'analytics' | 'networks'
+type Tab = 'studios' | 'admins' | 'staff' | 'permissions' | 'analytics' | 'networks' | 'brands'
 
 const TIMEZONES = [
   'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Stockholm', 'Europe/Oslo',
@@ -59,7 +59,10 @@ export default function FranchiseDashboard() {
   const searchParams = useSearchParams()
 
   const [tab, setTab] = useState<Tab>(() => (searchParams.get('tab') as Tab) ?? 'studios')
+  const ADMIN_ONLY_TABS: Tab[] = ['brands']
   const [token, setToken] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<string | null>(null)
+  const [franchiseName, setFranchiseName] = useState<string | null>(null)
   const [studios, setStudios] = useState<StudioSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [permStudio, setPermStudio] = useState<StudioSummary | null>(null)
@@ -76,6 +79,13 @@ export default function FranchiseDashboard() {
     if (studioId) p.set('studio', studioId)
     router.replace(`?${p.toString()}`)
   }
+
+  // Redirect away from admin-only tabs once we know the role
+  useEffect(() => {
+    if (userRole !== null && userRole !== 'admin' && ADMIN_ONLY_TABS.includes(tab)) {
+      changeTab('studios')
+    }
+  }, [userRole, tab])
 
   // Add studio modal
   const [showAdd, setShowAdd] = useState(false)
@@ -94,6 +104,13 @@ export default function FranchiseDashboard() {
   // studioId being added to a specific network
   const [addingStudio, setAddingStudio] = useState<{ networkId: string; studioId: string } | null>(null)
 
+  // ── Brands state ─────────────────────────────────────────────────────────────
+  const [brands, setBrands] = useState<Brand[]>([])
+  const [brandForm, setBrandForm] = useState({ name: '', slug: '', description: '' })
+  const [showBrandAdd, setShowBrandAdd] = useState(false)
+  const [brandAdding, setBrandAdding] = useState(false)
+  const [addingBrandStudio, setAddingBrandStudio] = useState<{ brandId: string; studioId: string } | null>(null)
+
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
 
   function showToast(msg: string, ok = true) {
@@ -107,12 +124,21 @@ export default function FranchiseDashboard() {
       .then(({ data: { session } }) => {
         const t = session?.access_token ?? null
         setToken(t)
+        const role = session?.user.app_metadata?.role ?? null
+        setUserRole(role)
         if (!t) return
         // Ensure the franchise admin has a Member record so they can be booked into
         // classes and appear in member search. Fire-and-forget — non-blocking.
         api.members.ensure(t).catch(() => {})
-        // Load studios + networks in parallel
+        // Load franchise name (franchise_admin has a franchiseId in app_metadata)
+        if (role === 'franchise_admin') {
+          api.franchise.info(t).then(res => { if (res.name) setFranchiseName(res.name) }).catch(() => {})
+        }
+        // Load studios and networks; brands only for platform admin
         api.networks.list(t).then(setNetworks).catch(() => {})
+        if (role === 'admin') {
+          api.brands.list(t).then(res => { if (res.success) setBrands(res.data) }).catch(() => {})
+        }
         return api.franchise.studios(t)
       })
       .then(data => {
@@ -198,6 +224,7 @@ export default function FranchiseDashboard() {
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'studios', label: 'Studios' },
+    ...(userRole === 'admin' ? [{ id: 'brands' as Tab, label: 'Brands' }] : []),
     { id: 'networks', label: 'Networks' },
     { id: 'analytics', label: 'Analytics' },
     { id: 'admins', label: 'Studio Admins' },
@@ -207,7 +234,7 @@ export default function FranchiseDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <NavBar title="Franchise Dashboard" subtitle="All studios">
+      <NavBar title={franchiseName ?? 'Franchise Dashboard'} subtitle="All studios">
         <div className="flex gap-1 -mb-px">
           {TABS.map(t => (
             <button
@@ -384,6 +411,105 @@ export default function FranchiseDashboard() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Brands tab */}
+      {tab === 'brands' && token && (
+        <div className="max-w-2xl mx-auto w-full px-6 py-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">Brands</h2>
+              <p className="text-sm text-gray-500 mt-0.5">Group studios under a brand (e.g. Barry&apos;s). Assign a brand_admin to view cross-franchise analytics and members.</p>
+            </div>
+            <button
+              onClick={() => setShowBrandAdd(v => !v)}
+              className="text-sm font-medium px-4 py-2 rounded-xl bg-black text-white hover:bg-gray-800 transition-colors"
+            >
+              {showBrandAdd ? 'Cancel' : '+ New brand'}
+            </button>
+          </div>
+
+          {showBrandAdd && (
+            <div className="bg-gray-50 rounded-xl p-4 space-y-3 border border-gray-200">
+              <input
+                placeholder="Brand name (e.g. Barry's Bootcamp)"
+                value={brandForm.name}
+                onChange={e => setBrandForm(f => ({ ...f, name: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black"
+              />
+              <input
+                placeholder="Slug (e.g. barrys)"
+                value={brandForm.slug}
+                onChange={e => setBrandForm(f => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black"
+              />
+              <input
+                placeholder="Description (optional)"
+                value={brandForm.description}
+                onChange={e => setBrandForm(f => ({ ...f, description: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black"
+              />
+              <button
+                disabled={!brandForm.name || !brandForm.slug || brandAdding}
+                onClick={async () => {
+                  if (!token || !brandForm.name || !brandForm.slug) return
+                  setBrandAdding(true)
+                  try {
+                    await api.brands.create(brandForm, token)
+                    const res = await api.brands.list(token)
+                    if (res.success) setBrands(res.data)
+                    setBrandForm({ name: '', slug: '', description: '' })
+                    setShowBrandAdd(false)
+                  } finally { setBrandAdding(false) }
+                }}
+                className="px-4 py-2 bg-black text-white rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-gray-800 transition-colors"
+              >
+                {brandAdding ? 'Creating…' : 'Create brand'}
+              </button>
+            </div>
+          )}
+
+          {brands.length === 0 && !showBrandAdd && (
+            <p className="text-sm text-gray-400 py-8 text-center">No brands yet. Create one to group studios for a brand_admin.</p>
+          )}
+
+          {brands.map(brand => (
+            <div key={brand.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-50">
+                <div>
+                  <span className="font-semibold text-gray-900">{brand.name}</span>
+                  <span className="ml-2 text-xs text-gray-400">{brand.slug}</span>
+                  {brand.description && <p className="text-xs text-gray-400 mt-0.5">{brand.description}</p>}
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!token) return
+                    await api.brands.delete(brand.id, token)
+                    const res = await api.brands.list(token)
+                    if (res.success) setBrands(res.data)
+                  }}
+                  className="text-xs text-red-500 hover:text-red-700 transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+              <div className="px-4 py-3">
+                {brand.franchises.length === 0 ? (
+                  <p className="text-xs text-gray-400">No franchises yet — the brand admin can create them from their dashboard.</p>
+                ) : (
+                  <div className="space-y-1">
+                    {brand.franchises.map(f => (
+                      <div key={f.id} className="flex items-center justify-between text-sm">
+                        <span className="text-gray-700">{f.name}</span>
+                        <span className="text-xs text-gray-400">{f.studios.length} studio{f.studios.length !== 1 ? 's' : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

@@ -109,12 +109,16 @@ export default function FronthostDashboard({ defaultStudioId, modeSwitch }: { de
     Promise.all([
       api.admin.sessions(studioId, date, token),
       api.admin.stats(studioId, token).catch(() => null),
-    ]).then(([data, stats]) => {
+      api.admin.productSaleMemberIds(studioId, token, date).catch(() => ({ memberIds: [] as string[] })),
+    ]).then(([data, stats, sales]) => {
       setSessions(data)
       setSelectedSession(data[0] ?? null)
       if (stats) {
         setTimeFormat((stats.timeFormat ?? '24h') as TimeFormat)
         setCurrency(stats.currency ?? 'USD')
+      }
+      if (sales.memberIds.length > 0) {
+        setOrderedMemberIds(new Set(sales.memberIds))
       }
     }).catch(() => setSessions([]))
       .finally(() => setLoading(false))

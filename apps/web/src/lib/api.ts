@@ -78,6 +78,31 @@ export interface Product {
   inStock: boolean
 }
 
+export interface CartSaleItem {
+  productId: string
+  name: string
+  qty: number
+  priceInCents: number
+  creditsRequired: number
+}
+
+export interface ProductSale {
+  id: string
+  memberId: string
+  studioId: string
+  items: CartSaleItem[]
+  totalCents: number
+  totalCredits: number
+  paymentMethod: 'card' | 'cash' | 'credits' | 'free' | 'terminal'
+  stripePaymentIntentId: string | null
+  staffUserId: string | null
+  soldAt: string
+  refundedAt: string | null
+  refundedCents: number | null
+  stripeRefundId: string | null
+  failedAt: string | null
+}
+
 export interface InstructorPhoto {
   id: string
   instructorId: string
@@ -246,6 +271,7 @@ export interface UpcomingBooking {
   creditsRequired: number
   sessionStatus: string
   bookedAt: string
+  stationLabel: string | null
 }
 
 export type StationType = 'BIKE' | 'TREADMILL' | 'BENCH' | 'ROWER' | 'MAT' | 'REFORMER' | 'BARRE' | 'OTHER'
@@ -471,6 +497,7 @@ export interface AdminMemberProfile {
     pausedUntil: string | null
     startDate: string
     endDate: string | null
+    nextBillingDate?: string | null
   } | null
   joinedAt: string
 }
@@ -543,6 +570,71 @@ export interface MemberNetworkInfo {
   studios: NetworkStudio[]
 }
 
+// ─── Brand ────────────────────────────────────────────────────────────────────
+
+export interface BrandStudioSummary {
+  id: string
+  name: string
+  slug: string
+  timezone: string
+  currency: string
+  primaryColor: string
+  logoUrl: string | null
+  memberCount?: number
+  joinedAt: string
+}
+
+export interface BrandFranchise {
+  id: string
+  name: string
+  slug: string
+  description: string | null
+  createdAt: string
+  admin: { id: string; email: string; firstName: string; lastName: string } | null
+  studios: BrandStudioSummary[]
+}
+
+export interface Brand {
+  id: string
+  name: string
+  slug: string
+  logoUrl: string | null
+  description: string | null
+  franchises: BrandFranchise[]
+}
+
+export interface BrandStats {
+  period: string
+  totals: { members: number; bookings: number; sessions: number; creditsIssued: number }
+  perStudio: { id: string; name: string; slug: string; members: number; bookings: number }[]
+}
+
+export interface BrandMember {
+  id: string
+  firstName: string
+  lastName: string
+  email: string
+  studioId: string
+  studioName: string
+  creditBalance: number
+  bookingCount: number
+  createdAt: string
+}
+
+export interface BrandSession {
+  id: string
+  studioId: string
+  studioName: string
+  name: string
+  sport: string
+  instructorName: string
+  startsAt: string
+  endsAt: string
+  capacity: number
+  bookedCount: number
+  status: string
+}
+
 export interface NetworkWithStudios extends StudioNetwork {
   studios: { id: string; studioId: string; networkId: string; joinedAt: string; studio: { id: string; name: string; slug: string; timezone: string } }[]
 }
@@ -609,7 +701,7 @@ async function apiFetch<T>(
 export const api = {
   schedule: {
     list: (studioId: string, from: string, to: string, token: string) =>
-      apiFetch<{ timeFormat: string; sessions: SessionSlot[] }>(`/schedule/${studioId}?from=${from}&to=${to}`, { token }),
+      apiFetch<{ timeFormat: string; timezone: string; lateCancelWindowHours: number; lateCancelFeeCredits: number; sessions: SessionSlot[] }>(`/schedule/${studioId}?from=${from}&to=${to}`, { token }),
   },
   bookings: {
     create: (sessionId: string, token: string, memberId?: string) =>
@@ -646,6 +738,8 @@ export const api = {
       }),
     stats: (studioId: string, token: string) =>
       apiFetch<MemberStats>(`/members/me/stats?studioId=${studioId}`, { token }),
+    purchases: (token: string, studioId?: string) =>
+      apiFetch<ProductSale[]>(`/members/me/purchases${studioId ? `?studioId=${studioId}` : ''}`, { token }),
   },
   admin: {
     stats: (studioId: string, token: string) =>
@@ -667,6 +761,10 @@ export const api = {
       apiFetch<{ success: boolean; newBalance: number }>(`/admin/members/${memberId}/credits`, {
         method: 'POST', body: JSON.stringify({ amount, note }), token,
       }),
+    recordProductSale: (body: { memberId: string; studioId: string; items: CartSaleItem[]; totalCents: number; totalCredits: number; paymentMethod: 'cash' | 'credits' | 'free' }, token: string) =>
+      apiFetch<{ success: boolean }>('/admin/product-sales', { method: 'POST', body: JSON.stringify(body), token }),
+    productSaleMemberIds: (studioId: string, token: string, date?: string) =>
+      apiFetch<{ memberIds: string[] }>(`/admin/product-sales?studioId=${studioId}${date ? `&date=${date}` : ''}`, { token }),
     updateMember: (memberId: string, data: { notes?: string | null }, token: string) =>
       apiFetch<{ success: boolean; data: { id: string; notes: string | null } }>(`/admin/members/${memberId}`, {
         method: 'PATCH', body: JSON.stringify(data), token,
@@ -718,8 +816,29 @@ export const api = {
       apiFetch<{ success: boolean; guestPassBalance: number }>('/admin/guest-checkin', { method: 'POST', body: JSON.stringify({ memberId, guestName, studioId, sessionId }), token }),
     guestPassLog: (memberId: string, token: string) =>
       apiFetch<GuestPassEntry[]>(`/admin/members/${memberId}/guest-passes`, { token }),
+    memberPurchases: (memberId: string, token: string, studioId?: string) =>
+      apiFetch<ProductSale[]>(`/admin/members/${memberId}/purchases${studioId ? `?studioId=${studioId}` : ''}`, { token }),
+    exportCsv: async (type: 'members' | 'attendance' | 'revenue', studioId: string, token: string, params?: { from?: string; to?: string }) => {
+      const qs = new URLSearchParams({ studioId })
+      if (params?.from) qs.set('from', params.from)
+      if (params?.to) qs.set('to', params.to)
+      const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'
+      const res = await fetch(`${base}/admin/export/${type}?${qs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error(`Export failed: ${res.status}`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${type}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    },
   },
   franchise: {
+    info: (token: string) =>
+      apiFetch<{ id: string | null; name: string | null }>('/franchise/info', { token }) as Promise<{ id: string | null; name: string | null }>,
     myStudios: (token: string) =>
       apiFetch<{ id: string; name: string; slug: string }[]>('/franchise/my-studios', { token }),
     studios: (token: string) =>
@@ -897,6 +1016,12 @@ export const api = {
         `/staff/${memberId}?studioId=${studioId}${role ? `&role=${encodeURIComponent(role)}` : ''}`,
         { method: 'DELETE', token },
       ),
+    invite: (email: string, firstName: string, role: string, studioId: string, token: string) =>
+      apiFetch<{ success: boolean; message: string }>('/staff/invite', {
+        method: 'POST',
+        body: JSON.stringify({ email, firstName, role, studioId }),
+        token,
+      }),
   },
   studios: {
     list: (token: string) =>
@@ -1018,6 +1143,18 @@ export const api = {
         { method: 'POST', token },
       ),
   },
+  stripe: {
+    checkout: (planId: string, studioId: string, token: string, promoCodeId?: string) =>
+      apiFetch<{ url: string }>('/stripe/checkout', { method: 'POST', body: JSON.stringify({ planId, studioId, ...(promoCodeId ? { promoCodeId } : {}) }), token }),
+    portal: (token: string) =>
+      apiFetch<{ url: string }>('/stripe/portal', { method: 'POST', token }),
+    customerCard: (memberId: string, token: string) =>
+      apiFetch<{ hasCard: boolean; last4?: string; brand?: string; paymentMethodId?: string }>(`/stripe/customer-card?memberId=${memberId}`, { token }),
+    chargeMember: (body: { memberId: string; studioId: string; items: CartSaleItem[]; totalCents: number; totalCredits: number }, token: string) =>
+      apiFetch<{ success: boolean }>('/stripe/charge-member', { method: 'POST', body: JSON.stringify(body), token }),
+    refund: (saleId: string, token: string, amountCents?: number) =>
+      apiFetch<{ success: boolean; refundId: string; refundedCents: number }>('/stripe/refund', { method: 'POST', body: JSON.stringify({ saleId, amountCents }), token }),
+  },
   availability: {
     list: (studioId: string, token: string, from?: string, to?: string) => {
       const qs = new URLSearchParams({ studioId })
@@ -1048,7 +1185,7 @@ export const api = {
     delete: (id: string, token: string) =>
       apiFetch<{ success: boolean }>(`/promos/${id}`, { method: 'DELETE', token }),
     redeem: (code: string, studioId: string, token: string, memberId?: string) =>
-      apiFetch<{ success: boolean; type: string; creditsAdded: number; discount: { type: string; value: number } | null; message: string }>(
+      apiFetch<{ success: boolean; type: string; creditsAdded: number; discount: { type: string; value: number; promoCodeId: string } | null; message: string }>(
         '/promos/redeem', { method: 'POST', body: JSON.stringify({ code, studioId, ...(memberId ? { memberId } : {}) }), token },
       ),
   },
@@ -1071,5 +1208,43 @@ export const api = {
       apiFetch<{ success: boolean }>(`/networks/${networkId}/studios/${studioId}`, { method: 'DELETE', token }),
     my: (token: string) =>
       apiFetch<MemberNetworkInfo>('/networks/my', { token }),
+  },
+
+  brands: {
+    list: (token: string) =>
+      apiFetch<{ success: true; data: Brand[] }>('/brands', { token }),
+    my: (token: string) =>
+      apiFetch<{ success: true; data: Brand }>('/brands/my', { token }),
+    get: (id: string, token: string) =>
+      apiFetch<{ success: true; data: Brand }>(`/brands/${id}`, { token }),
+    create: (body: { name: string; slug: string; logoUrl?: string; description?: string }, token: string) =>
+      apiFetch<{ success: true; data: Brand }>('/brands', { method: 'POST', body: JSON.stringify(body), token }),
+    update: (id: string, body: { name?: string; logoUrl?: string | null; description?: string }, token: string) =>
+      apiFetch<{ success: true; data: Brand }>(`/brands/${id}`, { method: 'PATCH', body: JSON.stringify(body), token }),
+    delete: (id: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/brands/${id}`, { method: 'DELETE', token }),
+    addStudio: (brandId: string, studioId: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/brands/${brandId}/studios`, { method: 'POST', body: JSON.stringify({ studioId }), token }),
+    removeStudio: (brandId: string, studioId: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/brands/${brandId}/studios/${studioId}`, { method: 'DELETE', token }),
+    createFranchise: (brandId: string, body: { name: string; slug: string; description?: string }, token: string) =>
+      apiFetch<{ success: true; data: { id: string; name: string; slug: string } }>(`/brands/${brandId}/franchises`, { method: 'POST', body: JSON.stringify(body), token }),
+    promoteFranchiseAdmin: (brandId: string, body: { email: string; franchiseId: string; firstName?: string; lastName?: string }, token: string) =>
+      apiFetch<{ success: true; created: boolean; roles: string[]; franchiseId: string; message: string }>(`/brands/${brandId}/franchise-admins`, { method: 'POST', body: JSON.stringify(body), token }),
+    stats: (id: string, period: string, token: string) =>
+      apiFetch<{ success: true; data: BrandStats }>(`/brands/${id}/stats?period=${period}`, { token }),
+    members: (id: string, params: { q?: string; studioId?: string }, token: string) => {
+      const qs = new URLSearchParams()
+      if (params.q) qs.set('q', params.q)
+      if (params.studioId) qs.set('studioId', params.studioId)
+      return apiFetch<{ success: true; data: BrandMember[] }>(`/brands/${id}/members?${qs}`, { token })
+    },
+    sessions: (id: string, params: { studioId?: string; from?: string; to?: string }, token: string) => {
+      const qs = new URLSearchParams()
+      if (params.studioId) qs.set('studioId', params.studioId)
+      if (params.from) qs.set('from', params.from)
+      if (params.to) qs.set('to', params.to)
+      return apiFetch<{ success: true; data: BrandSession[] }>(`/brands/${id}/sessions?${qs}`, { token })
+    },
   },
 }

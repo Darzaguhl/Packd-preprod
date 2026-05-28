@@ -10,13 +10,15 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/sensible": "^6.0.3",
     "@packd/db": "*",
     "@packd/types": "*",
     "fastify": "^5.2.1",
-    "@fastify/cors": "^10.0.2",
     "jose": "^5.9.6",
-    "@fastify/sensible": "^6.0.3",
     "pg-boss": "^10.1.4",
+    "resend": "^6.12.4",
     "stripe": "^17.5.0",
     "zod": "^3.24.1"
   },

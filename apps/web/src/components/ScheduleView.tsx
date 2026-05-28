@@ -12,6 +12,7 @@ import FilterBar from './schedule/FilterBar'
 import MiniCalendar from './schedule/MiniCalendar'
 import NavBar from './NavBar'
 import { TimeFormatProvider } from '@/lib/time-format-context'
+import { TimezoneProvider } from '@/lib/timezone-context'
 import { type TimeFormat } from '@/lib/fmt-time'
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
@@ -49,6 +50,8 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   const [sessions, setSessions] = useState<SessionSlot[]>([])
   const [token, setToken] = useState<string | null>(null)
   const [timeFormat, setTimeFormat] = useState<TimeFormat>('24h')
+  const [studioTimezone, setStudioTimezone] = useState<string>('UTC')
+  const [cancelPolicy, setCancelPolicy] = useState<{ windowHours: number; feeCredits: number }>({ windowHours: 12, feeCredits: 1 })
   const [userRole, setUserRole] = useState<string>('member')
   const [loading, setLoading] = useState(true)
   // Network studio switcher — populated when the member's studio belongs to a network
@@ -116,6 +119,8 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
         if (data) {
           setSessions(data.sessions)
           setTimeFormat((data.timeFormat ?? '24h') as TimeFormat)
+          setStudioTimezone(data.timezone ?? 'UTC')
+          setCancelPolicy({ windowHours: data.lateCancelWindowHours ?? 12, feeCredits: data.lateCancelFeeCredits ?? 1 })
         }
       })
       .finally(() => setLoading(false))
@@ -271,6 +276,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
 
   return (
     <TimeFormatProvider value={timeFormat}>
+    <TimezoneProvider value={studioTimezone}>
     <div className="min-h-screen bg-gray-50">
       <NavBar title="Schedule" subtitle={subtitle}>
         <div className="flex gap-5 items-start">
@@ -346,6 +352,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
             <SessionDetailView
               session={selectedSession}
               privileged={isPrivileged}
+              cancelPolicy={cancelPolicy}
               onBack={() => setSelectedSessionId(null)}
               onBook={handleBook}
               onCancel={handleCancel}
@@ -407,6 +414,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
       )}
 
     </div>
+    </TimezoneProvider>
     </TimeFormatProvider>
   )
 }

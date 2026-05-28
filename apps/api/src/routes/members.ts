@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
+import Stripe from 'stripe'
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -111,7 +114,7 @@ export async function memberRoutes(app: FastifyInstance) {
         user: true,
         creditBalance: true,
         memberships: {
-          where: { status: 'ACTIVE' },
+          where: { status: { in: ['ACTIVE', 'PAUSED', 'PAST_DUE'] } },
           include: { plan: true },
           take: 1,
           orderBy: { startDate: 'desc' },
@@ -120,6 +123,18 @@ export async function memberRoutes(app: FastifyInstance) {
     })
 
     if (!member) return reply.notFound('No member profile found for this user')
+
+    // Fetch next billing date from Stripe if subscription exists
+    let nextBillingDate: string | null = null
+    const activeSub = member.memberships[0]
+    if (activeSub?.stripeSubId && activeSub.status === 'ACTIVE') {
+      try {
+        const stripeSub = await stripe.subscriptions.retrieve(activeSub.stripeSubId)
+        nextBillingDate = new Date(stripeSub.current_period_end * 1000).toISOString()
+      } catch {
+        // non-fatal
+      }
+    }
 
     return {
       id: member.id,
@@ -132,11 +147,12 @@ export async function memberRoutes(app: FastifyInstance) {
       birthday: member.birthday?.toISOString() ?? null,
       emergencyContactName: member.emergencyContactName ?? null,
       emergencyContactPhone: member.emergencyContactPhone ?? null,
-      activeSubscription: member.memberships[0]
+      activeSubscription: activeSub
         ? {
-            planName: member.memberships[0].plan.name,
-            status: member.memberships[0].status,
-            endDate: member.memberships[0].endDate?.toISOString(),
+            planName: activeSub.plan.name,
+            status: activeSub.status,
+            endDate: activeSub.endDate?.toISOString(),
+            nextBillingDate,
           }
         : undefined,
     }
@@ -215,6 +231,7 @@ export async function memberRoutes(app: FastifyInstance) {
             room: { include: { location: true } },
           },
         },
+        station: { select: { label: true } },
       },
       orderBy: { session: { startsAt: 'asc' } },
     })
@@ -232,6 +249,7 @@ export async function memberRoutes(app: FastifyInstance) {
       creditsRequired: b.session.creditsRequired,
       sessionStatus: b.session.status,
       bookedAt: b.bookedAt.toISOString(),
+      stationLabel: b.station?.label ?? null,
     }))
   })
 
@@ -352,6 +370,26 @@ export async function memberRoutes(app: FastifyInstance) {
         totalMembers: sortedMembers.length,
         topInstructors,
       })
+    },
+  )
+
+  // GET /members/me/purchases?studioId= — member's own purchase history
+  app.get<{ Querystring: { studioId: string } }>(
+    '/me/purchases',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { studioId } = request.query
+      const user = getUser(request)
+      const member = await prisma.member.findUnique({ where: { userId: user.id }, select: { id: true } })
+      if (!member) return reply.notFound('No member profile found')
+
+      const sales = await prisma.productSale.findMany({
+        where: { memberId: member.id, ...(studioId ? { studioId } : {}) },
+        orderBy: { soldAt: 'desc' },
+        take: 50,
+      })
+
+      return reply.send(sales)
     },
   )
 }

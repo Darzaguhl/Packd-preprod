@@ -7,7 +7,7 @@ const JWKS = createRemoteJWKSet(
   new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`),
 )
 
-const ELEVATED_ROLES = new Set<string>(['admin', 'franchise_admin', 'studio_admin', 'instructor', 'fronthost'])
+const ELEVATED_ROLES = new Set<string>(['admin', 'brand_admin', 'franchise_admin', 'studio_admin', 'instructor', 'fronthost'])
 
 export async function requireAuth(request: FastifyRequest, reply: FastifyReply) {
   const authHeader = request.headers.authorization
@@ -21,7 +21,7 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
 
     // Role MUST come from app_metadata (server-controlled).
     // user_metadata is writable by the client and must never grant elevated access.
-    const appMeta = payload.app_metadata as { role?: string; roles?: string[]; studioId?: string; studioIds?: string[] } | undefined
+    const appMeta = payload.app_metadata as { role?: string; roles?: string[]; studioId?: string; studioIds?: string[]; brandId?: string; franchiseId?: string } | undefined
     const rawRole = appMeta?.role
     const role: UserRole = ELEVATED_ROLES.has(rawRole ?? '') ? (rawRole as UserRole) : 'member'
 
@@ -39,6 +39,8 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
       roles,
       studioId,
       studioIds,
+      brandId: appMeta?.brandId,
+      franchiseId: appMeta?.franchiseId,
     } satisfies AuthUser
   } catch {
     return reply.code(401).send({ error: 'Invalid token' })
