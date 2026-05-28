@@ -213,6 +213,127 @@ CREATE POLICY studio_isolation ON "CreditTransaction"
     )
   );
 
+-- ─────────────────────────────────────────────────────────────
+-- PromoCodeRedemption (scoped via promoCode → studioId)
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "PromoCodeRedemption" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "PromoCodeRedemption" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "PromoCodeRedemption";
+CREATE POLICY studio_isolation ON "PromoCodeRedemption"
+  AS PERMISSIVE FOR ALL
+  USING (
+    app.current_studio() = '' OR EXISTS (
+      SELECT 1 FROM "PromoCode" pc
+      WHERE pc.id = "PromoCodeRedemption"."promoCodeId"
+        AND pc."studioId" = app.current_studio()
+    )
+  );
+
+-- ─────────────────────────────────────────────────────────────
+-- MemberNote (scoped via member → studioId)
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "MemberNote" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "MemberNote" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "MemberNote";
+CREATE POLICY studio_isolation ON "MemberNote"
+  AS PERMISSIVE FOR ALL
+  USING (
+    app.current_studio() = '' OR EXISTS (
+      SELECT 1 FROM "Member" m
+      WHERE m.id = "MemberNote"."memberId"
+        AND m."studioId" = app.current_studio()
+    )
+  );
+
+-- ─────────────────────────────────────────────────────────────
+-- InstructorPhoto (has studioId directly)
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "InstructorPhoto" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "InstructorPhoto" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "InstructorPhoto";
+CREATE POLICY studio_isolation ON "InstructorPhoto"
+  AS PERMISSIVE FOR ALL
+  USING (
+    app.current_studio() = '' OR "studioId" = app.current_studio()
+  );
+
+-- ─────────────────────────────────────────────────────────────
+-- BrandStudio (has studioId directly)
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "BrandStudio" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "BrandStudio" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "BrandStudio";
+CREATE POLICY studio_isolation ON "BrandStudio"
+  AS PERMISSIVE FOR ALL
+  USING (
+    app.current_studio() = '' OR "studioId" = app.current_studio()
+  );
+
+-- ─────────────────────────────────────────────────────────────
+-- FranchiseStudio (has studioId directly)
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "FranchiseStudio" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "FranchiseStudio" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "FranchiseStudio";
+CREATE POLICY studio_isolation ON "FranchiseStudio"
+  AS PERMISSIVE FOR ALL
+  USING (
+    app.current_studio() = '' OR "studioId" = app.current_studio()
+  );
+
+-- ─────────────────────────────────────────────────────────────
+-- StudioNetworkMembership (has studioId directly)
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "StudioNetworkMembership" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "StudioNetworkMembership" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "StudioNetworkMembership";
+CREATE POLICY studio_isolation ON "StudioNetworkMembership"
+  AS PERMISSIVE FOR ALL
+  USING (
+    app.current_studio() = '' OR "studioId" = app.current_studio()
+  );
+
+-- ─────────────────────────────────────────────────────────────
+-- StudioNetwork — global cross-tenant entity (no studioId).
+-- Enable RLS to satisfy the advisor; policy is always-open since
+-- networks group studios together and must be visible to all.
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "StudioNetwork" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "StudioNetwork" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "StudioNetwork";
+CREATE POLICY studio_isolation ON "StudioNetwork"
+  AS PERMISSIVE FOR ALL
+  USING (true);
+
+-- ─────────────────────────────────────────────────────────────
+-- Brand — global entity (no studioId, shared across franchises).
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "Brand" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Brand" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "Brand";
+CREATE POLICY studio_isolation ON "Brand"
+  AS PERMISSIVE FOR ALL
+  USING (true);
+
+-- ─────────────────────────────────────────────────────────────
+-- Franchise — global entity (no studioId, belongs to a Brand).
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "Franchise" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Franchise" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "Franchise";
+CREATE POLICY studio_isolation ON "Franchise"
+  AS PERMISSIVE FOR ALL
+  USING (true);
+
 -- ── Verification query ───────────────────────────────────────
 -- Run this after applying to confirm RLS is enabled:
 --
@@ -224,7 +345,10 @@ CREATE POLICY studio_isolation ON "CreditTransaction"
 --     'Member','Booking','WaitlistEntry',
 --     'MembershipPlan','MembershipSubscription',
 --     'Product','PromoCode','InstructorAvailabilityBlock',
---     'GuestPass','CreditTransaction'
+--     'GuestPass','CreditTransaction',
+--     'PromoCodeRedemption','MemberNote','InstructorPhoto',
+--     'BrandStudio','FranchiseStudio','StudioNetworkMembership',
+--     'StudioNetwork','Brand','Franchise'
 --   )
 -- ORDER BY tablename;
 --
