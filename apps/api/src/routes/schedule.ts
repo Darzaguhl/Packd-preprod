@@ -12,11 +12,23 @@ export async function scheduleRoutes(app: FastifyInstance) {
       const { from, to } = request.query
       const user = getUser(request)
 
-      // Tenant isolation: members can only view their own studio's schedule.
+      // Tenant isolation: members can only view their own studio's schedule, OR
+      // any studio that belongs to the same StudioNetwork as their home studio.
       // Elevated roles (instructor+) can view any studio.
       if (user.role === 'member') {
         const member = await prisma.member.findUnique({ where: { userId: user.id }, select: { studioId: true } })
-        if (!member || member.studioId !== studioId) return reply.forbidden('Access denied to this studio')
+        if (!member) return reply.forbidden('Access denied to this studio')
+
+        if (member.studioId !== studioId) {
+          // Check if both studios are in the same network
+          const [homeMembership, targetMembership] = await Promise.all([
+            prisma.studioNetworkMembership.findFirst({ where: { studioId: member.studioId }, select: { networkId: true } }),
+            prisma.studioNetworkMembership.findFirst({ where: { studioId }, select: { networkId: true } }),
+          ])
+          const sameNetwork =
+            homeMembership && targetMembership && homeMembership.networkId === targetMembership.networkId
+          if (!sameNetwork) return reply.forbidden('Access denied to this studio')
+        }
       }
 
       const [studioSettings, sessions] = await Promise.all([

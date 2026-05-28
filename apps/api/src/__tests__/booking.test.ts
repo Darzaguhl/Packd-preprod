@@ -19,6 +19,8 @@ vi.mock('@packd/db', () => {
   const creditTransaction = { create: vi.fn() }
   const cancellationPolicy = { findUnique: vi.fn() }
   const waitlistEntry = { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn() }
+  // Network check: null = studio not in any network (same-studio bookings bypass this)
+  const studioNetworkMembership = { findFirst: vi.fn().mockResolvedValue(null) }
 
   return {
     prisma: {
@@ -29,6 +31,7 @@ vi.mock('@packd/db', () => {
       creditTransaction,
       cancellationPolicy,
       waitlistEntry,
+      studioNetworkMembership,
       $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({ classSession, member, booking, creditBalance, creditTransaction, waitlistEntry }),
       ),
@@ -70,6 +73,7 @@ const mockSession = (overrides = {}) => ({
 const mockMember = (overrides = {}) => ({
   id: 'member-1',
   userId: 'user-1',
+  studioId: 'studio-1',   // matches session.studioId — no cross-network check needed
   ...overrides,
 })
 

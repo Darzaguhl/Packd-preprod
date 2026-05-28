@@ -34,6 +34,31 @@ model Studio {
   integration   StudioIntegration?
   availabilityBlocks InstructorAvailabilityBlock[]
   promoCodes    PromoCode[]
+  networkMemberships StudioNetworkMembership[]
+}
+
+// ─── Studio Networks (multi-location booking) ────────────────────────────────
+
+model StudioNetwork {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  studios StudioNetworkMembership[]
+}
+
+model StudioNetworkMembership {
+  id        String   @id @default(cuid())
+  networkId String
+  studioId  String
+  joinedAt  DateTime @default(now())
+
+  network StudioNetwork @relation(fields: [networkId], references: [id], onDelete: Cascade)
+  studio  Studio        @relation(fields: [studioId], references: [id], onDelete: Cascade)
+
+  @@unique([networkId, studioId])
+  @@index([studioId])
 }
 
 // ─── External integrations ────────────────────────────────────────────────────

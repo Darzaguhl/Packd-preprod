@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import type { SessionSlot } from '@packd/types'
-import { api } from '@/lib/api'
+import { api, type MemberNetworkInfo } from '@/lib/api'
 import { createClient } from '@/lib/supabase/client'
 import ClassCard from './schedule/ClassCard'
 import SessionDetailView from './schedule/SessionDetailView'
@@ -51,6 +51,9 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   const [timeFormat, setTimeFormat] = useState<TimeFormat>('24h')
   const [userRole, setUserRole] = useState<string>('member')
   const [loading, setLoading] = useState(true)
+  // Network studio switcher — populated when the member's studio belongs to a network
+  const [networkInfo, setNetworkInfo] = useState<MemberNetworkInfo | null>(null)
+  const [activeStudioId, setActiveStudioId] = useState<string>(studioId)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
 
@@ -94,12 +97,20 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
       .then(({ data: { session } }) => {
         const t = session?.access_token ?? null
         setToken(t)
-        setUserRole((session?.user?.app_metadata?.role as string | undefined) ?? 'member')
+        const role = (session?.user?.app_metadata?.role as string | undefined) ?? 'member'
+        setUserRole(role)
         if (!t) return
+
+        // Load network info for members so they can switch between studios in their network
+        if (role === 'member') {
+          api.networks.my(t).then(info => {
+            if (info.network) setNetworkInfo(info)
+          }).catch(() => {})
+        }
 
         const base = weekStart(new Date(Date.now() + weekOffset * WEEK_MS))
         const to = new Date(base.getTime() + WEEK_MS)
-        return api.schedule.list(studioId, base.toISOString(), to.toISOString(), t)
+        return api.schedule.list(activeStudioId, base.toISOString(), to.toISOString(), t)
       })
       .then((data) => {
         if (data) {
@@ -108,7 +119,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
         }
       })
       .finally(() => setLoading(false))
-  }, [studioId, weekOffset])
+  }, [activeStudioId, weekOffset])
 
   // Derived: current week's Monday
   const currentWeekMonday = useMemo(
@@ -273,6 +284,29 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
               onPrev={() => setWeekOffset((w) => w - 1)}
               onNext={() => setWeekOffset((w) => w + 1)}
             />
+            {/* Network studio switcher — shown when member belongs to a multi-studio network */}
+            {networkInfo && networkInfo.studios.length > 1 && (
+              <div className="pt-2 pb-1 flex gap-1.5 overflow-x-auto scrollbar-none items-center">
+                <span className="shrink-0 text-[10px] uppercase tracking-wide font-semibold text-gray-400 mr-0.5">Studio</span>
+                {networkInfo.studios.map(studio => (
+                  <button
+                    key={studio.id}
+                    onClick={() => {
+                      setActiveStudioId(studio.id)
+                      setSelectedLocation('ALL')
+                    }}
+                    className={`shrink-0 text-xs font-medium px-3 py-1.5 rounded-full transition-all duration-150 ${
+                      activeStudioId === studio.id
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                    }`}
+                  >
+                    {studio.name}
+                    {studio.isHome && <span className="ml-1 opacity-60 text-[10px]">·home</span>}
+                  </button>
+                ))}
+              </div>
+            )}
             {/* Location picker — only shown when studio has multiple locations */}
             {locations.length > 1 && (
               <div className="pt-2 pb-1 flex gap-1.5 overflow-x-auto scrollbar-none">

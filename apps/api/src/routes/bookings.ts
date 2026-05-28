@@ -47,6 +47,26 @@ export async function bookingRoutes(app: FastifyInstance) {
         member = await prisma.member.findUniqueOrThrow({ where: { userId: user.id } })
       }
 
+      // For self-booking (non-privileged), verify the session's studio is the
+      // member's home studio OR belongs to the same StudioNetwork.
+      const isMemberBooking = !isPrivileged || !targetMemberId
+      if (isMemberBooking) {
+        const sessionStudio = await prisma.classSession.findUnique({
+          where: { id: sessionId },
+          select: { studioId: true },
+        })
+        if (sessionStudio && sessionStudio.studioId !== member.studioId) {
+          // Allow if both studios are in the same network
+          const [homeMembership, targetMembership] = await Promise.all([
+            prisma.studioNetworkMembership.findFirst({ where: { studioId: member.studioId }, select: { networkId: true } }),
+            prisma.studioNetworkMembership.findFirst({ where: { studioId: sessionStudio.studioId }, select: { networkId: true } }),
+          ])
+          if (!homeMembership || !targetMembership || homeMembership.networkId !== targetMembership.networkId) {
+            return reply.forbidden('Cannot book at a studio outside your network')
+          }
+        }
+      }
+
       // Run capacity check + balance check + booking creation inside a single
       // transaction. Both the session and credit balance are read inside the
       // transaction so concurrent requests cannot race past either guard.

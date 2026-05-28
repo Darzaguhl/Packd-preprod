@@ -523,6 +523,30 @@ export interface Leaderboard {
   generatedAt: string
 }
 
+export interface NetworkStudio {
+  id: string
+  name: string
+  slug: string
+  timezone: string
+  isHome: boolean
+}
+
+export interface StudioNetwork {
+  id: string
+  name: string
+  slug: string
+}
+
+export interface MemberNetworkInfo {
+  network: StudioNetwork | null
+  homeStudioId: string
+  studios: NetworkStudio[]
+}
+
+export interface NetworkWithStudios extends StudioNetwork {
+  studios: { id: string; studioId: string; networkId: string; joinedAt: string; studio: { id: string; name: string; slug: string; timezone: string } }[]
+}
+
 export interface MemberStats {
   visits: number
   rank: number | null
@@ -1031,5 +1055,21 @@ export const api = {
   ical: {
     getToken: (token: string) =>
       apiFetch<{ token: string; urls: { member: string; instructor?: string } }>('/ical/token', { token }),
+  },
+  networks: {
+    list: (token: string) =>
+      apiFetch<NetworkWithStudios[]>('/networks', { token }),
+    create: (body: { name: string; slug: string }, token: string) =>
+      apiFetch<StudioNetwork>('/networks', { method: 'POST', body: JSON.stringify(body), token }),
+    update: (id: string, body: { name?: string; slug?: string }, token: string) =>
+      apiFetch<StudioNetwork>(`/networks/${id}`, { method: 'PATCH', body: JSON.stringify(body), token }),
+    delete: (id: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/networks/${id}`, { method: 'DELETE', token }),
+    addStudio: (networkId: string, studioId: string, token: string) =>
+      apiFetch<{ id: string; studio: { id: string; name: string; slug: string } }>(`/networks/${networkId}/studios`, { method: 'POST', body: JSON.stringify({ studioId }), token }),
+    removeStudio: (networkId: string, studioId: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/networks/${networkId}/studios/${studioId}`, { method: 'DELETE', token }),
+    my: (token: string) =>
+      apiFetch<MemberNetworkInfo>('/networks/my', { token }),
   },
 }

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { api, type StudioSummary } from '@/lib/api'
+import { api, type StudioSummary, type NetworkWithStudios } from '@/lib/api'
 import PermissionsTab from '@/components/studio/PermissionsTab'
 import StaffTab from '@/components/studio/StaffTab'
 import StudioAdminsTab from './StudioAdminsTab'
@@ -11,7 +11,7 @@ import AdminShell from '@/components/admin/AdminShell'
 import NavBar from '@/components/NavBar'
 import AnalyticsTab from '@/components/studio/AnalyticsTab'
 
-type Tab = 'studios' | 'admins' | 'staff' | 'permissions' | 'analytics'
+type Tab = 'studios' | 'admins' | 'staff' | 'permissions' | 'analytics' | 'networks'
 
 const TIMEZONES = [
   'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Stockholm', 'Europe/Oslo',
@@ -86,6 +86,14 @@ export default function FranchiseDashboard() {
   // Delete confirm
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
 
+  // ── Networks state ───────────────────────────────────────────────────────────
+  const [networks, setNetworks] = useState<NetworkWithStudios[]>([])
+  const [networkForm, setNetworkForm] = useState({ name: '', slug: '' })
+  const [showNetworkAdd, setShowNetworkAdd] = useState(false)
+  const [networkAdding, setNetworkAdding] = useState(false)
+  // studioId being added to a specific network
+  const [addingStudio, setAddingStudio] = useState<{ networkId: string; studioId: string } | null>(null)
+
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
 
   function showToast(msg: string, ok = true) {
@@ -103,6 +111,8 @@ export default function FranchiseDashboard() {
         // Ensure the franchise admin has a Member record so they can be booked into
         // classes and appear in member search. Fire-and-forget — non-blocking.
         api.members.ensure(t).catch(() => {})
+        // Load studios + networks in parallel
+        api.networks.list(t).then(setNetworks).catch(() => {})
         return api.franchise.studios(t)
       })
       .then(data => {
@@ -188,6 +198,7 @@ export default function FranchiseDashboard() {
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'studios', label: 'Studios' },
+    { id: 'networks', label: 'Networks' },
     { id: 'analytics', label: 'Analytics' },
     { id: 'admins', label: 'Studio Admins' },
     { id: 'staff', label: 'Staff' },
@@ -373,6 +384,152 @@ export default function FranchiseDashboard() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Networks tab */}
+      {tab === 'networks' && token && (
+        <div className="max-w-2xl mx-auto w-full px-6 py-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">Studio Networks</h2>
+              <p className="text-sm text-gray-500 mt-0.5">Group studios so members can book across locations with shared credits.</p>
+            </div>
+            <button
+              onClick={() => setShowNetworkAdd(v => !v)}
+              className="text-sm font-medium px-4 py-2 rounded-xl bg-black text-white hover:bg-gray-800 transition-colors"
+            >+ New network</button>
+          </div>
+
+          {showNetworkAdd && (
+            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 space-y-3">
+              <p className="text-sm font-semibold text-gray-700">Create network</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Name</label>
+                  <input
+                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400"
+                    placeholder="Packd Network"
+                    value={networkForm.name}
+                    onChange={e => setNetworkForm(f => ({ ...f, name: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Slug (URL-safe)</label>
+                  <input
+                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400"
+                    placeholder="packd-network"
+                    value={networkForm.slug}
+                    onChange={e => setNetworkForm(f => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))}
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => { setShowNetworkAdd(false); setNetworkForm({ name: '', slug: '' }) }}
+                  className="text-sm px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-100"
+                >Cancel</button>
+                <button
+                  disabled={!networkForm.name || !networkForm.slug || networkAdding}
+                  onClick={async () => {
+                    if (!token || !networkForm.name || !networkForm.slug) return
+                    setNetworkAdding(true)
+                    try {
+                      await api.networks.create(networkForm, token)
+                      const updated = await api.networks.list(token)
+                      setNetworks(updated)
+                      setShowNetworkAdd(false)
+                      setNetworkForm({ name: '', slug: '' })
+                      showToast('Network created')
+                    } catch (e) { showToast(e instanceof Error ? e.message : 'Failed', false) }
+                    finally { setNetworkAdding(false) }
+                  }}
+                  className="text-sm font-medium px-4 py-1.5 rounded-lg bg-black text-white hover:bg-gray-800 disabled:opacity-50"
+                >{networkAdding ? 'Creating…' : 'Create'}</button>
+              </div>
+            </div>
+          )}
+
+          {networks.length === 0 && !showNetworkAdd && (
+            <p className="text-sm text-gray-400 py-8 text-center">No networks yet. Create one to link studios together.</p>
+          )}
+
+          {networks.map(network => (
+            <div key={network.id} className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-50">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">{network.name}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">/{network.slug} · {network.studios.length} studio{network.studios.length !== 1 ? 's' : ''}</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!token) return
+                    if (!confirm(`Delete network "${network.name}"? Studios will be unlinked.`)) return
+                    try {
+                      await api.networks.delete(network.id, token)
+                      setNetworks(prev => prev.filter(n => n.id !== network.id))
+                      showToast('Network deleted')
+                    } catch (e) { showToast(e instanceof Error ? e.message : 'Failed', false) }
+                  }}
+                  className="text-xs text-red-500 hover:text-red-700 px-2 py-1 rounded"
+                >Delete</button>
+              </div>
+
+              {/* Member studios */}
+              <div className="divide-y divide-gray-50">
+                {network.studios.map(m => (
+                  <div key={m.studioId} className="flex items-center justify-between px-5 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">{m.studio.name}</p>
+                      <p className="text-xs text-gray-400">{m.studio.slug}</p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (!token) return
+                        try {
+                          await api.networks.removeStudio(network.id, m.studioId, token)
+                          setNetworks(prev => prev.map(n =>
+                            n.id === network.id ? { ...n, studios: n.studios.filter(s => s.studioId !== m.studioId) } : n
+                          ))
+                          showToast('Studio removed from network')
+                        } catch (e) { showToast(e instanceof Error ? e.message : 'Failed', false) }
+                      }}
+                      className="text-xs text-gray-400 hover:text-red-500 px-2 py-1 rounded transition-colors"
+                    >Remove</button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Add studio to network */}
+              <div className="px-5 py-3 bg-gray-50 flex items-center gap-3">
+                <select
+                  className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-white flex-1"
+                  value={addingStudio?.networkId === network.id ? (addingStudio?.studioId ?? '') : ''}
+                  onChange={e => setAddingStudio(e.target.value ? { networkId: network.id, studioId: e.target.value } : null)}
+                >
+                  <option value="">— add a studio —</option>
+                  {studios
+                    .filter(s => !network.studios.some(m => m.studioId === s.id))
+                    .map(s => <option key={s.id} value={s.id}>{s.name}</option>)
+                  }
+                </select>
+                <button
+                  disabled={!addingStudio || addingStudio.networkId !== network.id}
+                  onClick={async () => {
+                    if (!token || !addingStudio || addingStudio.networkId !== network.id) return
+                    try {
+                      await api.networks.addStudio(network.id, addingStudio.studioId, token)
+                      const updated = await api.networks.list(token)
+                      setNetworks(updated)
+                      setAddingStudio(null)
+                      showToast('Studio added to network')
+                    } catch (e) { showToast(e instanceof Error ? e.message : 'Failed', false) }
+                  }}
+                  className="text-sm font-medium px-4 py-1.5 rounded-lg bg-black text-white hover:bg-gray-800 disabled:opacity-40 transition-colors"
+                >Add</button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
