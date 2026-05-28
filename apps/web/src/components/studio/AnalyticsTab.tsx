@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { api, type AnalyticsData } from '@/lib/api'
 import QueryTab from './QueryTab'
+import LeaderboardTab from './LeaderboardTab'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -201,21 +202,69 @@ function SvgLineChart({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-interface Props { studioId: string; token: string; canQuery?: boolean }
+interface StudioOption { id: string; name: string }
 
-export default function AnalyticsTab({ studioId, token, canQuery = false }: Props) {
-  const [view, setView]       = useState<'analytics' | 'query'>('analytics')
-  const [data, setData]       = useState<AnalyticsData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [weeks, setWeeks]     = useState(12)
+interface Props {
+  studioId: string
+  token: string
+  canQuery?: boolean
+  /** When provided, shows a studio picker for franchise-wide view. 'all' is prepended automatically. */
+  studios?: StudioOption[]
+}
+
+export default function AnalyticsTab({ studioId: initialStudioId, token, canQuery = false, studios }: Props) {
+  const [view, setView]           = useState<'analytics' | 'leaderboard' | 'query'>('analytics')
+  const [selectedStudio, setSelectedStudio] = useState(initialStudioId)
+  const [data, setData]           = useState<AnalyticsData | null>(null)
+  const [loading, setLoading]     = useState(true)
+  const [weeks, setWeeks]         = useState(12)
+
+  // Sync if parent changes the studioId (e.g. drill-in from franchise)
+  useEffect(() => { setSelectedStudio(initialStudioId) }, [initialStudioId])
 
   useEffect(() => {
     setLoading(true)
-    api.admin.analytics(studioId, token, weeks)
+    setData(null)
+    api.admin.analytics(selectedStudio, token, weeks)
       .then(setData)
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [studioId, token, weeks])
+  }, [selectedStudio, token, weeks])
+
+  // Studio picker (franchise admins only)
+  const studioPicker = studios && studios.length > 0 ? (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className="text-xs text-gray-400 shrink-0">Studio:</span>
+      <div className="flex flex-wrap gap-1">
+        <button
+          onClick={() => { setSelectedStudio('all'); setView('analytics') }}
+          className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+            selectedStudio === 'all'
+              ? 'bg-gray-900 text-white'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          All studios
+        </button>
+        {studios.map(s => (
+          <button
+            key={s.id}
+            onClick={() => setSelectedStudio(s.id)}
+            className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+              selectedStudio === s.id
+                ? 'bg-gray-900 text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {s.name}
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null
+
+  // isPerStudio: leaderboard only makes sense for a specific studio
+  const isPerStudio = selectedStudio !== 'all'
 
   // Heatmap lookup map
   const heatmapGrid = useMemo(() => {
@@ -243,36 +292,60 @@ export default function AnalyticsTab({ studioId, token, canQuery = false }: Prop
     }
   }, [data])
 
-  // Sub-nav header (shared between views)
-  const subNav = canQuery ? (
+  // Custom Query is only available when a specific studio is selected
+  const canShowQuery = canQuery && isPerStudio
+
+  type SubView = 'analytics' | 'leaderboard' | 'query'
+  const subViews: { id: SubView; label: string; show: boolean }[] = [
+    { id: 'analytics',   label: 'Overview',      show: true },
+    { id: 'leaderboard', label: 'Leaderboard',   show: isPerStudio },
+    { id: 'query',       label: 'Custom Query',  show: canShowQuery },
+  ]
+
+  // Sub-nav header (shared between all views)
+  const subNav = (
     <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5 w-fit">
-      {(['analytics', 'query'] as const).map(v => (
+      {subViews.filter(v => v.show).map(v => (
         <button
-          key={v}
-          onClick={() => setView(v)}
-          className={`text-xs font-medium px-4 py-1.5 rounded-md transition-colors capitalize ${
-            view === v ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+          key={v.id}
+          onClick={() => setView(v.id)}
+          className={`text-xs font-medium px-4 py-1.5 rounded-md transition-colors ${
+            view === v.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
           }`}
         >
-          {v === 'query' ? 'Custom Query' : 'Overview'}
+          {v.label}
         </button>
       ))}
     </div>
-  ) : null
+  )
 
-  if (view === 'query' && canQuery) {
+  if (view === 'leaderboard' && isPerStudio) {
+    return (
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 space-y-4">
+        {studioPicker}
+        {subNav}
+        <LeaderboardTab studioId={selectedStudio} token={token} />
+      </div>
+    )
+  }
+
+  if (view === 'query' && canShowQuery) {
     return (
       <div>
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-5">{subNav}</div>
-        <QueryTab studioId={studioId} token={token} />
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-5 space-y-4">
+          {studioPicker}
+          {subNav}
+        </div>
+        <QueryTab studioId={selectedStudio} token={token} />
       </div>
     )
   }
 
   if (loading) {
     return (
-      <div className="space-y-4 px-6 py-6">
-        {subNav && <div>{subNav}</div>}
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-4">
+        {studioPicker}
+        {subNav}
         {[...Array(5)].map((_, i) => (
           <div key={i} className="h-40 bg-white rounded-2xl animate-pulse border border-gray-100" />
         ))}
@@ -304,9 +377,12 @@ export default function AnalyticsTab({ studioId, token, canQuery = false }: Prop
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-8">
 
+      {/* ── Studio picker (franchise admins) ── */}
+      {studioPicker}
+
       {/* ── Sub-nav + window selector ── */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        {subNav ?? <div />}
+        {subNav}
         <div className="flex items-center gap-3">
           <p className="text-sm text-gray-500">
             <span className="font-semibold text-gray-900">{totalSessions}</span> sessions · {weeks}w window

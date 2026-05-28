@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { api, type Product } from '@/lib/api'
+import PromoCodesTab from './PromoCodesTab'
 
 const CATEGORIES = ['Drinks', 'Food', 'Merchandise', 'Services', 'Other']
 
@@ -48,6 +49,7 @@ interface Props {
 }
 
 export default function ProductsTab({ studioId, token, currency }: Props) {
+  const [section, setSection] = useState<'products' | 'promos'>('products')
   const [products, setProducts]   = useState<Product[]>([])
   const [loading, setLoading]     = useState(true)
   const [showForm, setShowForm]   = useState(false)
@@ -133,6 +135,24 @@ export default function ProductsTab({ studioId, token, currency }: Props) {
 
   return (
     <div className="space-y-4">
+      {/* Sub-nav */}
+      <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5 w-fit">
+        {([['products', 'Products'], ['promos', 'Promo Codes']] as const).map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => setSection(id)}
+            className={`text-xs font-medium px-4 py-1.5 rounded-md transition-colors ${
+              section === id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {section === 'promos' && <PromoCodesTab studioId={studioId} token={token} />}
+
+      {section === 'products' && <div className="space-y-4">
       <div>
         <p className="text-sm text-gray-500">
           Products available for purchase at the front desk. Each product has a credit cost used when selling via the Walk-in drawer.
@@ -273,6 +293,7 @@ export default function ProductsTab({ studioId, token, currency }: Props) {
           + Add product
         </button>
       )}
+      </div>}
     </div>
   )
 }

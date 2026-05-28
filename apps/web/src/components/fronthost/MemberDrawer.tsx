@@ -123,6 +123,11 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
   const [newNoteText, setNewNoteText] = useState('')
   const [noteAdding, setNoteAdding] = useState(false)
 
+  // Extended profile fields
+  const [memberBirthday, setMemberBirthday] = useState<string | null>(null)
+  const [memberEmergencyName, setMemberEmergencyName] = useState<string | null>(null)
+  const [memberEmergencyPhone, setMemberEmergencyPhone] = useState<string | null>(null)
+
   // Promo code redemption
   const [promoCode, setPromoCode] = useState('')
   const [promoLoading, setPromoLoading] = useState(false)
@@ -192,16 +197,22 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
     setStaffNotes([])
     setNewNoteText('')
     setPromoCode('')
+    setMemberBirthday(null)
+    setMemberEmergencyName(null)
+    setMemberEmergencyPhone(null)
   }
 
-  // Load member notes when a member is selected
+  // Load member notes + extended profile when a member is selected
   useEffect(() => {
-    if (!member) { setStaffNotes([]); return }
+    if (!member) { setStaffNotes([]); setMemberBirthday(null); setMemberEmergencyName(null); setMemberEmergencyPhone(null); return }
     getFreshToken().then(t =>
       api.admin.memberProfile(member.id, t)
     ).then(p => {
       setMemberNotes(p.notes ?? '')
       setStaffNotes(p.staffNotes ?? [])
+      setMemberBirthday(p.birthday ?? null)
+      setMemberEmergencyName(p.emergencyContactName ?? null)
+      setMemberEmergencyPhone(p.emergencyContactPhone ?? null)
     }).catch(() => {})
   }, [member?.id])
 
@@ -487,6 +498,18 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                     <MembershipBadge status={member.membershipStatus} />
                   </div>
                   {member.email && <p className="text-xs text-gray-400 truncate">{member.email}</p>}
+                  {memberBirthday && (
+                    <p className="text-xs text-gray-400">
+                      🎂 {new Date(memberBirthday).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      {' · '}
+                      {Math.floor((Date.now() - new Date(memberBirthday).getTime()) / (365.25 * 24 * 3600 * 1000))} yo
+                    </p>
+                  )}
+                  {(memberEmergencyName || memberEmergencyPhone) && (
+                    <p className="text-xs text-amber-600 truncate">
+                      🚨 {[memberEmergencyName, memberEmergencyPhone].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="text-lg font-bold tabular-nums text-gray-900">{member.creditBalance}</p>
