@@ -9,8 +9,9 @@ import StaffTab from '@/components/studio/StaffTab'
 import StudioAdminsTab from './StudioAdminsTab'
 import AdminShell from '@/components/admin/AdminShell'
 import NavBar from '@/components/NavBar'
+import AnalyticsTab from '@/components/studio/AnalyticsTab'
 
-type Tab = 'studios' | 'admins' | 'staff' | 'permissions'
+type Tab = 'studios' | 'admins' | 'staff' | 'permissions' | 'analytics'
 
 const TIMEZONES = [
   'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Stockholm', 'Europe/Oslo',
@@ -187,6 +188,7 @@ export default function FranchiseDashboard() {
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'studios', label: 'Studios' },
+    { id: 'analytics', label: 'Analytics' },
     { id: 'admins', label: 'Studio Admins' },
     { id: 'staff', label: 'Staff' },
     { id: 'permissions', label: 'Permissions' },
@@ -372,6 +374,16 @@ export default function FranchiseDashboard() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Analytics tab — franchise-wide with studio picker */}
+      {tab === 'analytics' && token && (
+        <AnalyticsTab
+          studioId="all"
+          token={token}
+          canQuery={false}
+          studios={studios.map(s => ({ id: s.id, name: s.name }))}
+        />
       )}
 
       {/* Studio Admins tab */}

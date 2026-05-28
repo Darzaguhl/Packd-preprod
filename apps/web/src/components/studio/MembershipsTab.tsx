@@ -33,7 +33,7 @@ function addMonths(date: string, months: number) {
   return d.toISOString().split('T')[0]
 }
 
-const BLANK_PLAN = { name: '', description: '', priceInCents: 0, intervalMonths: 1, creditsPerCycle: 10 as number | null }
+const BLANK_PLAN = { name: '', description: '', priceInCents: 0, intervalMonths: 1, creditsPerCycle: 10 as number | null, guestPassesPerCycle: 0 }
 
 export default function MembershipsTab({ studioId, token, currency = 'USD' }: Props) {
   const [tab, setTab] = useState<'plans' | 'subscriptions'>('plans')
@@ -106,6 +106,7 @@ export default function MembershipsTab({ studioId, token, currency = 'USD' }: Pr
       priceInCents: plan.priceInCents,
       intervalMonths: plan.intervalMonths,
       creditsPerCycle: plan.creditsPerCycle,
+      guestPassesPerCycle: plan.guestPassesPerCycle ?? 0,
     })
     setShowPlanForm(true)
   }
@@ -161,15 +162,6 @@ export default function MembershipsTab({ studioId, token, currency = 'USD' }: Pr
     }
   }
 
-  async function updateSubStatus(sub: MembershipSubscription, status: string) {
-    try {
-      const grantCredits = status === 'ACTIVE' && sub.status !== 'ACTIVE'
-      await api.memberships.update(sub.id, { status, grantCredits }, token)
-      await loadSubscriptions()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to update subscription')
-    }
-  }
 
   if (loading) {
     return (
@@ -231,12 +223,16 @@ export default function MembershipsTab({ studioId, token, currency = 'USD' }: Pr
                 {plan.description && (
                   <p className="text-xs text-gray-500 mt-0.5 truncate">{plan.description}</p>
                 )}
-                <div className="mt-1.5 flex items-center gap-3 text-xs text-gray-500">
+                <div className="mt-1.5 flex items-center gap-3 text-xs text-gray-500 flex-wrap">
                   <span className="font-medium text-gray-900">{fmtPrice(plan.priceInCents, currency)}</span>
                   <span>·</span>
-                  <span>
-                    {plan.creditsPerCycle === null ? 'Unlimited credits' : `${plan.creditsPerCycle} credits / cycle`}
-                  </span>
+                  <span>{plan.creditsPerCycle === null ? 'Unlimited credits' : `${plan.creditsPerCycle} cr / cycle`}</span>
+                  {(plan.guestPassesPerCycle ?? 0) > 0 && (
+                    <>
+                      <span>·</span>
+                      <span>{plan.guestPassesPerCycle} guest pass{plan.guestPassesPerCycle !== 1 ? 'es' : ''} / cycle</span>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="flex gap-2 shrink-0">
@@ -303,10 +299,10 @@ export default function MembershipsTab({ studioId, token, currency = 'USD' }: Pr
                     onChange={e => setPlanForm(f => ({ ...f, intervalMonths: parseInt(e.target.value) || 1 }))}
                   />
                 </div>
-                <div className="col-span-2">
+                <div>
                   <label className="text-xs text-gray-500 mb-1 flex items-center justify-between">
                     <span>Credits per cycle</span>
-                    <span className="text-gray-400 font-normal">Leave empty for unlimited</span>
+                    <span className="text-gray-400 font-normal">Blank = unlimited</span>
                   </label>
                   <input
                     type="number"
@@ -317,7 +313,19 @@ export default function MembershipsTab({ studioId, token, currency = 'USD' }: Pr
                       ...f,
                       creditsPerCycle: e.target.value === '' ? null : parseInt(e.target.value) || 0,
                     }))}
-                    placeholder="e.g. 8  (blank = unlimited)"
+                    placeholder="e.g. 8"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Guest passes / cycle</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="20"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
+                    value={planForm.guestPassesPerCycle}
+                    onChange={e => setPlanForm(f => ({ ...f, guestPassesPerCycle: parseInt(e.target.value) || 0 }))}
+                    placeholder="0"
                   />
                 </div>
               </div>
@@ -364,10 +372,15 @@ export default function MembershipsTab({ studioId, token, currency = 'USD' }: Pr
             const endDate = sub.endDate ? new Date(sub.endDate).toLocaleDateString() : '—'
             return (
               <div key={sub.id} className="bg-white border border-gray-100 rounded-2xl p-4">
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-sm text-gray-900 truncate">{memberName}</span>
+                      <a
+                        href={`/members/${sub.memberId}`}
+                        className="font-medium text-sm text-gray-900 hover:underline truncate"
+                      >
+                        {memberName}
+                      </a>
                       <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${statusColor(sub.status)}`}>
                         {sub.status.toLowerCase()}
                       </span>
@@ -380,36 +393,12 @@ export default function MembershipsTab({ studioId, token, currency = 'USD' }: Pr
                       <div className="text-xs text-gray-400 mt-0.5">{sub.memberEmail}</div>
                     )}
                   </div>
-                  <div className="flex gap-1.5 shrink-0 flex-wrap justify-end">
-                    {sub.status === 'ACTIVE' && (
-                      <button
-                        onClick={() => updateSubStatus(sub, 'PAUSED')}
-                        className="text-xs px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
-                      >
-                        Pause
-                      </button>
-                    )}
-                    {sub.status === 'PAUSED' && (
-                      <button
-                        onClick={() => updateSubStatus(sub, 'ACTIVE')}
-                        className="text-xs px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 hover:bg-emerald-100 transition-colors"
-                      >
-                        Reactivate
-                      </button>
-                    )}
-                    {(sub.status === 'ACTIVE' || sub.status === 'PAUSED') && (
-                      <button
-                        onClick={() => {
-                          if (confirm(`Cancel ${memberName}'s subscription?`)) {
-                            updateSubStatus(sub, 'CANCELLED')
-                          }
-                        }}
-                        className="text-xs px-2.5 py-1 rounded-lg border border-red-100 text-red-500 hover:bg-red-50 transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    )}
-                  </div>
+                  <a
+                    href={`/members/${sub.memberId}`}
+                    className="shrink-0 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+                  >
+                    Manage →
+                  </a>
                 </div>
               </div>
             )

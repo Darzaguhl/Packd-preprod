@@ -302,6 +302,7 @@ model Member {
   birthday             DateTime?
   emergencyContactName  String?
   emergencyContactPhone String?
+  guestPassBalance     Int      @default(0)
 
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   studio          Studio           @relation(fields: [studioId], references: [id], onDelete: Cascade)
@@ -312,6 +313,7 @@ model Member {
   transactions    CreditTransaction[]
   memberNotes     MemberNote[]
   promoRedemptions PromoCodeRedemption[]
+  guestPasses     GuestPass[]
 
   @@unique([studioId, externalId])
   @@index([staffRoles], type: Gin)
@@ -417,7 +419,8 @@ model MembershipPlan {
   description    String?
   priceInCents   Int
   intervalMonths Int     @default(1)
-  creditsPerCycle Int?   // null = unlimited
+  creditsPerCycle    Int?   // null = unlimited
+  guestPassesPerCycle Int   @default(0)
   stripePriceId  String?
 
   studio        Studio                   @relation(fields: [studioId], references: [id], onDelete: Cascade)
@@ -429,6 +432,7 @@ model MembershipSubscription {
   memberId    String
   planId      String
   status      SubscriptionStatus @default(ACTIVE)
+  pausedUntil DateTime?          // set when status = PAUSED; null = indefinite pause
   startDate   DateTime
   endDate     DateTime?
   stripeSubId String?
@@ -546,4 +550,22 @@ model PromoCodeRedemption {
 
   @@unique([promoCodeId, memberId])
   @@index([memberId])
+}
+
+// ─── Guest passes ─────────────────────────────────────────────────────────────
+
+model GuestPass {
+  id        String   @id @default(cuid())
+  memberId  String
+  studioId  String
+  guestName String?  // null for grant entries (positive amount)
+  sessionId String?  // which session the guest attended
+  note      String?
+  amount    Int      // positive = granted, negative = used
+  createdAt DateTime @default(now())
+
+  member  Member        @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+  @@index([studioId])
 }

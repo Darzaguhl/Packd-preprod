@@ -364,6 +364,7 @@ export async function adminRoutes(app: FastifyInstance) {
               orderBy: { startDate: 'desc' },
             },
           },
+          // guestPassBalance is a scalar field — included automatically
         }),
         prisma.memberNote.findMany({
           where: { memberId },
@@ -375,6 +376,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
       return reply.send({
         id: member.id,
+        studioId: member.studioId,
         firstName: member.user.firstName,
         lastName: member.user.lastName,
         email: member.user.email,
@@ -389,12 +391,14 @@ export async function adminRoutes(app: FastifyInstance) {
           staffName: `${n.staff.firstName} ${n.staff.lastName}`,
           createdAt: n.createdAt.toISOString(),
         })),
+        guestPassBalance: member.guestPassBalance,
         activeSubscription: member.memberships[0]
           ? {
               id: member.memberships[0].id,
               planId: member.memberships[0].planId,
               planName: member.memberships[0].plan.name,
               status: member.memberships[0].status,
+              pausedUntil: member.memberships[0].pausedUntil?.toISOString() ?? null,
               startDate: member.memberships[0].startDate.toISOString(),
               endDate: member.memberships[0].endDate?.toISOString() ?? null,
             }
@@ -917,6 +921,151 @@ export async function adminRoutes(app: FastifyInstance) {
         emergencyContactName: updated.emergencyContactName,
         emergencyContactPhone: updated.emergencyContactPhone,
       })
+    },
+  )
+
+  // POST /admin/members/:memberId/subscription/pause — pause active membership (fronthost+)
+  app.post<{
+    Params: { memberId: string }
+    Body: { pausedUntil?: string | null }
+  }>(
+    '/members/:memberId/subscription/pause',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const user = getUser(request)
+      if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
+      const { memberId } = request.params
+      const { pausedUntil } = request.body ?? {}
+
+      const sub = await prisma.membershipSubscription.findFirst({
+        where: { memberId, status: { in: ['ACTIVE', 'PAUSED'] } },
+        orderBy: { startDate: 'desc' },
+      })
+      if (!sub) return reply.notFound('No active subscription found')
+
+      const updated = await prisma.membershipSubscription.update({
+        where: { id: sub.id },
+        data: {
+          status: 'PAUSED',
+          pausedUntil: pausedUntil ? new Date(pausedUntil) : null,
+        },
+      })
+      return reply.send({ success: true, status: updated.status, pausedUntil: updated.pausedUntil?.toISOString() ?? null })
+    },
+  )
+
+  // POST /admin/members/:memberId/subscription/resume — resume paused membership (fronthost+)
+  app.post<{ Params: { memberId: string } }>(
+    '/members/:memberId/subscription/resume',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const user = getUser(request)
+      if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
+      const { memberId } = request.params
+
+      const sub = await prisma.membershipSubscription.findFirst({
+        where: { memberId, status: 'PAUSED' },
+        orderBy: { startDate: 'desc' },
+      })
+      if (!sub) return reply.notFound('No paused subscription found')
+
+      const updated = await prisma.membershipSubscription.update({
+        where: { id: sub.id },
+        data: { status: 'ACTIVE', pausedUntil: null },
+      })
+      return reply.send({ success: true, status: updated.status })
+    },
+  )
+
+  // POST /admin/members/:memberId/guest-passes/grant — manually grant guest passes (fronthost+)
+  app.post<{
+    Params: { memberId: string }
+    Body: { amount: number; note?: string }
+  }>(
+    '/members/:memberId/guest-passes/grant',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const user = getUser(request)
+      if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
+      const { memberId } = request.params
+      const { amount, note } = request.body
+      if (!amount || amount < 1 || !Number.isInteger(amount)) return reply.badRequest('amount must be a positive integer')
+
+      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true, studioId: true } })
+      if (!member) return reply.notFound('Member not found')
+
+      await prisma.$transaction([
+        prisma.member.update({
+          where: { id: memberId },
+          data: { guestPassBalance: { increment: amount } },
+        }),
+        prisma.guestPass.create({
+          data: { memberId, studioId: member.studioId, amount, note: note ?? `Granted by staff` },
+        }),
+      ])
+
+      const updated = await prisma.member.findUnique({ where: { id: memberId }, select: { guestPassBalance: true } })
+      return reply.send({ success: true, guestPassBalance: updated!.guestPassBalance })
+    },
+  )
+
+  // POST /admin/guest-checkin — use one guest pass, log guest attendance (fronthost+)
+  app.post<{
+    Body: { memberId: string; guestName: string; sessionId?: string; studioId: string }
+  }>(
+    '/guest-checkin',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const user = getUser(request)
+      if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
+      const { memberId, guestName, sessionId, studioId } = request.body
+      if (!memberId || !guestName?.trim() || !studioId) return reply.badRequest('memberId, guestName and studioId are required')
+
+      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true, guestPassBalance: true } })
+      if (!member) return reply.notFound('Member not found')
+      if (member.guestPassBalance < 1) return reply.badRequest('Member has no guest passes remaining')
+
+      await prisma.$transaction([
+        prisma.member.update({
+          where: { id: memberId },
+          data: { guestPassBalance: { decrement: 1 } },
+        }),
+        prisma.guestPass.create({
+          data: {
+            memberId,
+            studioId,
+            guestName: guestName.trim(),
+            sessionId: sessionId ?? null,
+            amount: -1,
+            note: `Guest check-in: ${guestName.trim()}`,
+          },
+        }),
+      ])
+
+      const updated = await prisma.member.findUnique({ where: { id: memberId }, select: { guestPassBalance: true } })
+      return reply.send({ success: true, guestPassBalance: updated!.guestPassBalance })
+    },
+  )
+
+  // GET /admin/members/:memberId/guest-passes — guest pass log (fronthost+)
+  app.get<{ Params: { memberId: string } }>(
+    '/members/:memberId/guest-passes',
+    { preHandler: requireInstructor },
+    async (request, reply) => {
+      const { memberId } = request.params
+      const passes = await prisma.guestPass.findMany({
+        where: { memberId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      })
+      return reply.send(passes.map(p => ({
+        id: p.id,
+        guestName: p.guestName,
+        sessionId: p.sessionId,
+        amount: p.amount,
+        note: p.note,
+        createdAt: p.createdAt.toISOString(),
+      })))
     },
   )
 

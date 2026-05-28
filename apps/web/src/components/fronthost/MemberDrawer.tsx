@@ -113,17 +113,7 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
   const [creditDeduct, setCreditDeduct]   = useState(false)
   const [creditNote, setCreditNote]       = useState('')
 
-  // Member notes (lazy-loaded when member is selected)
-  const [memberNotes, setMemberNotes]       = useState<string>('')
-  const [notesSaving, setNotesSaving]       = useState(false)
-  const [notesSaved, setNotesSaved]         = useState(false)
-
-  // Structured staff notes (MemberNote records)
-  const [staffNotes, setStaffNotes] = useState<import('@/lib/api').StaffNote[]>([])
-  const [newNoteText, setNewNoteText] = useState('')
-  const [noteAdding, setNoteAdding] = useState(false)
-
-  // Extended profile fields
+  // Extended profile fields (read-only in drawer — edit on member profile page)
   const [memberBirthday, setMemberBirthday] = useState<string | null>(null)
   const [memberEmergencyName, setMemberEmergencyName] = useState<string | null>(null)
   const [memberEmergencyPhone, setMemberEmergencyPhone] = useState<string | null>(null)
@@ -131,6 +121,11 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
   // Promo code redemption
   const [promoCode, setPromoCode] = useState('')
   const [promoLoading, setPromoLoading] = useState(false)
+
+  // Guest check-in
+  const [memberGuestPassBalance, setMemberGuestPassBalance] = useState<number | null>(null)
+  const [guestName, setGuestName] = useState('')
+  const [guestCheckinLoading, setGuestCheckinLoading] = useState(false)
 
   const creditAmount = creditPreset ?? (creditCustom ? parseInt(creditCustom, 10) : null)
 
@@ -192,27 +187,24 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
     setQuery(m.name)
     setResults([])
     setCart([])
-    setMemberNotes('')
-    setNotesSaved(false)
-    setStaffNotes([])
-    setNewNoteText('')
     setPromoCode('')
     setMemberBirthday(null)
     setMemberEmergencyName(null)
     setMemberEmergencyPhone(null)
   }
 
-  // Load member notes + extended profile when a member is selected
+  // Load extended profile fields when a member is selected (birthday + emergency contact for at-a-glance display)
   useEffect(() => {
-    if (!member) { setStaffNotes([]); setMemberBirthday(null); setMemberEmergencyName(null); setMemberEmergencyPhone(null); return }
-    getFreshToken().then(t =>
-      api.admin.memberProfile(member.id, t)
-    ).then(p => {
-      setMemberNotes(p.notes ?? '')
-      setStaffNotes(p.staffNotes ?? [])
+    if (!member) {
+      setMemberBirthday(null); setMemberEmergencyName(null); setMemberEmergencyPhone(null)
+      setMemberGuestPassBalance(null); setGuestName('')
+      return
+    }
+    getFreshToken().then(t => api.admin.memberProfile(member.id, t)).then(p => {
       setMemberBirthday(p.birthday ?? null)
       setMemberEmergencyName(p.emergencyContactName ?? null)
       setMemberEmergencyPhone(p.emergencyContactPhone ?? null)
+      setMemberGuestPassBalance(p.guestPassBalance ?? 0)
     }).catch(() => {})
   }, [member?.id])
 
@@ -381,17 +373,18 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
     } finally { setPromoLoading(false) }
   }
 
-  async function handleAddNote() {
-    if (!member || !newNoteText.trim()) return
-    setNoteAdding(true)
+  async function handleGuestCheckin() {
+    if (!member || !guestName.trim()) return
+    setGuestCheckinLoading(true)
     try {
       const t = await getFreshToken()
-      const note = await api.admin.addNote(member.id, newNoteText.trim(), t)
-      setStaffNotes(prev => [note, ...prev])
-      setNewNoteText('')
+      const res = await api.admin.guestCheckin(member.id, guestName.trim(), studioId, selectedSession?.id, t)
+      setMemberGuestPassBalance(res.guestPassBalance)
+      setGuestName('')
+      showToast(`Guest "${guestName.trim()}" checked in`)
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Failed to add note', false)
-    } finally { setNoteAdding(false) }
+      showToast(e instanceof Error ? e.message : 'Guest check-in failed', false)
+    } finally { setGuestCheckinLoading(false) }
   }
 
   const categorised = groupByCategory(products)
@@ -515,64 +508,6 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                   <p className="text-lg font-bold tabular-nums text-gray-900">{member.creditBalance}</p>
                   <p className="text-[10px] text-gray-400">credits</p>
                 </div>
-              </div>
-
-              {/* Quick notes */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-gray-500">Quick note</label>
-                  {notesSaved && <span className="text-[10px] text-emerald-600 font-medium">Saved</span>}
-                </div>
-                <textarea
-                  value={memberNotes}
-                  onChange={e => setMemberNotes(e.target.value)}
-                  onBlur={async () => {
-                    if (!member) return
-                    setNotesSaving(true)
-                    try {
-                      const t = await getFreshToken()
-                      await api.admin.updateMember(member.id, { notes: memberNotes.trim() || null }, t)
-                      setNotesSaved(true)
-                      setTimeout(() => setNotesSaved(false), 2000)
-                    } catch { /* silent */ }
-                    finally { setNotesSaving(false) }
-                  }}
-                  placeholder="Internal notes…"
-                  rows={2}
-                  className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-gray-400 resize-none text-gray-700 placeholder:text-gray-300"
-                />
-              </div>
-
-              {/* Staff notes log */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-gray-500">Staff notes log</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newNoteText}
-                    onChange={e => setNewNoteText(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') handleAddNote() }}
-                    placeholder="Add note…"
-                    className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-gray-400"
-                  />
-                  <button
-                    onClick={handleAddNote}
-                    disabled={noteAdding || !newNoteText.trim()}
-                    className="text-xs font-medium px-3 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors"
-                  >
-                    {noteAdding ? '…' : 'Add'}
-                  </button>
-                </div>
-                {staffNotes.length > 0 && (
-                  <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                    {staffNotes.map(n => (
-                      <div key={n.id} className="text-xs bg-gray-50 rounded-lg px-2.5 py-2">
-                        <p className="text-gray-800">{n.content}</p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">{n.staffName} · {new Date(n.createdAt).toLocaleDateString()}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
 
               {/* Session actions */}
@@ -709,6 +644,36 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                   {promoLoading ? '…' : 'Apply'}
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* ── Guest check-in ── */}
+          {member && memberGuestPassBalance !== null && (
+            <div className="px-5 py-3 border-t border-gray-100">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Guest check-in</p>
+                <span className="text-xs text-gray-400">{memberGuestPassBalance} pass{memberGuestPassBalance !== 1 ? 'es' : ''} remaining</span>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={guestName}
+                  onChange={e => setGuestName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleGuestCheckin() }}
+                  placeholder="Guest name…"
+                  className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400"
+                />
+                <button
+                  onClick={handleGuestCheckin}
+                  disabled={guestCheckinLoading || !guestName.trim() || memberGuestPassBalance < 1}
+                  className="text-sm font-medium px-4 py-2 bg-gray-900 text-white rounded-xl hover:bg-gray-700 disabled:opacity-40 transition-colors"
+                >
+                  {guestCheckinLoading ? '…' : 'Check in'}
+                </button>
+              </div>
+              {memberGuestPassBalance < 1 && (
+                <p className="text-xs text-amber-600 mt-1">No guest passes remaining</p>
+              )}
             </div>
           )}
 

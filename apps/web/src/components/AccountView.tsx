@@ -142,6 +142,8 @@ export default function AccountView() {
   const [icalUrl, setIcalUrl] = useState<string | null>(null)
   const [icalCopied, setIcalCopied] = useState(false)
   const [profileExtended, setProfileExtended] = useState<{ birthday: string | null; emergencyContactName: string | null; emergencyContactPhone: string | null } | null>(null)
+  const [guestPassBalance, setGuestPassBalance] = useState(0)
+  const [guestPasses, setGuestPasses] = useState<import('@/lib/api').GuestPassEntry[]>([])
 
   useEffect(() => {
     createClient().auth.getSession().then(async ({ data: { session } }) => {
@@ -163,6 +165,7 @@ export default function AccountView() {
         // Capture extended profile fields
         const extProfile = profileData as typeof profileData & { birthday: string | null; emergencyContactName: string | null; emergencyContactPhone: string | null }
         setProfileExtended({ birthday: extProfile.birthday ?? null, emergencyContactName: extProfile.emergencyContactName ?? null, emergencyContactPhone: extProfile.emergencyContactPhone ?? null })
+        setGuestPassBalance((profileData as typeof profileData & { guestPassBalance: number }).guestPassBalance ?? 0)
 
         // Fetch membership plans for the member's studio
         const studioId = profileData.studioId ?? (session?.user?.app_metadata as { studioId?: string })?.studioId
@@ -171,6 +174,7 @@ export default function AccountView() {
           api.admin.stats(studioId, t).then(s => setTimeFormat((s.timeFormat ?? '24h') as '12h' | '24h')).catch(() => {})
           api.members.stats(studioId, t).then(setMemberStats).catch(() => {})
           api.ical.getToken(t).then(d => setIcalUrl(d.urls.member)).catch(() => {})
+          api.admin.guestPassLog(profileData.id ?? '', t).then(setGuestPasses).catch(() => {})
         }
       } catch {
         // non-member user — show empty state
@@ -283,6 +287,9 @@ export default function AccountView() {
             onSubscribe={handleSubscribe}
             onCancelMembership={handleCancelMembership}
             onEditProfile={() => setEditingProfile(true)}
+            birthday={profileExtended?.birthday}
+            emergencyContactName={profileExtended?.emergencyContactName}
+            emergencyContactPhone={profileExtended?.emergencyContactPhone}
           />
 
           {/* ── My stats ── */}
@@ -314,6 +321,29 @@ export default function AccountView() {
               )}
             </div>
           )}
+
+          {/* ── Guest passes ── */}
+          {guestPassBalance > 0 || guestPasses.some(p => p.amount < 0) ? (
+            <div className="bg-white border border-gray-100 rounded-2xl px-5 py-4 space-y-3">
+              <div className="flex items-baseline gap-2">
+                <h3 className="text-sm font-semibold text-gray-900">Guest passes</h3>
+                <span className="text-xs text-gray-400">{guestPassBalance} remaining</span>
+              </div>
+              {guestPasses.filter(p => p.amount < 0).length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-gray-500">Guests you've brought</p>
+                  {guestPasses.filter(p => p.amount < 0).map(p => (
+                    <div key={p.id} className="flex items-center gap-3 text-xs py-1 border-b border-gray-50 last:border-0">
+                      <span className="flex-1 text-gray-700">{p.guestName ?? 'Guest'}</span>
+                      <span className="text-gray-400 shrink-0">
+                        {new Date(p.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
 
           {/* ── Calendar subscribe ── */}
           {icalUrl && (

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { api, type AdminMemberProfile, type AdminMemberHistory, type MembershipPlan } from '@/lib/api'
+import { api, type AdminMemberProfile, type AdminMemberHistory, type MembershipPlan, type GuestPassEntry } from '@/lib/api'
 import NavBar from '@/components/NavBar'
 import MemberHistoryView from './MemberHistoryView'
 import { TimeFormatProvider } from '@/lib/time-format-context'
@@ -47,6 +47,20 @@ export default function MemberProfilePage({ memberId }: Props) {
   const [notesSaving, setNotesSaving] = useState(false)
   const [notesSaved, setNotesSaved] = useState(false)
 
+  // Guest passes
+  const [guestPasses, setGuestPasses] = useState<GuestPassEntry[]>([])
+  const [guestPassBalance, setGuestPassBalance] = useState(0)
+  const [showGrantForm, setShowGrantForm] = useState(false)
+  const [grantAmount, setGrantAmount] = useState('1')
+  const [grantNote, setGrantNote] = useState('')
+  const [granting, setGranting] = useState(false)
+
+  // Pause / resume
+  const [showPauseForm, setShowPauseForm] = useState(false)
+  const [pauseUntilDate, setPauseUntilDate] = useState('')
+  const [subActioning, setSubActioning] = useState(false)
+  const [subActionError, setSubActionError] = useState<string | null>(null)
+
   useEffect(() => {
     createClient().auth.getSession().then(async ({ data: { session } }) => {
       const t = session?.access_token ?? null
@@ -63,13 +77,18 @@ export default function MemberProfilePage({ memberId }: Props) {
         ])
         setProfile(prof)
         setNotes(prof.notes ?? '')
+        setGuestPassBalance(prof.guestPassBalance ?? 0)
         setUpcoming(history.upcoming as UpcomingBooking[])
         setPastBookings(history.pastBookings)
         setTransactions(history.transactions)
+        api.admin.guestPassLog(memberId, t).then(setGuestPasses).catch(() => {})
 
-        if (sid) {
-          api.admin.stats(sid, t).then(s => setTimeFormat((s.timeFormat ?? '24h') as '12h' | '24h')).catch(() => {})
-          api.memberships.listPlans(sid, t).then(setPlans).catch(() => {})
+        // Use the member's studioId (always present) rather than the viewer's app_metadata
+        const effectiveStudioId = prof.studioId ?? sid
+        if (effectiveStudioId) {
+          setStudioId(effectiveStudioId)
+          api.admin.stats(effectiveStudioId, t).then(s => setTimeFormat((s.timeFormat ?? '24h') as '12h' | '24h')).catch(() => {})
+          api.memberships.listPlans(effectiveStudioId, t).then(setPlans).catch(() => {})
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load member')
@@ -105,6 +124,46 @@ export default function MemberProfilePage({ memberId }: Props) {
     } finally {
       setSubSaving(false)
     }
+  }
+
+  async function grantGuestPasses() {
+    if (!token) return
+    const n = parseInt(grantAmount)
+    if (!n || n < 1) return
+    setGranting(true)
+    try {
+      const res = await api.admin.grantGuestPasses(memberId, n, grantNote.trim() || undefined, token)
+      setGuestPassBalance(res.guestPassBalance)
+      const log = await api.admin.guestPassLog(memberId, token)
+      setGuestPasses(log)
+      setShowGrantForm(false); setGrantAmount('1'); setGrantNote('')
+    } catch { /* silent */ }
+    finally { setGranting(false) }
+  }
+
+  async function pauseSubscription() {
+    if (!token || !profile?.activeSubscription) return
+    setSubActioning(true); setSubActionError(null)
+    try {
+      await api.memberships.pauseSubscription(memberId, token, pauseUntilDate || null)
+      const updated = await api.admin.memberProfile(memberId, token)
+      setProfile(updated)
+      setShowPauseForm(false); setPauseUntilDate('')
+    } catch (e) {
+      setSubActionError(e instanceof Error ? e.message : 'Failed to pause')
+    } finally { setSubActioning(false) }
+  }
+
+  async function resumeSubscription() {
+    if (!token || !profile?.activeSubscription) return
+    setSubActioning(true); setSubActionError(null)
+    try {
+      await api.memberships.resumeSubscription(memberId, token)
+      const updated = await api.admin.memberProfile(memberId, token)
+      setProfile(updated)
+    } catch (e) {
+      setSubActionError(e instanceof Error ? e.message : 'Failed to resume')
+    } finally { setSubActioning(false) }
   }
 
   async function saveNotes() {
@@ -196,6 +255,79 @@ export default function MemberProfilePage({ memberId }: Props) {
             </div>
           </div>
 
+          {/* Guest passes */}
+          <div className="bg-white rounded-2xl border border-gray-100 px-5 py-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Guest passes</h3>
+                <p className="text-xs text-gray-400 mt-0.5">{guestPassBalance} remaining</p>
+              </div>
+              {!showGrantForm && (
+                <button
+                  onClick={() => setShowGrantForm(true)}
+                  className="text-xs px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors"
+                >
+                  Grant passes
+                </button>
+              )}
+            </div>
+
+            {showGrantForm && (
+              <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-gray-100">
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={grantAmount}
+                  onChange={e => setGrantAmount(e.target.value)}
+                  className="w-16 border border-gray-200 rounded-xl px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
+                />
+                <input
+                  type="text"
+                  placeholder="Note (optional)"
+                  value={grantNote}
+                  onChange={e => setGrantNote(e.target.value)}
+                  className="flex-1 border border-gray-200 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
+                />
+                <button
+                  onClick={grantGuestPasses}
+                  disabled={granting}
+                  className="px-3 py-1.5 bg-black text-white text-xs rounded-xl hover:bg-gray-800 transition-colors disabled:opacity-40"
+                >
+                  {granting ? 'Granting…' : 'Grant'}
+                </button>
+                <button
+                  onClick={() => { setShowGrantForm(false); setGrantAmount('1'); setGrantNote('') }}
+                  className="text-xs text-gray-400 hover:text-gray-700"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            {guestPasses.length > 0 && (
+              <div className="space-y-1 max-h-48 overflow-y-auto">
+                {guestPasses.map(p => (
+                  <div key={p.id} className="flex items-center gap-3 text-xs py-1.5 border-b border-gray-50 last:border-0">
+                    <span className={`font-semibold tabular-nums ${p.amount > 0 ? 'text-emerald-600' : 'text-gray-700'}`}>
+                      {p.amount > 0 ? `+${p.amount}` : p.amount}
+                    </span>
+                    <span className="flex-1 text-gray-700 truncate">
+                      {p.guestName ?? p.note ?? '—'}
+                    </span>
+                    <span className="text-gray-400 shrink-0">
+                      {new Date(p.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {guestPasses.length === 0 && (
+              <p className="text-xs text-gray-400">No guest pass history yet.</p>
+            )}
+          </div>
+
           {/* Subscription management (admin only — requires studioId + plans) */}
           {studioId && (
             <div className="bg-white rounded-2xl border border-gray-100 px-5 py-5">
@@ -227,8 +359,8 @@ export default function MemberProfilePage({ memberId }: Props) {
                         )}
                       </div>
                     </div>
-                    <div className="flex gap-2 shrink-0">
-                      {(sub.status === 'ACTIVE' || sub.status === 'PAUSED') && (
+                    <div className="flex gap-2 shrink-0 flex-wrap">
+                      {sub.status === 'ACTIVE' && (
                         <>
                           {!showAssignPlan && plans.length > 0 && (
                             <button
@@ -239,6 +371,29 @@ export default function MemberProfilePage({ memberId }: Props) {
                             </button>
                           )}
                           <button
+                            onClick={() => { setShowPauseForm(v => !v); setSubActionError(null) }}
+                            className="text-xs px-3 py-1.5 rounded-xl border border-amber-200 text-amber-600 hover:bg-amber-50 transition-colors"
+                          >
+                            Pause
+                          </button>
+                          <button
+                            onClick={() => cancelSubscription(sub.id)}
+                            className="text-xs px-3 py-1.5 rounded-xl border border-red-100 text-red-500 hover:bg-red-50 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      )}
+                      {sub.status === 'PAUSED' && (
+                        <>
+                          <button
+                            onClick={resumeSubscription}
+                            disabled={subActioning}
+                            className="text-xs px-3 py-1.5 rounded-xl border border-emerald-200 text-emerald-600 hover:bg-emerald-50 transition-colors disabled:opacity-40"
+                          >
+                            {subActioning ? 'Resuming…' : 'Resume'}
+                          </button>
+                          <button
                             onClick={() => cancelSubscription(sub.id)}
                             className="text-xs px-3 py-1.5 rounded-xl border border-red-100 text-red-500 hover:bg-red-50 transition-colors"
                           >
@@ -248,6 +403,42 @@ export default function MemberProfilePage({ memberId }: Props) {
                       )}
                     </div>
                   </div>
+
+                  {/* Pause until date display */}
+                  {sub.status === 'PAUSED' && sub.pausedUntil && (
+                    <p className="text-xs text-amber-600">
+                      Paused until {new Date(sub.pausedUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </p>
+                  )}
+
+                  {/* Pause form */}
+                  {showPauseForm && sub.status === 'ACTIVE' && (
+                    <div className="pt-2 border-t border-gray-100 space-y-2">
+                      <p className="text-xs text-gray-500">Optionally set a date when the membership resumes automatically.</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <input
+                          type="date"
+                          value={pauseUntilDate}
+                          onChange={e => setPauseUntilDate(e.target.value)}
+                          className="border border-gray-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-black/10"
+                        />
+                        <button
+                          onClick={pauseSubscription}
+                          disabled={subActioning}
+                          className="px-3 py-1.5 bg-amber-500 text-white text-xs rounded-xl hover:bg-amber-600 transition-colors disabled:opacity-40"
+                        >
+                          {subActioning ? 'Pausing…' : 'Confirm pause'}
+                        </button>
+                        <button
+                          onClick={() => { setShowPauseForm(false); setPauseUntilDate(''); setSubActionError(null) }}
+                          className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-800 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                      {subActionError && <p className="text-xs text-red-500">{subActionError}</p>}
+                    </div>
+                  )}
 
                   {/* Assign / change plan inline form */}
                   {showAssignPlan && (

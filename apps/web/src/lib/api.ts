@@ -98,8 +98,18 @@ export interface MembershipPlan {
   priceInCents: number
   intervalMonths: number
   creditsPerCycle: number | null
+  guestPassesPerCycle: number
   stripePriceId?: string | null
   activeSubscriptions?: number
+}
+
+export interface GuestPassEntry {
+  id: string
+  guestName: string | null
+  sessionId: string | null
+  amount: number
+  note: string | null
+  createdAt: string
 }
 
 export interface MembershipSubscription {
@@ -442,10 +452,12 @@ export interface StaffNote {
 
 export interface AdminMemberProfile {
   id: string
+  studioId: string
   firstName: string
   lastName: string
   email: string
   creditBalance: number
+  guestPassBalance: number
   notes: string | null
   birthday: string | null
   emergencyContactName: string | null
@@ -456,6 +468,7 @@ export interface AdminMemberProfile {
     planId: string
     planName: string
     status: string
+    pausedUntil: string | null
     startDate: string
     endDate: string | null
   } | null
@@ -596,7 +609,7 @@ export const api = {
       }),
   },
   members: {
-    me: (token: string) => apiFetch<MemberProfile & { birthday: string | null; emergencyContactName: string | null; emergencyContactPhone: string | null }>('/members/me', { token }),
+    me: (token: string) => apiFetch<MemberProfile & { birthday: string | null; emergencyContactName: string | null; emergencyContactPhone: string | null; guestPassBalance: number }>('/members/me', { token }),
     bookings: (token: string) => apiFetch<UpcomingBooking[]>('/members/me/bookings', { token }),
     history: (token: string) => apiFetch<MemberHistory>('/members/me/history', { token }),
     ensure: (token: string, studioId?: string) =>
@@ -675,6 +688,12 @@ export const api = {
       apiFetch<{ success: boolean }>(`/admin/members/${memberId}/notes/${noteId}`, { method: 'DELETE', token }),
     updateMemberProfile: (memberId: string, data: { birthday?: string | null; emergencyContactName?: string | null; emergencyContactPhone?: string | null }, token: string) =>
       apiFetch<{ success: boolean }>(`/admin/members/${memberId}/profile`, { method: 'PATCH', body: JSON.stringify(data), token }),
+    grantGuestPasses: (memberId: string, amount: number, note: string | undefined, token: string) =>
+      apiFetch<{ success: boolean; guestPassBalance: number }>(`/admin/members/${memberId}/guest-passes/grant`, { method: 'POST', body: JSON.stringify({ amount, note }), token }),
+    guestCheckin: (memberId: string, guestName: string, studioId: string, sessionId: string | undefined, token: string) =>
+      apiFetch<{ success: boolean; guestPassBalance: number }>('/admin/guest-checkin', { method: 'POST', body: JSON.stringify({ memberId, guestName, studioId, sessionId }), token }),
+    guestPassLog: (memberId: string, token: string) =>
+      apiFetch<GuestPassEntry[]>(`/admin/members/${memberId}/guest-passes`, { token }),
   },
   franchise: {
     myStudios: (token: string) =>
@@ -964,6 +983,16 @@ export const api = {
       apiFetch<{ success: boolean; data: MembershipSubscription }>('/memberships/subscribe', { method: 'POST', body: JSON.stringify({ planId }), token }),
     cancelMe: (token: string) =>
       apiFetch<{ success: boolean }>('/memberships/me', { token, method: 'DELETE' }),
+    pauseSubscription: (memberId: string, token: string, pausedUntil?: string | null) =>
+      apiFetch<{ success: boolean; status: string; pausedUntil: string | null }>(
+        `/admin/members/${memberId}/subscription/pause`,
+        { method: 'POST', body: JSON.stringify({ pausedUntil: pausedUntil ?? null }), token },
+      ),
+    resumeSubscription: (memberId: string, token: string) =>
+      apiFetch<{ success: boolean; status: string }>(
+        `/admin/members/${memberId}/subscription/resume`,
+        { method: 'POST', token },
+      ),
   },
   availability: {
     list: (studioId: string, token: string, from?: string, to?: string) => {

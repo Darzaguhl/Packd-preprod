@@ -228,6 +228,40 @@ LIMIT 100`.trim(),
   },
 ]
 
+// ─── Column descriptions (shown as tooltip on header hover) ──────────────────
+
+const COLUMN_DESCRIPTIONS: Record<string, string> = {
+  // Instructor Performance
+  instructor:       'Instructor full name',
+  sessions:         'Number of completed class sessions taught',
+  bookings:         'Total confirmed bookings across all sessions',
+  unique_members:   'Distinct members who attended at least once',
+  repeat_pct:       '% of unique members who attended more than once\n= repeat members ÷ unique members × 100',
+  loyalty_pct:      'Avg % of attendees per session who had previously attended this instructor\n= mean(prior attendees ÷ confirmed) × 100',
+  fill_pct:         'Average class fill rate\n= total confirmed ÷ total capacity × 100',
+  checkin_pct:      '% of confirmed bookings that physically checked in\n= checked-in ÷ confirmed × 100',
+  // Class Fill Rates
+  class:            'Class template name',
+  sport:            'Sport / class category (e.g. CYCLING, HIIT)',
+  total_bookings:   'Total confirmed bookings across all sessions of this class',
+  avg_fill_pct:     'Average fill rate per session\n= mean(confirmed ÷ capacity) × 100',
+  // Top Members / At-Risk
+  member:           'Member full name',
+  email:            'Member email address',
+  check_ins:        'Sessions where the member physically checked in',
+  confirmed_bookings: 'Total bookings with status CONFIRMED',
+  last_visit:       'Date and time of the member\'s most recent confirmed class',
+  total_visits:     'Total confirmed bookings ever recorded for this member',
+  // Cancellations
+  confirmed:        'Bookings with status CONFIRMED at the time of the report',
+  cancelled:        'Bookings cancelled before the late-cancel window',
+  late_cancelled:   'Bookings cancelled inside the late-cancel window',
+  no_show:          'Bookings where the member did not attend and did not cancel',
+  cancel_pct:       '% of all bookings that were cancelled or late-cancelled\n= (cancelled + late_cancelled) ÷ total × 100',
+  // Weekly Trend
+  week_start:       'Monday of the calendar week (UTC)',
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function exportCsv(columns: string[], rows: unknown[][], filename = 'report.csv') {
@@ -293,19 +327,57 @@ function ResultsTable({ result, filename }: { result: QueryResult; filename: str
         <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
           <div className="overflow-auto max-h-[480px]">
             <table className="w-full text-sm border-collapse">
-              <thead className="sticky top-0 z-10">
+              <thead className="sticky top-0 z-10 overflow-visible">
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <th className="text-right text-[10px] font-medium text-gray-300 px-3 py-2.5 w-10 select-none border-r border-gray-100">#</th>
-                  {result.columns.map((col, ci) => (
-                    <th
-                      key={col}
-                      className={`text-xs font-semibold text-gray-500 px-3 py-2.5 whitespace-nowrap ${
-                        isNumericCol[ci] ? 'text-center' : 'text-left'
-                      }`}
-                    >
-                      {col.replace(/_/g, ' ')}
-                    </th>
-                  ))}
+                  {result.columns.map((col, ci) => {
+                    const tip = COLUMN_DESCRIPTIONS[col]
+                    // Flip tooltip to right-anchored when column is in the right half
+                    const isRightHalf = ci >= result.columns.length / 2
+                    // Horizontal position classes for the tooltip bubble and its arrow
+                    const tipPos  = isNumericCol[ci]
+                      ? 'left-1/2 -translate-x-1/2'
+                      : isRightHalf ? 'right-0' : 'left-0'
+                    const arrowPos = isNumericCol[ci]
+                      ? 'left-1/2 -translate-x-1/2'
+                      : isRightHalf ? 'right-3' : 'left-3'
+                    return (
+                      <th
+                        key={col}
+                        className={`text-xs font-semibold text-gray-500 px-3 py-2.5 whitespace-nowrap ${
+                          isNumericCol[ci] ? 'text-center' : 'text-left'
+                        }`}
+                      >
+                        {tip ? (
+                          <span className="relative group/tip inline-flex items-center gap-1">
+                            <span className={`border-b border-dashed border-gray-300 cursor-help ${isNumericCol[ci] ? 'mx-auto' : ''}`}>
+                              {col.replace(/_/g, ' ')}
+                            </span>
+                            {/* Tooltip — renders downward into the table body; right-anchored for right-side columns */}
+                            <span className={`
+                              pointer-events-none absolute z-50 top-full mt-1.5
+                              w-max max-w-[230px] whitespace-pre-line
+                              bg-gray-900 text-white text-[10px] leading-relaxed font-normal
+                              px-2.5 py-1.5 rounded-lg shadow-lg
+                              opacity-0 group-hover/tip:opacity-100
+                              transition-opacity duration-150
+                              ${tipPos}
+                            `}>
+                              <span className={`
+                                absolute bottom-full w-0 h-0
+                                border-l-4 border-r-4 border-b-4
+                                border-l-transparent border-r-transparent border-b-gray-900
+                                ${arrowPos}
+                              `}/>
+                              {tip}
+                            </span>
+                          </span>
+                        ) : (
+                          col.replace(/_/g, ' ')
+                        )}
+                      </th>
+                    )
+                  })}
                 </tr>
               </thead>
               <tbody>

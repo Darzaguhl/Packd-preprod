@@ -72,6 +72,21 @@ export async function membershipRoutes(app: FastifyInstance) {
           })
         }
 
+        if (plan.guestPassesPerCycle > 0) {
+          await tx.member.update({
+            where: { id: member.id },
+            data: { guestPassBalance: { increment: plan.guestPassesPerCycle } },
+          })
+          await tx.guestPass.create({
+            data: {
+              memberId: member.id,
+              studioId: plan.studioId,
+              amount: plan.guestPassesPerCycle,
+              note: `New subscription: ${plan.name}`,
+            },
+          })
+        }
+
         return newSub
       })
 
@@ -102,6 +117,7 @@ export async function membershipRoutes(app: FastifyInstance) {
         priceInCents: p.priceInCents,
         intervalMonths: p.intervalMonths,
         creditsPerCycle: p.creditsPerCycle,
+        guestPassesPerCycle: p.guestPassesPerCycle,
         stripePriceId: p.stripePriceId,
         activeSubscriptions: p._count.subscriptions,
       })))
@@ -117,13 +133,14 @@ export async function membershipRoutes(app: FastifyInstance) {
       priceInCents: number
       intervalMonths?: number
       creditsPerCycle?: number | null
+      guestPassesPerCycle?: number
       stripePriceId?: string
     }
   }>(
     '/plans',
     { preHandler: requireStudioAdmin },
     async (request, reply) => {
-      const { studioId, name, description, priceInCents, intervalMonths = 1, creditsPerCycle, stripePriceId } = request.body
+      const { studioId, name, description, priceInCents, intervalMonths = 1, creditsPerCycle, guestPassesPerCycle = 0, stripePriceId } = request.body
       if (!studioId || !name || priceInCents === undefined) {
         return reply.badRequest('studioId, name and priceInCents are required')
       }
@@ -136,7 +153,7 @@ export async function membershipRoutes(app: FastifyInstance) {
       }
 
       const plan = await prisma.membershipPlan.create({
-        data: { studioId, name, description, priceInCents, intervalMonths, creditsPerCycle, stripePriceId },
+        data: { studioId, name, description, priceInCents, intervalMonths, creditsPerCycle, guestPassesPerCycle, stripePriceId },
       })
       return reply.code(201).send({ success: true, data: plan })
     },
@@ -151,6 +168,7 @@ export async function membershipRoutes(app: FastifyInstance) {
       priceInCents?: number
       intervalMonths?: number
       creditsPerCycle?: number | null
+      guestPassesPerCycle?: number
       stripePriceId?: string | null
     }
   }>(
@@ -158,7 +176,7 @@ export async function membershipRoutes(app: FastifyInstance) {
     { preHandler: requireStudioAdmin },
     async (request, reply) => {
       const { planId } = request.params
-      const { name, description, priceInCents, intervalMonths, creditsPerCycle, stripePriceId } = request.body
+      const { name, description, priceInCents, intervalMonths, creditsPerCycle, guestPassesPerCycle, stripePriceId } = request.body
 
       const existing = await prisma.membershipPlan.findUnique({ where: { id: planId } })
       if (!existing) return reply.notFound('Plan not found')
@@ -171,6 +189,7 @@ export async function membershipRoutes(app: FastifyInstance) {
           ...(priceInCents !== undefined && { priceInCents }),
           ...(intervalMonths !== undefined && { intervalMonths }),
           ...(creditsPerCycle !== undefined && { creditsPerCycle }),
+          ...(guestPassesPerCycle !== undefined && { guestPassesPerCycle }),
           ...(stripePriceId !== undefined && { stripePriceId }),
         },
       })
@@ -353,6 +372,21 @@ export async function membershipRoutes(app: FastifyInstance) {
               memberId,
               amount: plan.creditsPerCycle,
               type: 'MEMBERSHIP_RENEWAL',
+              note: `New subscription: ${plan.name}`,
+            },
+          })
+        }
+
+        if (grantCredits && plan.guestPassesPerCycle > 0) {
+          await tx.member.update({
+            where: { id: memberId },
+            data: { guestPassBalance: { increment: plan.guestPassesPerCycle } },
+          })
+          await tx.guestPass.create({
+            data: {
+              memberId,
+              studioId: plan.studioId,
+              amount: plan.guestPassesPerCycle,
               note: `New subscription: ${plan.name}`,
             },
           })

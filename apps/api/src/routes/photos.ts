@@ -7,9 +7,10 @@ const SUPABASE_URL = process.env.SUPABASE_URL!
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const BUCKET = 'instructor-photos'
 
-// Users at studio_admin rank or above can manage any instructor's photos
+// Users at studio_admin rank or above — or fronthosts — can manage any instructor's photos.
+// Fronthosts share rank 2 with instructors so we can't use rank alone; check explicitly.
 function isManager(role: string) {
-  return ROLE_RANK[role as keyof typeof ROLE_RANK] >= ROLE_RANK['studio_admin']
+  return ROLE_RANK[role as keyof typeof ROLE_RANK] >= ROLE_RANK['studio_admin'] || role === 'fronthost'
 }
 
 // Verify the caller can act on this instructor's photos:
@@ -43,18 +44,18 @@ export async function photoRoutes(app: FastifyInstance) {
       const access = await assertPhotoAccess(user.id, user.role, instructorId)
       if (!access) return reply.forbidden()
 
-      let photoWhere: { instructorId: string | { in: string[] } } = { instructorId }
+      // Always expand to ALL instructor records for this user — a user can have one
+      // Instructor record per studio, so photos uploaded in one studio context must
+      // appear when listing via any of their other instructor IDs.
+      const baseUserId = access === 'owner'
+        ? user.id
+        : (await prisma.instructor.findUnique({ where: { id: instructorId }, select: { userId: true } }))?.userId
 
-      // For the owner: query across ALL their instructor records (a user can have
-      // one Instructor record per studio, so photos uploaded via one studio context
-      // must still appear when listing via another studio's instructor ID).
-      if (access === 'owner') {
-        const allInstructors = await prisma.instructor.findMany({
-          where: { userId: user.id },
-          select: { id: true },
-        })
-        photoWhere = { instructorId: { in: allInstructors.map(i => i.id) } }
-      }
+      const allInstructors = baseUserId
+        ? await prisma.instructor.findMany({ where: { userId: baseUserId }, select: { id: true } })
+        : [{ id: instructorId }]
+
+      const photoWhere = { instructorId: { in: allInstructors.map(i => i.id) } }
 
       const photos = await prisma.instructorPhoto.findMany({
         where: photoWhere,
@@ -150,19 +151,22 @@ export async function photoRoutes(app: FastifyInstance) {
       const photo = await prisma.instructorPhoto.findUnique({
         where: { id: photoId },
       })
+      if (!photo) return reply.notFound()
 
-      // For owner access, accept photos stored under any of their instructor records.
-      let photoValid = false
-      if (access === 'manager') {
-        photoValid = !!photo && photo.instructorId === instructorId
-      } else {
-        const allInstructors = await prisma.instructor.findMany({
-          where: { userId: user.id },
-          select: { id: true },
-        })
-        photoValid = !!photo && allInstructors.some(i => i.id === photo.instructorId)
-      }
-      if (!photoValid) return reply.notFound()
+      // Accept photos stored under any instructor record belonging to the same user —
+      // a user can have one Instructor record per studio, so a photo uploaded in one
+      // studio context must still be patchable via another studio's instructor ID.
+      const baseUserId = access === 'owner'
+        ? user.id
+        : (await prisma.instructor.findUnique({ where: { id: instructorId }, select: { userId: true } }))?.userId
+
+      if (!baseUserId) return reply.notFound()
+
+      const allInstructors = await prisma.instructor.findMany({
+        where: { userId: baseUserId },
+        select: { id: true },
+      })
+      if (!allInstructors.some(i => i.id === photo.instructorId)) return reply.notFound()
 
       const updated = await prisma.instructorPhoto.update({
         where: { id: photoId },

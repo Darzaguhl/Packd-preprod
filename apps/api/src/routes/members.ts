@@ -128,6 +128,7 @@ export async function memberRoutes(app: FastifyInstance) {
       lastName: member.user.lastName,
       email: member.user.email,
       creditBalance: member.creditBalance?.balance ?? 0,
+      guestPassBalance: member.guestPassBalance,
       birthday: member.birthday?.toISOString() ?? null,
       emergencyContactName: member.emergencyContactName ?? null,
       emergencyContactPhone: member.emergencyContactPhone ?? null,

@@ -124,6 +124,10 @@ interface Props {
   onEditProfile?: () => void
   /** Show email — for admin view */
   showEmail?: boolean
+  /** Extended profile fields (member self-view) */
+  birthday?: string | null
+  emergencyContactName?: string | null
+  emergencyContactPhone?: string | null
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -232,6 +236,9 @@ export default function MemberHistoryView({
   onCancelMembership,
   onEditProfile,
   showEmail = false,
+  birthday,
+  emergencyContactName,
+  emergencyContactPhone,
 }: Props) {
   const [tab, setTab] = useState<Tab>('upcoming')
   const [showPlans, setShowPlans] = useState(false)
@@ -277,6 +284,18 @@ export default function MemberHistoryView({
           {'joinedAt' in profile && (
             <p className="text-xs text-gray-400 mt-0.5">
               Member since {formatDateTime(profile.joinedAt)}
+            </p>
+          )}
+          {birthday && (
+            <p className="text-xs text-gray-400 mt-0.5">
+              🎂 {new Date(birthday).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+              {' · '}
+              {Math.floor((Date.now() - new Date(birthday).getTime()) / (365.25 * 24 * 3600 * 1000))} yo
+            </p>
+          )}
+          {(emergencyContactName || emergencyContactPhone) && (
+            <p className="text-xs text-amber-600 mt-0.5 truncate">
+              🚨 {[emergencyContactName, emergencyContactPhone].filter(Boolean).join(' · ')}
             </p>
           )}
         </div>
