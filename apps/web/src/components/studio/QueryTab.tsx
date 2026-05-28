@@ -300,7 +300,7 @@ function ResultsTable({ result, filename }: { result: QueryResult; filename: str
                     <th
                       key={col}
                       className={`text-xs font-semibold text-gray-500 px-3 py-2.5 whitespace-nowrap ${
-                        isNumericCol[ci] ? 'text-right' : 'text-left'
+                        isNumericCol[ci] ? 'text-center' : 'text-left'
                       }`}
                     >
                       {col.replace(/_/g, ' ')}
@@ -319,9 +319,9 @@ function ResultsTable({ result, filename }: { result: QueryResult; filename: str
                         key={ci}
                         className={`px-3 py-2 max-w-xs truncate text-xs ${
                           cell === null || cell === undefined
-                            ? 'text-gray-300 italic'
+                            ? 'text-gray-300 italic text-center'
                             : isNumericCol[ci]
-                              ? 'text-right tabular-nums text-gray-700 font-mono'
+                              ? 'text-center tabular-nums text-gray-700 font-mono'
                               : 'text-gray-800'
                         }`}
                         title={cell === null || cell === undefined ? 'NULL' : String(cell)}
