@@ -241,7 +241,7 @@ export async function adminRoutes(app: FastifyInstance) {
       tomorrow.setDate(tomorrow.getDate() + 1)
 
       const [studio, todaySessions, totalMembers, totalBookingsToday, waitlistToday] = await Promise.all([
-        prisma.studio.findUnique({ where: { id: studioId }, select: { name: true, timeFormat: true, currency: true, timezone: true, bookingWindowDays: true, bookingCloseHours: true, waitlistEnabled: true, guestCheckInEnabled: true, creditPurchaseEnabled: true, websiteUrl: true, supportEmail: true } }),
+        prisma.studio.findUnique({ where: { id: studioId }, select: { name: true, timeFormat: true, currency: true, timezone: true, bookingWindowDays: true, bookingCloseHours: true, waitlistEnabled: true, guestCheckInEnabled: true, creditPurchaseEnabled: true, selfCheckInEnabled: true, classReminderHours: true, maxPauseDays: true, maxPausesPerYear: true, websiteUrl: true, supportEmail: true } }),
         prisma.classSession.count({ where: { studioId, startsAt: { gte: today, lt: tomorrow } } }),
         prisma.member.count({ where: { studioId } }),
         prisma.booking.count({
@@ -262,6 +262,10 @@ export async function adminRoutes(app: FastifyInstance) {
         waitlistEnabled: studio?.waitlistEnabled ?? true,
         guestCheckInEnabled: studio?.guestCheckInEnabled ?? true,
         creditPurchaseEnabled: studio?.creditPurchaseEnabled ?? true,
+        selfCheckInEnabled: studio?.selfCheckInEnabled ?? false,
+        classReminderHours: studio?.classReminderHours ?? 24,
+        maxPauseDays: studio?.maxPauseDays ?? 30,
+        maxPausesPerYear: studio?.maxPausesPerYear ?? 2,
         websiteUrl: studio?.websiteUrl ?? null,
         supportEmail: studio?.supportEmail ?? null,
         todaySessions, totalMembers, totalBookingsToday, waitlistToday,
@@ -1024,8 +1028,34 @@ export async function adminRoutes(app: FastifyInstance) {
       const sub = await prisma.membershipSubscription.findFirst({
         where: { memberId, status: { in: ['ACTIVE', 'PAUSED'] } },
         orderBy: { startDate: 'desc' },
+        include: { plan: { select: { studioId: true } } },
       })
       if (!sub) return reply.notFound('No active subscription found')
+
+      // Enforce studio pause rules
+      const studioRules = await prisma.studio.findUnique({
+        where: { id: sub.plan.studioId },
+        select: { maxPauseDays: true, maxPausesPerYear: true },
+      })
+      const maxPauseDays = studioRules?.maxPauseDays ?? 30
+      const maxPausesPerYear = studioRules?.maxPausesPerYear ?? 2
+
+      if (pausedUntil) {
+        const pauseEnd = new Date(pausedUntil)
+        const pauseDays = Math.ceil((pauseEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+        if (pauseDays > maxPauseDays) {
+          return reply.badRequest(`Pause duration cannot exceed ${maxPauseDays} days`)
+        }
+      }
+
+      // Count pauses used this calendar year
+      const yearStart = new Date(new Date().getFullYear(), 0, 1)
+      const pausesThisYear = await prisma.membershipSubscription.count({
+        where: { memberId, status: 'PAUSED', updatedAt: { gte: yearStart } },
+      })
+      if (pausesThisYear >= maxPausesPerYear) {
+        return reply.badRequest(`Maximum of ${maxPausesPerYear} pause${maxPausesPerYear !== 1 ? 's' : ''} per year reached`)
+      }
 
       const updated = await prisma.membershipSubscription.update({
         where: { id: sub.id },

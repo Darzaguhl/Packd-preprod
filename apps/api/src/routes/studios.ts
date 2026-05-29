@@ -122,6 +122,10 @@ export async function studioRoutes(app: FastifyInstance) {
       waitlistEnabled?: boolean
       guestCheckInEnabled?: boolean
       creditPurchaseEnabled?: boolean
+      selfCheckInEnabled?: boolean
+      classReminderHours?: number | null
+      maxPauseDays?: number
+      maxPausesPerYear?: number
       location?: { id: string; name?: string; address?: string; city?: string; country?: string }
     }
   }>(
@@ -134,6 +138,7 @@ export async function studioRoutes(app: FastifyInstance) {
         websiteUrl, supportEmail,
         bookingWindowDays, bookingCloseHours,
         waitlistEnabled, guestCheckInEnabled, creditPurchaseEnabled,
+        selfCheckInEnabled, classReminderHours, maxPauseDays, maxPausesPerYear,
         location,
       } = request.body
       const user = getUser(request)
@@ -159,6 +164,10 @@ export async function studioRoutes(app: FastifyInstance) {
           ...(waitlistEnabled !== undefined && { waitlistEnabled }),
           ...(guestCheckInEnabled !== undefined && { guestCheckInEnabled }),
           ...(creditPurchaseEnabled !== undefined && { creditPurchaseEnabled }),
+          ...(selfCheckInEnabled !== undefined && { selfCheckInEnabled }),
+          ...(classReminderHours !== undefined && { classReminderHours }),
+          ...(maxPauseDays !== undefined && { maxPauseDays }),
+          ...(maxPausesPerYear !== undefined && { maxPausesPerYear }),
         },
         include: { locations: true },
       })

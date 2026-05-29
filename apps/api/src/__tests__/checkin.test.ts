@@ -5,6 +5,7 @@ vi.mock('@packd/db', () => ({
     classSession: { findUniqueOrThrow: vi.fn() },
     member: { findUnique: vi.fn() },
     booking: { findUniqueOrThrow: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    studio: { findUnique: vi.fn().mockResolvedValue({ selfCheckInEnabled: true }) },
   },
 }))
 
@@ -118,6 +119,7 @@ describe('POST /bookings/:id/checkin', () => {
     vi.mocked(prisma.booking.findUniqueOrThrow).mockResolvedValue({
       id: 'booking-1',
       member: { userId: 'user-1' },
+      session: { studioId: 'studio-1' },
     } as never)
     vi.mocked(prisma.booking.update).mockResolvedValue({ id: 'booking-1', checkedIn: true } as never)
 
@@ -133,6 +135,7 @@ describe('POST /bookings/:id/checkin', () => {
     vi.mocked(prisma.booking.findUniqueOrThrow).mockResolvedValue({
       id: 'booking-other',
       member: { userId: 'user-other' },
+      session: { studioId: 'studio-1' },
     } as never)
 
     const app = await buildBookingApp()
@@ -146,6 +149,7 @@ describe('POST /bookings/:id/checkin', () => {
     vi.mocked(prisma.booking.findUniqueOrThrow).mockResolvedValue({
       id: 'booking-1',
       member: { userId: 'user-other' },
+      session: { studioId: 'studio-1' },
     } as never)
     vi.mocked(prisma.booking.update).mockResolvedValue({ id: 'booking-1', checkedIn: true } as never)
 

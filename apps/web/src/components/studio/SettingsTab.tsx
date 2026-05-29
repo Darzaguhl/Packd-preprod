@@ -76,6 +76,13 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
   const [waitlistEnabled, setWaitlistEnabled] = useState(true)
   const [guestCheckInEnabled, setGuestCheckInEnabled] = useState(true)
   const [creditPurchaseEnabled, setCreditPurchaseEnabled] = useState(true)
+  const [selfCheckInEnabled, setSelfCheckInEnabled] = useState(false)
+  // Class reminder
+  const [classReminderEnabled, setClassReminderEnabled] = useState(true)
+  const [classReminderHours, setClassReminderHours] = useState(24)
+  // Membership pause rules
+  const [maxPauseDays, setMaxPauseDays] = useState(30)
+  const [maxPausesPerYear, setMaxPausesPerYear] = useState(2)
 
   // Location fields (first location)
   const [locName, setLocName] = useState('')
@@ -113,6 +120,12 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
       setWaitlistEnabled((s as typeof s & { waitlistEnabled?: boolean }).waitlistEnabled ?? true)
       setGuestCheckInEnabled((s as typeof s & { guestCheckInEnabled?: boolean }).guestCheckInEnabled ?? true)
       setCreditPurchaseEnabled((s as typeof s & { creditPurchaseEnabled?: boolean }).creditPurchaseEnabled ?? true)
+      setSelfCheckInEnabled((s as typeof s & { selfCheckInEnabled?: boolean }).selfCheckInEnabled ?? false)
+      const reminderHours = (s as typeof s & { classReminderHours?: number | null }).classReminderHours
+      setClassReminderEnabled(reminderHours !== null)
+      setClassReminderHours(reminderHours ?? 24)
+      setMaxPauseDays((s as typeof s & { maxPauseDays?: number }).maxPauseDays ?? 30)
+      setMaxPausesPerYear((s as typeof s & { maxPausesPerYear?: number }).maxPausesPerYear ?? 2)
       const loc = s.locations[0]
       if (loc) {
         setLocName(loc.name)
@@ -145,7 +158,9 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
     setSaving(true)
     try {
       const loc = studio.locations[0]
-      const s = studio as typeof studio & { websiteUrl?: string; supportEmail?: string; bookingWindowDays?: number; bookingCloseHours?: number; waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean }
+      type StudioExtended = typeof studio & { websiteUrl?: string; supportEmail?: string; bookingWindowDays?: number; bookingCloseHours?: number; waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean; selfCheckInEnabled?: boolean; classReminderHours?: number | null; maxPauseDays?: number; maxPausesPerYear?: number }
+      const s = studio as StudioExtended
+      const newReminderHours = classReminderEnabled ? classReminderHours : null
       const res = await api.studios.update(studioId, {
         name: name !== studio.name ? name : undefined,
         slug: slug !== studio.slug ? slug : undefined,
@@ -159,6 +174,10 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
         waitlistEnabled: waitlistEnabled !== (s.waitlistEnabled ?? true) ? waitlistEnabled : undefined,
         guestCheckInEnabled: guestCheckInEnabled !== (s.guestCheckInEnabled ?? true) ? guestCheckInEnabled : undefined,
         creditPurchaseEnabled: creditPurchaseEnabled !== (s.creditPurchaseEnabled ?? true) ? creditPurchaseEnabled : undefined,
+        selfCheckInEnabled: selfCheckInEnabled !== (s.selfCheckInEnabled ?? false) ? selfCheckInEnabled : undefined,
+        classReminderHours: newReminderHours !== (s.classReminderHours ?? 24) ? newReminderHours : undefined,
+        maxPauseDays: maxPauseDays !== (s.maxPauseDays ?? 30) ? maxPauseDays : undefined,
+        maxPausesPerYear: maxPausesPerYear !== (s.maxPausesPerYear ?? 2) ? maxPausesPerYear : undefined,
         location: loc ? {
           id: loc.id,
           name: locName !== loc.name ? locName : undefined,
@@ -202,7 +221,8 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
     noShowFeeCredits        !== savedPolicy.noShowFeeCredits       ||
     waitlistWindowMinutes  !== savedPolicy.waitlistWindowMinutes
 
-  const s2 = studio as typeof studio & { websiteUrl?: string; supportEmail?: string; bookingWindowDays?: number; bookingCloseHours?: number; waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean }
+  type StudioExt = typeof studio & { websiteUrl?: string; supportEmail?: string; bookingWindowDays?: number; bookingCloseHours?: number; waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean; selfCheckInEnabled?: boolean; classReminderHours?: number | null; maxPauseDays?: number; maxPausesPerYear?: number }
+  const s2 = studio as StudioExt | null
   const isDirty = studio && (
     name !== studio.name ||
     slug !== studio.slug ||
@@ -216,6 +236,10 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
     waitlistEnabled !== (s2?.waitlistEnabled ?? true) ||
     guestCheckInEnabled !== (s2?.guestCheckInEnabled ?? true) ||
     creditPurchaseEnabled !== (s2?.creditPurchaseEnabled ?? true) ||
+    selfCheckInEnabled !== (s2?.selfCheckInEnabled ?? false) ||
+    (classReminderEnabled ? classReminderHours : null) !== (s2?.classReminderHours ?? 24) ||
+    maxPauseDays !== (s2?.maxPauseDays ?? 30) ||
+    maxPausesPerYear !== (s2?.maxPausesPerYear ?? 2) ||
     locName !== (studio.locations[0]?.name ?? '') ||
     address !== (studio.locations[0]?.address ?? '') ||
     city !== (studio.locations[0]?.city ?? '') ||
@@ -367,6 +391,7 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
             { label: 'Waitlist', description: 'Allow members to join the waitlist when a class is full', value: waitlistEnabled, set: setWaitlistEnabled },
             { label: 'Guest check-in', description: 'Staff can check in guests using member guest passes', value: guestCheckInEnabled, set: setGuestCheckInEnabled },
             { label: 'Online credit purchase', description: 'Members can buy plans and credits via Stripe on their account page', value: creditPurchaseEnabled, set: setCreditPurchaseEnabled },
+            { label: 'Member self check-in', description: 'Members can check themselves in from their account page', value: selfCheckInEnabled, set: setSelfCheckInEnabled },
           ] as const).map(({ label, description, value, set }) => (
             <label key={label} className="flex items-start gap-3 cursor-pointer select-none p-3 rounded-xl hover:bg-gray-50 transition-colors">
               <input
@@ -381,6 +406,65 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
               </span>
             </label>
           ))}
+        </div>
+      </section>
+
+      {/* Class reminder */}
+      <section className="space-y-3">
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Class reminder email</h3>
+        <label className="flex items-start gap-3 cursor-pointer select-none p-3 rounded-xl hover:bg-gray-50 transition-colors">
+          <input
+            type="checkbox"
+            checked={classReminderEnabled}
+            onChange={e => setClassReminderEnabled(e.target.checked)}
+            className="mt-0.5 rounded"
+          />
+          <span>
+            <span className="text-sm font-medium text-gray-900 block">Send class reminders</span>
+            <span className="text-xs text-gray-400">Email members before their upcoming class</span>
+          </span>
+        </label>
+        {classReminderEnabled && (
+          <div>
+            <label className="text-xs text-gray-500 font-medium">Send reminder (hours before class)</label>
+            <input
+              type="number"
+              min="1"
+              max="168"
+              className="mt-1 w-32 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
+              value={classReminderHours}
+              onChange={e => setClassReminderHours(parseInt(e.target.value) || 24)}
+            />
+          </div>
+        )}
+      </section>
+
+      {/* Membership pause rules */}
+      <section className="space-y-3">
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Membership pause rules</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-gray-500 font-medium">Max pause duration (days)</label>
+            <input
+              type="number"
+              min="1"
+              max="365"
+              className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
+              value={maxPauseDays}
+              onChange={e => setMaxPauseDays(parseInt(e.target.value) || 30)}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 font-medium">Max pauses per year</label>
+            <input
+              type="number"
+              min="1"
+              max="12"
+              className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
+              value={maxPausesPerYear}
+              onChange={e => setMaxPausesPerYear(parseInt(e.target.value) || 2)}
+            />
+          </div>
         </div>
       </section>
 

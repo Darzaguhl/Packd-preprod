@@ -229,15 +229,17 @@ export async function setupJobs() {
       data: { status: 'EXPIRED' },
     })
 
-    // Schedule no-show checks + reminders for sessions starting in the next 24 hours
-    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000)
+    // Schedule no-show checks + reminders for sessions starting in the next 7 days.
+    // 7-day window covers studios with long reminder lead times (e.g. 48h).
+    // singletonKey on both jobs ensures they're only enqueued once per session.
+    const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
     const upcomingSessions = await prisma.classSession.findMany({
-      where: { startsAt: { gt: now, lt: tomorrow }, status: 'SCHEDULED' },
-      select: { id: true, startsAt: true },
+      where: { startsAt: { gt: now, lt: in7Days }, status: 'SCHEDULED' },
+      select: { id: true, startsAt: true, studioId: true },
     })
     for (const session of upcomingSessions) {
       await enqueueNoShowCheck(session.id, session.startsAt)
-      await enqueueClassReminder(session.id, session.startsAt)
+      await enqueueClassReminder(session.id, session.startsAt, session.studioId)
     }
 
     // Mark subscriptions past their end date as EXPIRED
@@ -365,9 +367,19 @@ export async function enqueueNoShowCheck(sessionId: string, sessionStartsAt: Dat
   await boss.sendAfter('session.no-show', { sessionId }, { singletonKey: `session-${sessionId}` }, runAt)
 }
 
-export async function enqueueClassReminder(sessionId: string, sessionStartsAt: Date) {
-  // Send reminder ~24h before class starts
-  const runAt = new Date(sessionStartsAt.getTime() - 24 * 60 * 60 * 1000)
+export async function enqueueClassReminder(sessionId: string, sessionStartsAt: Date, studioId?: string) {
+  // Look up studio's reminder hours setting (null = disabled)
+  let reminderHours = 24
+  if (studioId) {
+    const studio = await prisma.studio.findUnique({
+      where: { id: studioId },
+      select: { classReminderHours: true },
+    })
+    if (studio?.classReminderHours === null) return // reminders disabled for this studio
+    reminderHours = studio?.classReminderHours ?? 24
+  }
+
+  const runAt = new Date(sessionStartsAt.getTime() - reminderHours * 60 * 60 * 1000)
   if (runAt <= new Date()) return // already past — skip
   await boss.sendAfter('session.reminder', { sessionId }, { singletonKey: `reminder-${sessionId}` }, runAt)
 }

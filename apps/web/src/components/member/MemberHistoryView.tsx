@@ -154,6 +154,8 @@ interface Props {
   plans?: Omit<MembershipPlan, 'activeSubscriptions'>[]
   /** If provided, cancel button appears on upcoming bookings */
   onCancelBooking?: (bookingId: string) => Promise<void>
+  /** If provided, self check-in button appears on upcoming bookings within 30 min of start */
+  onSelfCheckIn?: (bookingId: string) => Promise<void>
   /** If provided, subscribe button appears on plan cards */
   onSubscribe?: (planId: string) => Promise<void>
   /** If provided, "Buy online" button appears on plans with a stripePriceId */
@@ -175,12 +177,15 @@ interface Props {
 function UpcomingCard({
   booking,
   onCancel,
+  onSelfCheckIn,
 }: {
   booking: UpcomingBooking
   onCancel?: (id: string) => Promise<void>
+  onSelfCheckIn?: (id: string) => Promise<void>
 }) {
   const timeFormat = useTimeFormat()
   const [cancelling, setCancelling] = useState(false)
+  const [checkingIn, setCheckingIn] = useState(false)
   const cfg = sportConfig(booking.sport)
 
   async function handleCancel() {
@@ -188,6 +193,16 @@ function UpcomingCard({
     setCancelling(true)
     try { await onCancel(booking.id) } finally { setCancelling(false) }
   }
+
+  async function handleCheckIn() {
+    if (!onSelfCheckIn) return
+    setCheckingIn(true)
+    try { await onSelfCheckIn(booking.id) } finally { setCheckingIn(false) }
+  }
+
+  // Self check-in only available within 30 minutes of class start
+  const classStartsIn = new Date(booking.startsAt).getTime() - Date.now()
+  const canCheckIn = onSelfCheckIn && classStartsIn <= 30 * 60 * 1000 && classStartsIn > -60 * 60 * 1000
 
   return (
     <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden flex items-stretch">
@@ -212,17 +227,28 @@ function UpcomingCard({
             )}
           </p>
         </div>
-        {onCancel && (
-          <button
-            onClick={handleCancel}
-            disabled={cancelling || booking.sessionStatus === 'CANCELLED'}
-            className="shrink-0 text-xs text-gray-400 hover:text-red-500 transition-colors disabled:opacity-40 px-2 py-1"
-          >
-            {cancelling
-              ? <span className="inline-block w-3 h-3 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-              : 'Cancel'}
-          </button>
-        )}
+        <div className="shrink-0 flex flex-col gap-1 items-end">
+          {canCheckIn && (
+            <button
+              onClick={handleCheckIn}
+              disabled={checkingIn}
+              className="text-xs font-medium px-2.5 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+            >
+              {checkingIn ? '…' : 'Check in'}
+            </button>
+          )}
+          {onCancel && (
+            <button
+              onClick={handleCancel}
+              disabled={cancelling || booking.sessionStatus === 'CANCELLED'}
+              className="text-xs text-gray-400 hover:text-red-500 transition-colors disabled:opacity-40 px-2 py-1"
+            >
+              {cancelling
+                ? <span className="inline-block w-3 h-3 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                : 'Cancel'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -280,6 +306,7 @@ export default function MemberHistoryView({
   transactions,
   plans = [],
   onCancelBooking,
+  onSelfCheckIn,
   onSubscribe,
   onBuyCredits,
   onCancelMembership,
@@ -489,7 +516,7 @@ export default function MemberHistoryView({
             <p className="text-sm text-gray-400 text-center py-10">No upcoming bookings</p>
           ) : (
             upcoming.map(b => (
-              <UpcomingCard key={b.id} booking={b} onCancel={onCancelBooking} />
+              <UpcomingCard key={b.id} booking={b} onCancel={onCancelBooking} onSelfCheckIn={onSelfCheckIn} />
             ))
           )}
         </div>

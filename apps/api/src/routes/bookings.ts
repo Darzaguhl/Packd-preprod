@@ -361,14 +361,28 @@ export async function bookingRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const user = getUser(request)
 
-      // Fix #5: verify the booking belongs to the requesting user
       const booking = await prisma.booking.findUniqueOrThrow({
         where: { id: request.params.id },
-        include: { member: true },
+        include: {
+          member: true,
+          session: { select: { studioId: true } },
+        },
       })
 
-      if (booking.member.userId !== user.id && ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['fronthost']) {
-        return reply.forbidden()
+      const isPrivilegedRole = ROLE_RANK[user.role as keyof typeof ROLE_RANK] >= ROLE_RANK['fronthost']
+      const isSelf = booking.member.userId === user.id
+
+      if (!isSelf && !isPrivilegedRole) return reply.forbidden()
+
+      // Members can only self-check-in if the studio allows it
+      if (isSelf && !isPrivilegedRole) {
+        const studio = await prisma.studio.findUnique({
+          where: { id: booking.session.studioId },
+          select: { selfCheckInEnabled: true },
+        })
+        if (!studio?.selfCheckInEnabled) {
+          return reply.forbidden('Self check-in is not enabled for this studio')
+        }
       }
 
       const updated = await prisma.booking.update({

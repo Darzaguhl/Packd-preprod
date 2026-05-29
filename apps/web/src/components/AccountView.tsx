@@ -146,6 +146,7 @@ export default function AccountView() {
   const [guestPassBalance, setGuestPassBalance] = useState(0)
   const [guestPasses, setGuestPasses] = useState<import('@/lib/api').GuestPassEntry[]>([])
   const [purchases, setPurchases] = useState<import('@/lib/api').ProductSale[]>([])
+  const [selfCheckInEnabled, setSelfCheckInEnabled] = useState(false)
 
   // Show success toast and refresh data when Stripe redirects back after payment
   useEffect(() => {
@@ -195,7 +196,10 @@ export default function AccountView() {
         const studioId = profileData.studioId ?? (session?.user?.app_metadata as { studioId?: string })?.studioId
         if (studioId) {
           api.memberships.publicPlans(studioId, t).then(setPlans).catch(() => {})
-          api.admin.stats(studioId, t).then(s => setTimeFormat((s.timeFormat ?? '24h') as '12h' | '24h')).catch(() => {})
+          api.admin.stats(studioId, t).then(s => {
+            setTimeFormat((s.timeFormat ?? '24h') as '12h' | '24h')
+            setSelfCheckInEnabled(s.selfCheckInEnabled ?? false)
+          }).catch(() => {})
           api.members.stats(studioId, t).then(setMemberStats).catch(() => {})
           api.ical.getToken(t).then(d => setIcalUrl(d.urls.member)).catch(() => {})
           api.admin.guestPassLog(profileData.id ?? '', t).then(setGuestPasses).catch(() => {})
@@ -294,6 +298,17 @@ export default function AccountView() {
     }
   }
 
+  async function handleSelfCheckIn(bookingId: string) {
+    if (!token) return
+    try {
+      await api.bookings.selfCheckIn(bookingId, token)
+      setUpcoming(prev => prev.map(b => b.id === bookingId ? { ...b, checkedIn: true } : b))
+      showToast('Checked in! See you in class 🎉')
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Check-in failed', false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -329,6 +344,7 @@ export default function AccountView() {
             transactions={transactions}
             plans={plans}
             onCancelBooking={handleCancelBooking}
+            onSelfCheckIn={selfCheckInEnabled ? handleSelfCheckIn : undefined}
             onSubscribe={handleSubscribe}
             onBuyCredits={handleBuyCredits}
             onCancelMembership={handleCancelMembership}

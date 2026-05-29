@@ -28,6 +28,12 @@ model Studio {
   waitlistEnabled          Boolean @default(true)
   guestCheckInEnabled      Boolean @default(true)
   creditPurchaseEnabled    Boolean @default(true)
+  selfCheckInEnabled       Boolean @default(false)
+  // Class reminder (null = disabled)
+  classReminderHours       Int?    @default(24)
+  // Membership pause rules
+  maxPauseDays             Int     @default(30)
+  maxPausesPerYear         Int     @default(2)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

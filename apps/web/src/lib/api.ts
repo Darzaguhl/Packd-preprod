@@ -741,6 +741,8 @@ export const api = {
         method: 'DELETE',
         token,
       }),
+    selfCheckIn: (bookingId: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/bookings/${bookingId}/checkin`, { method: 'POST', token }),
   },
   waitlist: {
     join: (sessionId: string, token: string) =>
@@ -769,7 +771,7 @@ export const api = {
   },
   admin: {
     stats: (studioId: string, token: string) =>
-      apiFetch<{ studioName: string | null; timeFormat: string; currency: string; timezone: string; bookingWindowDays: number; bookingCloseHours: number; waitlistEnabled: boolean; guestCheckInEnabled: boolean; creditPurchaseEnabled: boolean; websiteUrl: string | null; supportEmail: string | null; todaySessions: number; totalMembers: number; totalBookingsToday: number; waitlistToday: number }>(
+      apiFetch<{ studioName: string | null; timeFormat: string; currency: string; timezone: string; bookingWindowDays: number; bookingCloseHours: number; waitlistEnabled: boolean; guestCheckInEnabled: boolean; creditPurchaseEnabled: boolean; selfCheckInEnabled: boolean; classReminderHours: number | null; maxPauseDays: number; maxPausesPerYear: number; websiteUrl: string | null; supportEmail: string | null; todaySessions: number; totalMembers: number; totalBookingsToday: number; waitlistToday: number }>(
         `/admin/stats?studioId=${studioId}`, { token }),
     sessions: (studioId: string, date: string, token: string) =>
       apiFetch<AdminSession[]>(`/admin/sessions?studioId=${studioId}&date=${date}`, { token }),
@@ -1067,6 +1069,7 @@ export const api = {
         websiteUrl?: string | null; supportEmail?: string | null
         bookingWindowDays?: number; bookingCloseHours?: number
         waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean
+        selfCheckInEnabled?: boolean; classReminderHours?: number | null; maxPauseDays?: number; maxPausesPerYear?: number
         location?: { id: string; name?: string; address?: string; city?: string; country?: string }
       },
       token: string,
