@@ -436,8 +436,10 @@ export async function adminRoutes(app: FastifyInstance) {
     { preHandler: requireInstructor },
     async (request, reply) => {
       const { memberId } = request.params
+      const user = getUser(request)
+      if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
 
-      // Members are franchise-scoped; any staff member (requireInstructor) may view any member.
+      // Members are franchise-scoped; any fronthost+ may view any member.
       const member = await prisma.member.findUnique({
         where: { id: memberId },
         select: { id: true },
@@ -563,6 +565,7 @@ export async function adminRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { memberId, studioId, items, totalCents, totalCredits, paymentMethod } = request.body
       const user = getUser(request)
+      if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
 
       await prisma.$transaction(async (tx) => {
         if (totalCredits > 0) {
@@ -654,7 +657,11 @@ export async function adminRoutes(app: FastifyInstance) {
       const t0 = Date.now()
       let rows: Record<string, unknown>[]
       try {
-        rows = await prisma.$queryRawUnsafe(capped)
+        // Run inside a transaction so the statement timeout is scoped to this request
+        rows = await prisma.$transaction(async (tx) => {
+          await tx.$executeRawUnsafe('SET LOCAL statement_timeout = 10000') // 10 s hard cap
+          return tx.$queryRawUnsafe<Record<string, unknown>[]>(capped)
+        })
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e)
         // Strip the "prisma.$queryRawUnsafe is not a safe API…" prefix if present
@@ -1708,7 +1715,8 @@ export async function adminRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId, from, to } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
-      assertStudioAccess(studioId, request, reply)
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       const toDate   = to   ? new Date(to)   : new Date()
@@ -1842,8 +1850,9 @@ async function assertStudioAccess(
   jwtStudioIds?: string[],
 ): Promise<boolean> {
   if (ROLE_RANK[role] >= ROLE_RANK['franchise_admin']) return true
-  // Staff carry all their assigned studio IDs in the JWT — no Member record needed
-  if (jwtStudioIds && jwtStudioIds.length > 0) {
+  // Staff carry all their assigned studio IDs in the JWT — no Member record needed.
+  // Use the JWT array when present (even if empty — empty means no studios assigned).
+  if (jwtStudioIds !== undefined) {
     if (jwtStudioIds.includes(studioId)) return true
     reply.forbidden('Access denied to this studio')
     return false

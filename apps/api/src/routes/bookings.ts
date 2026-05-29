@@ -98,13 +98,17 @@ export async function bookingRoutes(app: FastifyInstance) {
           const now = new Date()
           const bookingWindowDays = session.studio?.bookingWindowDays ?? 30
           const bookingCloseHours = session.studio?.bookingCloseHours ?? 1
-          const windowOpen = new Date(now.getTime() - bookingWindowDays * 24 * 60 * 60 * 1000)
-          const closeTime = new Date(session.startsAt.getTime() - bookingCloseHours * 60 * 60 * 1000)
-          if (session.startsAt < windowOpen) {
+          // Block bookings too far in the future (beyond the booking window)
+          const windowClose = new Date(now.getTime() + bookingWindowDays * 24 * 60 * 60 * 1000)
+          if (session.startsAt > windowClose) {
             throw Object.assign(new Error(`Booking opens ${bookingWindowDays} days before the class`), { statusCode: 400 })
           }
-          if (now > closeTime) {
-            throw Object.assign(new Error(`Booking closed ${bookingCloseHours}h before class starts`), { statusCode: 400 })
+          // Block bookings too close to class start (within booking close window)
+          if (bookingCloseHours > 0) {
+            const closeTime = new Date(session.startsAt.getTime() - bookingCloseHours * 60 * 60 * 1000)
+            if (now > closeTime) {
+              throw Object.assign(new Error(`Booking closed ${bookingCloseHours}h before class starts`), { statusCode: 400 })
+            }
           }
         }
 

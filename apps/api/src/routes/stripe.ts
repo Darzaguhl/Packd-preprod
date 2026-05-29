@@ -202,36 +202,44 @@ export async function stripeRoutes(app: FastifyInstance) {
         stripePaymentIntentId = intent.id
       }
 
-      // Deduct credits if any credit items
-      await prisma.$transaction(async (tx) => {
-        if (totalCredits > 0) {
-          await tx.creditBalance.update({
-            where: { memberId },
-            data: { balance: { decrement: totalCredits } },
-          })
-          await tx.creditTransaction.create({
+      // Deduct credits if any credit items — if this fails, compensate by refunding the Stripe charge
+      try {
+        await prisma.$transaction(async (tx) => {
+          if (totalCredits > 0) {
+            await tx.creditBalance.update({
+              where: { memberId },
+              data: { balance: { decrement: totalCredits } },
+            })
+            await tx.creditTransaction.create({
+              data: {
+                memberId,
+                amount: -totalCredits,
+                type: 'PURCHASE',
+                note: `Products: ${items.map(i => i.name).join(', ')}`,
+              },
+            })
+          }
+          // Record the sale
+          await tx.productSale.create({
             data: {
               memberId,
-              amount: -totalCredits,
-              type: 'PURCHASE',
-              note: `Products: ${items.map(i => i.name).join(', ')}`,
+              studioId,
+              items,
+              totalCents,
+              totalCredits,
+              paymentMethod: totalCents > 0 ? 'card' : totalCredits > 0 ? 'credits' : 'free',
+              stripePaymentIntentId,
+              staffUserId: user.id,
             },
           })
-        }
-        // Record the sale
-        await tx.productSale.create({
-          data: {
-            memberId,
-            studioId,
-            items,
-            totalCents,
-            totalCredits,
-            paymentMethod: totalCents > 0 ? 'card' : totalCredits > 0 ? 'credits' : 'free',
-            stripePaymentIntentId,
-            staffUserId: user.id,
-          },
         })
-      })
+      } catch (dbErr) {
+        // DB write failed after card was charged — issue automatic refund to prevent silent charge
+        if (stripePaymentIntentId) {
+          await stripe().refunds.create({ payment_intent: stripePaymentIntentId }).catch(() => {})
+        }
+        throw dbErr
+      }
 
       return reply.send({ success: true, stripePaymentIntentId })
     },
@@ -295,8 +303,9 @@ export async function stripeRoutes(app: FastifyInstance) {
 
       const [plan, member] = await Promise.all([
         prisma.membershipPlan.findUniqueOrThrow({ where: { id: planId } }),
+        // Use memberId from metadata as authoritative source — not re-derived from userId
         prisma.member.findUniqueOrThrow({
-          where: { userId },
+          where: { id: memberId },
           include: { creditBalance: true },
         }),
       ])

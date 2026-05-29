@@ -271,7 +271,7 @@ export async function setupJobs() {
       where: {
         expiresAt: { lte: now },
         amount: { gt: 0 },
-        type: 'PURCHASE',
+        type: { in: ['PURCHASE', 'MEMBERSHIP_RENEWAL'] },
       },
       select: { id: true, memberId: true, amount: true },
     })
@@ -307,8 +307,8 @@ export async function setupJobs() {
         })
         // Mark the original transactions so they aren't double-counted on the next run
         await tx.creditTransaction.updateMany({
-          where: { memberId, expiresAt: { lte: now }, amount: { gt: 0 }, type: 'PURCHASE' },
-          data: { type: 'MANUAL_ADJUSTMENT' }, // reuse existing type as "processed"
+          where: { memberId, expiresAt: { lte: now }, amount: { gt: 0 }, type: { in: ['PURCHASE', 'MEMBERSHIP_RENEWAL'] } },
+          data: { type: 'EXPIRY_PROCESSED' },
         })
       })
     }
@@ -352,6 +352,10 @@ export async function setupJobs() {
   })
 
   console.log('pg-boss jobs registered')
+}
+
+export async function stopJobs() {
+  await boss?.stop()
 }
 
 export async function enqueueLateCancelCheck(bookingId: string, sessionStartsAt: Date) {

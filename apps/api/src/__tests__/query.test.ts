@@ -2,11 +2,22 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // ── Prisma mock ───────────────────────────────────────────────────────────────
 
-vi.mock('@packd/db', () => ({
-  prisma: {
-    $queryRawUnsafe: vi.fn(),
-  },
-}))
+vi.mock('@packd/db', () => {
+  const $executeRawUnsafe = vi.fn().mockResolvedValue(0)
+  const $queryRawUnsafe   = vi.fn()
+
+  return {
+    prisma: {
+      $executeRawUnsafe,
+      $queryRawUnsafe,
+      // The query endpoint now wraps execution in a $transaction to set statement_timeout.
+      // Proxy the transaction to a tx object that shares the same mock fns.
+      $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+        fn({ $executeRawUnsafe, $queryRawUnsafe }),
+      ),
+    },
+  }
+})
 
 // ── Auth mock — studio_admin by default ──────────────────────────────────────
 

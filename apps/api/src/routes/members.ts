@@ -322,10 +322,12 @@ export async function memberRoutes(app: FastifyInstance) {
       if (!studioId) return reply.badRequest('studioId is required')
 
       const user = getUser(request)
-      const member = await prisma.member.findUnique({ where: { userId: user.id }, select: { id: true } })
+      const member = await prisma.member.findUnique({ where: { userId: user.id }, select: { id: true, studioId: true } })
       if (!member) return reply.notFound('No member profile found for this user')
+      if (member.studioId !== studioId) return reply.forbidden('Access denied to this studio')
 
-      // All confirmed bookings in this studio (past)
+      // All confirmed bookings in this studio (past) — capped at 10k rows to prevent OOM
+      // on large studios. Rank is approximate beyond that cap.
       const allBookings = await prisma.booking.findMany({
         where: {
           status: 'CONFIRMED',
@@ -341,6 +343,8 @@ export async function memberRoutes(app: FastifyInstance) {
             },
           },
         },
+        take: 10000,
+        orderBy: { createdAt: 'desc' },
       })
 
       // Build per-member visit count

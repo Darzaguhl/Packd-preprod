@@ -508,6 +508,7 @@ model CreditTransaction {
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
   @@index([memberId])
+  @@index([expiresAt])  // speeds up the nightly credit expiry sweep
 }
 
 enum TransactionType {
@@ -519,6 +520,7 @@ enum TransactionType {
   MANUAL_ADJUSTMENT
   MEMBERSHIP_RENEWAL
   EXPIRY
+  EXPIRY_PROCESSED  // marks source PURCHASE rows consumed by the expiry sweep — prevents double-counting
 }
 
 model MembershipPlan {

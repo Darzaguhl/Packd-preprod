@@ -1059,7 +1059,7 @@ export const api = {
   },
   studios: {
     list: (token: string) =>
-      apiFetch<any[]>('/studios', { token }),
+      apiFetch<StudioSummary[]>('/studios', { token }),
     get: (studioId: string, token: string) =>
       apiFetch<StudioDetail>(`/studios/${studioId}`, { token }),
     update: (

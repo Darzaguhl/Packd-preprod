@@ -25,7 +25,7 @@ import { promoRoutes } from './routes/promos.js'
 import { icalRoutes } from './routes/ical.js'
 import { networkRoutes } from './routes/networks.js'
 import { brandRoutes } from './routes/brands.js'
-import { setupJobs } from './jobs/index.js'
+import { setupJobs, stopJobs } from './jobs/index.js'
 
 const app = Fastify({ logger: true })
 
@@ -93,3 +93,13 @@ await setupJobs()
 const port = Number(process.env.PORT ?? 4000)
 await app.listen({ port, host: '0.0.0.0' })
 console.log(`API running on http://localhost:${port}`)
+
+// Graceful shutdown — drain in-flight requests and pg-boss jobs before exit
+const shutdown = async (signal: string) => {
+  console.log(`[server] ${signal} received — shutting down gracefully`)
+  await app.close()
+  await stopJobs()
+  process.exit(0)
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT',  () => shutdown('SIGINT'))
