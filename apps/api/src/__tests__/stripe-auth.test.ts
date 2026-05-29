@@ -19,6 +19,7 @@ vi.mock('@packd/db', () => {
   const creditBalance = { findUnique: vi.fn(), upsert: vi.fn(), update: vi.fn() }
   const creditTransaction = { create: vi.fn() }
   const stripeEvent  = { create: vi.fn() }
+  const auditLog     = { create: vi.fn().mockResolvedValue({}) }
 
   return {
     prisma: {
@@ -27,6 +28,7 @@ vi.mock('@packd/db', () => {
       creditBalance,
       creditTransaction,
       stripeEvent,
+      auditLog,
       $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({ member, productSale, creditBalance, creditTransaction }),
       ),

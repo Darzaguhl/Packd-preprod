@@ -14,6 +14,8 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import sensible from '@fastify/sensible'
 import rateLimit from '@fastify/rate-limit'
+import swagger from '@fastify/swagger'
+import swaggerUi from '@fastify/swagger-ui'
 
 import { scheduleRoutes } from './routes/schedule.js'
 import { classScheduleRoutes } from './routes/schedules.js'
@@ -48,6 +50,28 @@ const app = Fastify({
   },
 })
 
+await app.register(swagger, {
+  openapi: {
+    openapi: '3.0.0',
+    info: {
+      title: 'Packd API',
+      description: 'Boutique fitness studio management API',
+      version: '1.0.0',
+    },
+    components: {
+      securitySchemes: {
+        bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+      },
+    },
+    security: [{ bearerAuth: [] }],
+  },
+})
+
+await app.register(swaggerUi, {
+  routePrefix: '/docs',
+  uiConfig: { docExpansion: 'list', deepLinking: true },
+})
+
 await app.register(cors, {
   origin: (process.env.CORS_ORIGIN ?? 'http://localhost:3000').split(','),
   credentials: true,
@@ -56,7 +80,7 @@ await app.register(cors, {
 await app.register(sensible)
 
 // Forward unhandled errors to Sentry (4xx are excluded — not application bugs)
-app.setErrorHandler((error, _request, reply) => {
+app.setErrorHandler((error: Error & { statusCode?: number }, _request, reply) => {
   if (process.env.SENTRY_DSN && (!error.statusCode || error.statusCode >= 500)) {
     Sentry.captureException(error)
   }

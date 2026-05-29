@@ -4,6 +4,7 @@ import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
 import { sendWelcome } from '../lib/email.js'
 import { ROLE_RANK } from '@packd/types'
+import { audit, AUDIT } from '../lib/audit.js'
 
 // Lazy-init so tests without STRIPE_SECRET_KEY don't blow up at import time
 let _stripe: Stripe | null = null
@@ -482,6 +483,61 @@ export async function stripeRoutes(app: FastifyInstance) {
     return { received: true }
   })
 
+  // POST /stripe/replay/:eventId — re-process a Stripe event (studio_admin+)
+  // Useful when a webhook was missed or the handler threw and the event was deduped.
+  // Deletes the StripeEvent idempotency record so the handler runs again.
+  app.post<{ Params: { eventId: string } }>(
+    '/replay/:eventId',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const user = getUser(request)
+      if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['studio_admin']) {
+        return reply.forbidden()
+      }
+      const { eventId } = request.params
+
+      // Fetch the event from Stripe
+      let event: Stripe.Event
+      try {
+        event = await stripe().events.retrieve(eventId)
+      } catch {
+        return reply.notFound(`Stripe event ${eventId} not found`)
+      }
+
+      // Remove the idempotency record so the webhook handler will process it
+      await prisma.stripeEvent.deleteMany({ where: { id: eventId } })
+
+      // Re-inject into the webhook endpoint via Fastify's inject
+      const payload = JSON.stringify(event)
+      const sig = stripe().webhooks.generateTestHeaderString({
+        payload,
+        secret: process.env.STRIPE_WEBHOOK_SECRET!,
+      })
+
+      const result = await (request.server as typeof request.server).inject({
+        method: 'POST',
+        url: '/stripe/webhook',
+        payload,
+        headers: { 'content-type': 'application/json', 'stripe-signature': sig },
+      })
+
+      audit({
+        actorId: user.id,
+        actorRole: user.role,
+        action: AUDIT.STRIPE_REPLAY,
+        targetId: eventId,
+        meta: { eventType: event.type, webhookStatus: result.statusCode },
+      })
+
+      return reply.send({
+        replayed: true,
+        eventId,
+        eventType: event.type,
+        webhookStatus: result.statusCode,
+      })
+    },
+  )
+
   // POST /stripe/refund — refund a product sale (fronthost+)
   app.post<{
     Body: { saleId: string; amountCents?: number }
@@ -515,6 +571,15 @@ export async function stripeRoutes(app: FastifyInstance) {
           refundedCents: refundCents,
           stripeRefundId: refund.id,
         },
+      })
+
+      audit({
+        actorId: user.id,
+        actorRole: user.role,
+        action: AUDIT.REFUND_ISSUE,
+        targetId: saleId,
+        studioId: sale.studioId ?? undefined,
+        meta: { refundId: refund.id, refundedCents: refundCents, memberId: sale.memberId },
       })
 
       return reply.send({ success: true, refundId: refund.id, refundedCents: refundCents })

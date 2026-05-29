@@ -632,6 +632,23 @@ model StripeEvent {
   processedAt DateTime @default(now())
 }
 
+// ─── Audit log ───────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String   // Supabase userId of who performed the action
+  actorRole String
+  action    String   // e.g. 'credit.adjust', 'booking.cancel', 'refund.issue'
+  targetId  String?  // ID of the affected resource (memberId, saleId, etc.)
+  meta      Json?    // extra context (amount, reason, old/new values)
+  studioId  String?
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([studioId, createdAt])
+  @@index([targetId])
+}
+
 // ─── Member notes (staff-authored, audited) ───────────────────────────────────
 
 model MemberNote {

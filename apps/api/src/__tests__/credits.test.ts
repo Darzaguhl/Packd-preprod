@@ -8,6 +8,7 @@ vi.mock('@packd/db', () => {
       member: { findUnique: vi.fn() },
       creditBalance,
       creditTransaction,
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
       $transaction: vi.fn(async (arr: unknown[]) => Promise.all(arr)),
     },
   }
