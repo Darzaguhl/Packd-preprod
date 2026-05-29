@@ -124,6 +124,10 @@ export interface MembershipPlan {
   intervalMonths: number
   creditsPerCycle: number | null
   guestPassesPerCycle: number
+  creditExpiryDays?: number | null
+  isIntroOffer?: boolean
+  maxRedemptionsPerMember?: number
+  memberRedemptions?: number   // set by GET /memberships/plans/member — how many times this member has used it
   stripePriceId?: string | null
   activeSubscriptions?: number
 }
@@ -429,6 +433,7 @@ export interface StaffMember {
   staffRoles: string[]   // e.g. ['fronthost'] | ['instructor'] | ['fronthost','instructor']
   joinedAt: string
   instructorId: string | null  // Instructor record id for this studio (null for fronthost-only)
+  payRatePerHeadCents?: number | null
 }
 
 export interface AdminBooking {
@@ -459,8 +464,9 @@ export interface PastBooking {
 export interface CreditTransaction {
   id: string
   amount: number
-  type: 'PURCHASE' | 'CLASS_DEBIT' | 'REFUND' | 'LATE_CANCEL_FEE' | 'NO_SHOW_FEE' | 'MANUAL_ADJUSTMENT'
+  type: 'PURCHASE' | 'CLASS_DEBIT' | 'REFUND' | 'LATE_CANCEL_FEE' | 'NO_SHOW_FEE' | 'MANUAL_ADJUSTMENT' | 'MEMBERSHIP_RENEWAL' | 'EXPIRY'
   note: string | null
+  expiresAt?: string | null
   createdAt: string
 }
 
@@ -818,7 +824,7 @@ export const api = {
       apiFetch<GuestPassEntry[]>(`/admin/members/${memberId}/guest-passes`, { token }),
     memberPurchases: (memberId: string, token: string, studioId?: string) =>
       apiFetch<ProductSale[]>(`/admin/members/${memberId}/purchases${studioId ? `?studioId=${studioId}` : ''}`, { token }),
-    exportCsv: async (type: 'members' | 'attendance' | 'revenue', studioId: string, token: string, params?: { from?: string; to?: string }) => {
+    exportCsv: async (type: 'members' | 'attendance' | 'revenue' | 'instructor-pay', studioId: string, token: string, params?: { from?: string; to?: string }) => {
       const qs = new URLSearchParams({ studioId })
       if (params?.from) qs.set('from', params.from)
       if (params?.to) qs.set('to', params.to)
@@ -1020,6 +1026,12 @@ export const api = {
       apiFetch<{ success: boolean; message: string }>('/staff/invite', {
         method: 'POST',
         body: JSON.stringify({ email, firstName, role, studioId }),
+        token,
+      }),
+    updateInstructorPayRate: (instructorId: string, payRatePerHeadCents: number | null, token: string) =>
+      apiFetch<{ success: boolean }>(`/staff/instructors/${instructorId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ payRatePerHeadCents }),
         token,
       }),
   },

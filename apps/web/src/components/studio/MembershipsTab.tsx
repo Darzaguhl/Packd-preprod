@@ -33,7 +33,7 @@ function addMonths(date: string, months: number) {
   return d.toISOString().split('T')[0]
 }
 
-const BLANK_PLAN = { name: '', description: '', priceInCents: 0, intervalMonths: 1, creditsPerCycle: 10 as number | null, guestPassesPerCycle: 0 }
+const BLANK_PLAN = { name: '', description: '', priceInCents: 0, intervalMonths: 1, creditsPerCycle: 10 as number | null, guestPassesPerCycle: 0, creditExpiryDays: null as number | null, isIntroOffer: false, maxRedemptionsPerMember: 1 }
 
 export default function MembershipsTab({ studioId, token, currency = 'USD' }: Props) {
   const [tab, setTab] = useState<'plans' | 'subscriptions'>('plans')
@@ -107,6 +107,9 @@ export default function MembershipsTab({ studioId, token, currency = 'USD' }: Pr
       intervalMonths: plan.intervalMonths,
       creditsPerCycle: plan.creditsPerCycle,
       guestPassesPerCycle: plan.guestPassesPerCycle ?? 0,
+      creditExpiryDays: plan.creditExpiryDays ?? null,
+      isIntroOffer: plan.isIntroOffer ?? false,
+      maxRedemptionsPerMember: plan.maxRedemptionsPerMember ?? 1,
     })
     setShowPlanForm(true)
   }
@@ -327,6 +330,42 @@ export default function MembershipsTab({ studioId, token, currency = 'USD' }: Pr
                     onChange={e => setPlanForm(f => ({ ...f, guestPassesPerCycle: parseInt(e.target.value) || 0 }))}
                     placeholder="0"
                   />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Credit expiry (days)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
+                    value={planForm.creditExpiryDays ?? ''}
+                    onChange={e => setPlanForm(f => ({ ...f, creditExpiryDays: e.target.value ? parseInt(e.target.value) : null }))}
+                    placeholder="Never expire"
+                  />
+                </div>
+                <div className="flex flex-col justify-end gap-2">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={planForm.isIntroOffer}
+                      onChange={e => setPlanForm(f => ({ ...f, isIntroOffer: e.target.checked }))}
+                      className="rounded"
+                    />
+                    <span className="text-sm text-gray-700">Intro offer</span>
+                  </label>
+                  {planForm.isIntroOffer && (
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Max uses per member</label>
+                      <input
+                        type="number"
+                        min="1"
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
+                        value={planForm.maxRedemptionsPerMember}
+                        onChange={e => setPlanForm(f => ({ ...f, maxRedemptionsPerMember: parseInt(e.target.value) || 1 }))}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex gap-2 pt-1">

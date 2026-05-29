@@ -17,12 +17,40 @@ export async function membershipRoutes(app: FastifyInstance) {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
 
+      const user = getUser(request)
+      const member = await prisma.member.findFirst({
+        where: { userId: user.id, studioId },
+        select: { id: true },
+      })
+
       const plans = await prisma.membershipPlan.findMany({
         where: { studioId },
         orderBy: { priceInCents: 'asc' },
-        select: { id: true, name: true, description: true, priceInCents: true, intervalMonths: true, creditsPerCycle: true, stripePriceId: true },
+        select: {
+          id: true, name: true, description: true, priceInCents: true,
+          intervalMonths: true, creditsPerCycle: true, stripePriceId: true,
+          creditExpiryDays: true, isIntroOffer: true, maxRedemptionsPerMember: true,
+        },
       })
-      return reply.send(plans)
+
+      // For intro offers, attach whether the calling member has already used them
+      if (member) {
+        const introIds = plans.filter(p => p.isIntroOffer).map(p => p.id)
+        if (introIds.length > 0) {
+          const used = await prisma.membershipSubscription.groupBy({
+            by: ['planId'],
+            where: { memberId: member.id, planId: { in: introIds } },
+            _count: true,
+          })
+          const usedMap = new Map(used.map(u => [u.planId, u._count]))
+          return reply.send(plans.map(p => ({
+            ...p,
+            memberRedemptions: usedMap.get(p.id) ?? 0,
+          })))
+        }
+      }
+
+      return reply.send(plans.map(p => ({ ...p, memberRedemptions: 0 })))
     },
   )
 
@@ -47,6 +75,16 @@ export async function membershipRoutes(app: FastifyInstance) {
           error: 'This plan requires payment. Use the checkout flow.',
           code: 'PAYMENT_REQUIRED',
         })
+      }
+
+      // Intro offer guard — check how many times this member has already used this plan
+      if (plan.isIntroOffer) {
+        const timesUsed = await prisma.membershipSubscription.count({
+          where: { memberId: member.id, planId: plan.id },
+        })
+        if (timesUsed >= plan.maxRedemptionsPerMember) {
+          return reply.code(422).send({ error: 'You have already used this intro offer.' })
+        }
       }
 
       const start = new Date()

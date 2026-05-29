@@ -403,7 +403,7 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
           {/* CSV export buttons */}
           {isPerStudio && (
             <div className="flex gap-1">
-              {(['members', 'attendance', 'revenue'] as const).map(type => (
+              {(['members', 'attendance', 'revenue', 'instructor-pay'] as const).map(type => (
                 <button
                   key={type}
                   onClick={() => api.admin.exportCsv(type, selectedStudio, token).catch(() => alert('Export failed'))}
@@ -413,7 +413,7 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
                   <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
                     <path d="M6 1v7M3 5l3 3 3-3M2 10h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
-                  {type.charAt(0).toUpperCase() + type.slice(1)}
+                  {type === 'instructor-pay' ? 'Instructor Pay' : type.charAt(0).toUpperCase() + type.slice(1)}
                 </button>
               ))}
             </div>

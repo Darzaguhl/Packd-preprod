@@ -42,6 +42,7 @@ const TX_CONFIG: Record<string, { label: string; color: string }> = {
   NO_SHOW_FEE:      { label: 'No-show fee',     color: 'text-red-600' },
   MANUAL_ADJUSTMENT:{ label: 'Adjustment',       color: 'text-gray-700' },
   MEMBERSHIP_RENEWAL:{ label: 'Membership',      color: 'text-emerald-600' },
+  EXPIRY:            { label: 'Credits expired', color: 'text-red-500' },
 }
 
 type Tab = 'upcoming' | 'history' | 'credits'
@@ -95,33 +96,48 @@ function PlanCard({
           {plan.creditsPerCycle} credits per {intervalLabel}
         </p>
       )}
-      {!isCurrent && (
-        <div className="mt-auto flex flex-col gap-2">
-          {plan.priceInCents > 0 ? (
-            // Paid plan — must go through Stripe
-            onBuy && plan.stripePriceId ? (
+      {plan.isIntroOffer && (
+        <span className="inline-flex w-fit text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+          Intro offer
+        </span>
+      )}
+      {plan.creditExpiryDays && (
+        <p className={`text-xs ${isCurrent ? 'text-gray-300' : 'text-gray-400'}`}>
+          Credits expire in {plan.creditExpiryDays} days
+        </p>
+      )}
+      {!isCurrent && (() => {
+        const introUsed = plan.isIntroOffer && (plan.memberRedemptions ?? 0) >= (plan.maxRedemptionsPerMember ?? 1)
+        return (
+          <div className="mt-auto flex flex-col gap-2">
+            {introUsed ? (
+              <p className="text-xs text-gray-400 text-center italic">Already redeemed</p>
+            ) : plan.priceInCents > 0 ? (
+              // Paid plan — must go through Stripe
+              onBuy && plan.stripePriceId ? (
+                <button
+                  onClick={() => onBuy(plan.id)}
+                  disabled={subscribing}
+                  className="w-full py-2 rounded-xl text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                >
+                  {subscribing ? '…' : 'Buy online'}
+                </button>
+              ) : (
+                <p className="text-xs text-gray-400 text-center">Contact your studio to subscribe</p>
+              )
+            ) : (
+              // Free plan — direct subscribe
               <button
-                onClick={() => onBuy(plan.id)}
+                onClick={() => onSelect(plan.id)}
                 disabled={subscribing}
                 className="w-full py-2 rounded-xl text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-50 transition-colors"
               >
-                {subscribing ? '…' : 'Buy online'}
+                {subscribing ? 'Activating…' : hasActivePlan ? 'Switch to this plan' : 'Subscribe'}
               </button>
-            ) : (
-              <p className="text-xs text-gray-400 text-center">Contact your studio to subscribe</p>
-            )
-          ) : (
-            // Free plan — direct subscribe
-            <button
-              onClick={() => onSelect(plan.id)}
-              disabled={subscribing}
-              className="w-full py-2 rounded-xl text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-50 transition-colors"
-            >
-              {subscribing ? 'Activating…' : hasActivePlan ? 'Switch to this plan' : 'Subscribe'}
-            </button>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )
+      })()}
     </div>
   )
 }
@@ -490,13 +506,38 @@ export default function MemberHistoryView({
       )}
 
       {tab === 'credits' && (
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-          {transactions.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-10">No credit transactions yet</p>
-          ) : (
-            transactions.map(t => <TransactionRow key={t.id} tx={t} />)
-          )}
-        </div>
+        <>
+          {/* Expiry warning — show if any credits expire within 30 days */}
+          {(() => {
+            const soon = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+            const expiring = transactions.filter(
+              t => t.expiresAt && t.amount > 0 && new Date(t.expiresAt) <= soon && new Date(t.expiresAt) > new Date()
+            )
+            if (expiring.length === 0) return null
+            const earliest = expiring.reduce((a, b) =>
+              new Date(a.expiresAt!) < new Date(b.expiresAt!) ? a : b
+            )
+            const daysLeft = Math.ceil((new Date(earliest.expiresAt!).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+            return (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-sm text-amber-800 flex items-center gap-2">
+                <span>⏳</span>
+                <span>
+                  {earliest.amount} credit{earliest.amount !== 1 ? 's' : ''} expire{earliest.amount === 1 ? 's' : ''} in{' '}
+                  <strong>{daysLeft} day{daysLeft !== 1 ? 's' : ''}</strong>
+                  {expiring.length > 1 ? ` (+${expiring.length - 1} more batch${expiring.length > 2 ? 'es' : ''})` : ''}.
+                  Use them before they&apos;re gone.
+                </span>
+              </div>
+            )
+          })()}
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            {transactions.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-10">No credit transactions yet</p>
+            ) : (
+              transactions.map(t => <TransactionRow key={t.id} tx={t} />)
+            )}
+          </div>
+        </>
       )}
 
       {/* Cancel membership confirmation */}

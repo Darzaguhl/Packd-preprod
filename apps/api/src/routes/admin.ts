@@ -1653,6 +1653,86 @@ export async function adminRoutes(app: FastifyInstance) {
       return reply.send(toCsv(headers, rows))
     },
   )
+
+  // GET /admin/export/instructor-pay?studioId=&from=&to= — instructor pay report CSV (studio_admin+)
+  app.get<{ Querystring: { studioId: string; from?: string; to?: string } }>(
+    '/export/instructor-pay',
+    { preHandler: requireStudioAdmin },
+    async (request, reply) => {
+      const { studioId, from, to } = request.query
+      if (!studioId) return reply.badRequest('studioId is required')
+      assertStudioAccess(studioId, request, reply)
+
+      const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+      const toDate   = to   ? new Date(to)   : new Date()
+
+      const sessions = await prisma.classSession.findMany({
+        where: {
+          studioId,
+          status: { not: 'CANCELLED' },
+          startsAt: { gte: fromDate, lte: toDate },
+        },
+        include: {
+          instructor: {
+            include: { user: { select: { firstName: true, lastName: true } } },
+          },
+          substitute: {
+            include: { user: { select: { firstName: true, lastName: true } } },
+          },
+          bookings: { select: { status: true, checkedIn: true } },
+        },
+        orderBy: { startsAt: 'asc' },
+      })
+
+      // Aggregate per instructor (primary) — substitute sessions counted separately
+      type InstructorRow = {
+        name: string
+        sessions: number
+        totalAttendees: number
+        checkedIn: number
+        payRatePerHeadCents: number | null
+      }
+      const byInstructor = new Map<string, InstructorRow>()
+
+      for (const s of sessions) {
+        const instr = s.instructor
+        if (!instr) continue
+        const name = `${instr.user.firstName} ${instr.user.lastName}`
+        if (!byInstructor.has(instr.id)) {
+          byInstructor.set(instr.id, {
+            name,
+            sessions: 0,
+            totalAttendees: 0,
+            checkedIn: 0,
+            payRatePerHeadCents: instr.payRatePerHeadCents ?? null,
+          })
+        }
+        const row = byInstructor.get(instr.id)!
+        const confirmed = s.bookings.filter(b => b.status === 'CONFIRMED' || b.status === 'NO_SHOW' || b.checkedIn)
+        row.sessions++
+        row.totalAttendees += confirmed.length
+        row.checkedIn += s.bookings.filter(b => b.checkedIn).length
+      }
+
+      const headers = ['Instructor', 'Sessions', 'Total Bookings', 'Checked In', 'Rate/Head ($)', 'Est. Pay ($)']
+      const rows = [...byInstructor.values()].map(r => {
+        const rate = r.payRatePerHeadCents != null ? r.payRatePerHeadCents / 100 : null
+        const pay  = rate != null ? (rate * r.checkedIn).toFixed(2) : 'N/A'
+        return [
+          r.name,
+          r.sessions,
+          r.totalAttendees,
+          r.checkedIn,
+          rate != null ? rate.toFixed(2) : 'Not set',
+          pay,
+        ]
+      })
+
+      reply.header('Content-Type', 'text/csv')
+      reply.header('Content-Disposition', 'attachment; filename="instructor-pay.csv"')
+      return reply.send(toCsv(headers, rows))
+    },
+  )
 }
 
 /**

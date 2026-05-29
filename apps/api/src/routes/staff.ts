@@ -60,7 +60,7 @@ export async function staffRoutes(app: FastifyInstance) {
           user: {
             select: {
               firstName: true, lastName: true, email: true,
-              instructors: { where: { studioId }, select: { id: true } },
+              instructors: { where: { studioId }, select: { id: true, payRatePerHeadCents: true } },
             },
           },
         },
@@ -75,6 +75,7 @@ export async function staffRoutes(app: FastifyInstance) {
         staffRoles: s.staffRoles,
         joinedAt: s.joinedAt.toISOString(),
         instructorId: s.user.instructors[0]?.id ?? null,
+        payRatePerHeadCents: s.user.instructors[0]?.payRatePerHeadCents ?? null,
       }))
     },
   )
@@ -256,6 +257,37 @@ export async function staffRoutes(app: FastifyInstance) {
       })
 
       return reply.send({ success: true, message: `Invitation sent to ${email}` })
+    },
+  )
+
+  // PATCH /staff/instructors/:instructorId — update instructor pay rate (studio_admin+)
+  app.patch<{
+    Params: { instructorId: string }
+    Body: { payRatePerHeadCents?: number | null }
+  }>(
+    '/instructors/:instructorId',
+    { preHandler: requireStudioAdmin },
+    async (request, reply) => {
+      const { instructorId } = request.params
+      const { payRatePerHeadCents } = request.body
+      const user = getUser(request)
+
+      const instructor = await prisma.instructor.findUnique({
+        where: { id: instructorId },
+        select: { studioId: true },
+      })
+      if (!instructor) return reply.notFound()
+
+      const hasAccess = await assertStudioAccess(user.id, user.role, instructor.studioId, user.studioIds)
+      if (!hasAccess) return reply.forbidden()
+
+      const updated = await prisma.instructor.update({
+        where: { id: instructorId },
+        data: { payRatePerHeadCents: payRatePerHeadCents ?? null },
+        select: { id: true, payRatePerHeadCents: true },
+      })
+
+      return reply.send({ success: true, instructor: updated })
     },
   )
 }

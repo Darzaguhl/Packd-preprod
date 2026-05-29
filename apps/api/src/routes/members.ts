@@ -207,6 +207,7 @@ export async function memberRoutes(app: FastifyInstance) {
         amount: t.amount,
         type: t.type,
         note: t.note ?? null,
+        expiresAt: t.expiresAt?.toISOString() ?? null,
         createdAt: t.createdAt.toISOString(),
       })),
     })

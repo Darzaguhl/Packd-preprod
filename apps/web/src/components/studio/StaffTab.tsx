@@ -345,17 +345,20 @@ export default function StaffTab({ studioId, token, onOpenPermissions }: Props) 
                   {member.staffRoles.includes('instructor') && (
                     <div className="flex items-center gap-2 shrink-0">
                       {member.instructorId && (
-                        <button
-                          onClick={() => setPhotoMember(photoMember?.id === member.id ? null : member)}
-                          className={`text-xs font-medium transition-colors shrink-0 ${
-                            photoMember?.id === member.id
-                              ? 'text-violet-600'
-                              : 'text-gray-400 hover:text-violet-600'
-                          }`}
-                          title="Manage photo repository"
-                        >
-                          Photos
-                        </button>
+                        <>
+                          <PayRateInput member={member} token={token} onSaved={load} />
+                          <button
+                            onClick={() => setPhotoMember(photoMember?.id === member.id ? null : member)}
+                            className={`text-xs font-medium transition-colors shrink-0 ${
+                              photoMember?.id === member.id
+                                ? 'text-violet-600'
+                                : 'text-gray-400 hover:text-violet-600'
+                            }`}
+                            title="Manage photo repository"
+                          >
+                            Photos
+                          </button>
+                        </>
                       )}
                       {onOpenPermissions && (
                         <button
@@ -404,6 +407,77 @@ export default function StaffTab({ studioId, token, onOpenPermissions }: Props) 
           <PhotosTab instructorId={photoMember.instructorId} token={token} isManager={true} />
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Pay rate inline editor ────────────────────────────────────────────────────
+
+function PayRateInput({
+  member,
+  token,
+  onSaved,
+}: {
+  member: StaffMember
+  token: string
+  onSaved: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(
+    member.payRatePerHeadCents != null ? (member.payRatePerHeadCents / 100).toFixed(2) : '',
+  )
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    if (!member.instructorId) return
+    setSaving(true)
+    try {
+      const cents = value.trim() === '' ? null : Math.round(parseFloat(value) * 100)
+      await api.staff.updateInstructorPayRate(member.instructorId, cents, token)
+      onSaved()
+      setEditing(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        className="text-xs text-gray-400 hover:text-violet-600 transition-colors shrink-0"
+        title="Set pay rate per head"
+      >
+        {member.payRatePerHeadCents != null
+          ? `$${(member.payRatePerHeadCents / 100).toFixed(2)}/head`
+          : 'Pay rate'}
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1 shrink-0">
+      <span className="text-xs text-gray-400">$</span>
+      <input
+        type="number"
+        min="0"
+        step="0.01"
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setEditing(false) }}
+        className="w-16 text-xs border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-violet-400"
+        placeholder="0.00"
+        autoFocus
+      />
+      <span className="text-xs text-gray-400">/head</span>
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        className="text-xs text-violet-600 hover:text-violet-800 disabled:opacity-50"
+      >
+        {saving ? '…' : 'Save'}
+      </button>
+      <button onClick={() => setEditing(false)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
     </div>
   )
 }

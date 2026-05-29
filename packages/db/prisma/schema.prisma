@@ -227,13 +227,14 @@ model Station {
 // ─── Instructors ─────────────────────────────────────────────────────────────
 
 model Instructor {
-  id          String  @id @default(cuid())
-  userId      String
-  studioId    String
-  bio         String?
-  photoUrl    String?
-  permissions Json    @default("{}")
-  externalId  String? // e.g. Mariana Tek instructor ID
+  id                 String  @id @default(cuid())
+  userId             String
+  studioId           String
+  bio                String?
+  photoUrl           String?
+  permissions        Json    @default("{}")
+  externalId         String? // e.g. Mariana Tek instructor ID
+  payRatePerHeadCents Int?   // cents paid per confirmed checked-in attendee
 
   user               User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   studio             Studio         @relation(fields: [studioId], references: [id], onDelete: Cascade)
@@ -486,6 +487,7 @@ model CreditTransaction {
   amount    Int             // positive = credit, negative = debit
   type      TransactionType
   note      String?
+  expiresAt DateTime?       // set when credits come from a plan with creditExpiryDays
   createdAt DateTime        @default(now())
 
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
@@ -511,8 +513,11 @@ model MembershipPlan {
   description    String?
   priceInCents   Int
   intervalMonths Int     @default(1)
-  creditsPerCycle    Int?   // null = unlimited
+  creditsPerCycle     Int?   // null = unlimited
   guestPassesPerCycle Int   @default(0)
+  creditExpiryDays    Int?   // credits granted expire N days after grant; null = never expire
+  isIntroOffer        Boolean @default(false) // can only be redeemed once per member
+  maxRedemptionsPerMember Int @default(1)     // how many times a member can subscribe to this plan
   stripeProductId String?
   stripePriceId   String?
 

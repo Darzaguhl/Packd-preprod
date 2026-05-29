@@ -46,6 +46,16 @@ export async function stripeRoutes(app: FastifyInstance) {
         prisma.user.findUniqueOrThrow({ where: { id: user.id } }),
       ])
 
+      // Intro offer guard — prevent re-purchase beyond maxRedemptionsPerMember
+      if (plan.isIntroOffer) {
+        const timesUsed = await prisma.membershipSubscription.count({
+          where: { memberId: member.id, planId: plan.id },
+        })
+        if (timesUsed >= plan.maxRedemptionsPerMember) {
+          return reply.code(422).send({ error: 'You have already used this intro offer.' })
+        }
+      }
+
       // Ensure Stripe customer exists so card is saved for future purchases
       const customerId = await ensureStripeCustomer(
         member.id,
@@ -297,6 +307,9 @@ export async function stripeRoutes(app: FastifyInstance) {
       await prisma.$transaction(async (tx) => {
         // Add credits if pack-based
         if (plan.creditsPerCycle) {
+          const expiresAt = plan.creditExpiryDays
+            ? new Date(Date.now() + plan.creditExpiryDays * 24 * 60 * 60 * 1000)
+            : null
           await tx.creditBalance.upsert({
             where: { memberId: member.id },
             create: { memberId: member.id, balance: plan.creditsPerCycle },
@@ -308,6 +321,7 @@ export async function stripeRoutes(app: FastifyInstance) {
               amount: plan.creditsPerCycle,
               type: 'PURCHASE',
               note: `Purchased: ${plan.name}`,
+              ...(expiresAt && { expiresAt }),
             },
           })
         }
@@ -379,6 +393,9 @@ export async function stripeRoutes(app: FastifyInstance) {
           data: { status: 'ACTIVE' },
         })
 
+        const renewalExpiresAt = plan.creditExpiryDays
+          ? new Date(Date.now() + plan.creditExpiryDays * 24 * 60 * 60 * 1000)
+          : null
         await prisma.creditBalance.upsert({
           where: { memberId: member.id },
           create: { memberId: member.id, balance: plan.creditsPerCycle },
@@ -390,6 +407,7 @@ export async function stripeRoutes(app: FastifyInstance) {
             amount: plan.creditsPerCycle,
             type: 'MEMBERSHIP_RENEWAL',
             note: `Renewal: ${plan.name}`,
+            ...(renewalExpiresAt && { expiresAt: renewalExpiresAt }),
           },
         })
       }

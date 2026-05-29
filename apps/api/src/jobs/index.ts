@@ -23,6 +23,7 @@ export async function setupJobs() {
     'session.reminder',
     'nightly.maintenance',
     'membership.renewal-reminder',
+    'credit.expiry-sweep',
   ]) {
     await boss.createQueue(name)
   }
@@ -253,6 +254,61 @@ export async function setupJobs() {
     })
     for (const sub of expiring) {
       await boss.send('membership.renewal-reminder', { subscriptionId: sub.id })
+    }
+
+    // Enqueue credit expiry sweep
+    await boss.send('credit.expiry-sweep', {})
+  })
+
+  // Credit expiry sweep — deduct expired credits from balances
+  await boss.work('credit.expiry-sweep', async () => {
+    const now = new Date()
+
+    // Find all positive credit transactions that have expired and haven't been offset yet
+    const expired = await prisma.creditTransaction.findMany({
+      where: {
+        expiresAt: { lte: now },
+        amount: { gt: 0 },
+        type: 'PURCHASE',
+      },
+      select: { id: true, memberId: true, amount: true },
+    })
+
+    // Group by member — sum up what needs to be deducted
+    const byMember = new Map<string, number>()
+    for (const tx of expired) {
+      byMember.set(tx.memberId, (byMember.get(tx.memberId) ?? 0) + tx.amount)
+    }
+
+    if (byMember.size === 0) return
+
+    for (const [memberId, totalExpired] of byMember) {
+      await prisma.$transaction(async (tx) => {
+        const balance = await tx.creditBalance.findUnique({
+          where: { memberId },
+          select: { balance: true },
+        })
+        if (!balance || balance.balance <= 0) return
+
+        const deduct = Math.min(totalExpired, balance.balance)
+        await tx.creditBalance.update({
+          where: { memberId },
+          data: { balance: { decrement: deduct } },
+        })
+        await tx.creditTransaction.create({
+          data: {
+            memberId,
+            amount: -deduct,
+            type: 'EXPIRY',
+            note: `${deduct} credit${deduct !== 1 ? 's' : ''} expired`,
+          },
+        })
+        // Mark the original transactions so they aren't double-counted on the next run
+        await tx.creditTransaction.updateMany({
+          where: { memberId, expiresAt: { lte: now }, amount: { gt: 0 }, type: 'PURCHASE' },
+          data: { type: 'MANUAL_ADJUSTMENT' }, // reuse existing type as "processed"
+        })
+      })
     }
   })
 
