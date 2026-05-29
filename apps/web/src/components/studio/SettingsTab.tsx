@@ -55,7 +55,10 @@ interface Props {
   onStudioUpdate?: (data: { name: string; timezone: string; currency: string; timeFormat: string }) => void
 }
 
+type SettingsPanel = 'general' | 'policies' | 'features'
+
 export default function SettingsTab({ studioId, token, onNameChange, onStudioUpdate }: Props) {
+  const [panel, setPanel] = useState<SettingsPanel>('general')
   const [studio, setStudio] = useState<StudioDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -254,14 +257,34 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
     )
   }
 
+  const TAB_LABELS: { id: SettingsPanel; label: string }[] = [
+    { id: 'general',  label: 'General'  },
+    { id: 'policies', label: 'Policies' },
+    { id: 'features', label: 'Features' },
+  ]
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-2xl">
 
-      {/* ── Two-column grid ────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+      {/* Tab strip */}
+      <div className="flex gap-1 border-b border-gray-100">
+        {TAB_LABELS.map(({ id, label }) => (
+          <button
+            key={id}
+            onClick={() => setPanel(id)}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              panel === id
+                ? 'border-gray-900 text-gray-900'
+                : 'border-transparent text-gray-400 hover:text-gray-700'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-        {/* ── LEFT: Identity ─────────────────────────────────────────── */}
-        <div className="space-y-6">
+      {/* ── GENERAL ────────────────────────────────────────────────────── */}
+      {panel === 'general' && <div className="space-y-6">
 
           {/* Studio identity */}
           <section className="space-y-3">
@@ -399,257 +422,191 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
             </section>
           )}
 
-        </div>{/* end left col */}
-
-        {/* ── RIGHT: Operations ──────────────────────────────────────── */}
-        <div className="space-y-6">
-
-          {/* Booking policy */}
-          <section className="space-y-3">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Booking policy</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-gray-500 font-medium">Booking window (days)</label>
-                <p className="text-[10px] text-gray-400 mb-1">How far in advance members can book</p>
-                <input
-                  type="number"
-                  min="1"
-                  max="365"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
-                  value={bookingWindowDays}
-                  onChange={e => setBookingWindowDays(parseInt(e.target.value) || 30)}
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 font-medium">Booking close (hrs before)</label>
-                <p className="text-[10px] text-gray-400 mb-1">Locks N hours before class starts</p>
-                <input
-                  type="number"
-                  min="0"
-                  max="72"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
-                  value={bookingCloseHours}
-                  onChange={e => setBookingCloseHours(parseInt(e.target.value) || 0)}
-                />
-              </div>
-            </div>
-          </section>
-
-          {/* Feature toggles */}
-          <section className="space-y-3">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Features</h3>
-            <div className="space-y-1">
-              {([
-                { label: 'Waitlist', description: 'Members can join when class is full', value: waitlistEnabled, set: setWaitlistEnabled },
-                { label: 'Guest check-in', description: 'Staff can check in guests with guest passes', value: guestCheckInEnabled, set: setGuestCheckInEnabled },
-                { label: 'Online credit purchase', description: 'Members can buy plans via Stripe', value: creditPurchaseEnabled, set: setCreditPurchaseEnabled },
-                { label: 'Member self check-in', description: 'Members check in from their account page', value: selfCheckInEnabled, set: setSelfCheckInEnabled },
-              ] as const).map(({ label, description, value, set }) => (
-                <label key={label} className="flex items-center gap-3 cursor-pointer select-none px-2 py-2 rounded-lg hover:bg-gray-50 transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={value}
-                    onChange={e => (set as (v: boolean) => void)(e.target.checked)}
-                    className="rounded"
-                  />
-                  <span>
-                    <span className="text-sm font-medium text-gray-900">{label}</span>
-                    <span className="text-xs text-gray-400 ml-2">{description}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </section>
-
-          {/* Class reminder */}
-          <section className="space-y-3">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Class reminder email</h3>
-            <label className="flex items-center gap-3 cursor-pointer select-none px-2 py-2 rounded-lg hover:bg-gray-50 transition-colors">
-              <input
-                type="checkbox"
-                checked={classReminderEnabled}
-                onChange={e => setClassReminderEnabled(e.target.checked)}
-                className="rounded"
-              />
-              <span className="text-sm font-medium text-gray-900">Send reminders</span>
-              <span className="text-xs text-gray-400">Email members before their class</span>
-            </label>
-            {classReminderEnabled && (
-              <div className="flex items-center gap-2 pl-2">
-                <input
-                  type="number"
-                  min="1"
-                  max="168"
-                  className="w-20 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
-                  value={classReminderHours}
-                  onChange={e => setClassReminderHours(parseInt(e.target.value) || 24)}
-                />
-                <span className="text-sm text-gray-500">hours before class</span>
-              </div>
-            )}
-          </section>
-
-          {/* Membership pause rules */}
-          <section className="space-y-3">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Membership pause rules</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-gray-500 font-medium">Max pause (days)</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="365"
-                  className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
-                  value={maxPauseDays}
-                  onChange={e => setMaxPauseDays(parseInt(e.target.value) || 30)}
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 font-medium">Max pauses / year</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="12"
-                  className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
-                  value={maxPausesPerYear}
-                  onChange={e => setMaxPausesPerYear(parseInt(e.target.value) || 2)}
-                />
-              </div>
-            </div>
-          </section>
-
-        </div>{/* end right col */}
-      </div>{/* end 2-col grid */}
-
-      {/* Save bar — full width */}
-      <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
-        <button
-          onClick={handleSave}
-          disabled={saving || !isDirty}
-          className="text-sm font-medium bg-gray-900 text-white px-5 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors"
-        >
-          {saving ? 'Saving…' : 'Save changes'}
-        </button>
-        {isDirty && (
-          <button
-            onClick={() => {
-              if (!studio) return
-              setName(studio.name); setSlug(studio.slug)
-              setTimezone(studio.timezone); setCurrency(studio.currency)
-              setTimeFormat((studio.timeFormat ?? '24h') as '12h' | '24h')
-              const loc = studio.locations[0]
-              if (loc) { setLocName(loc.name); setAddress(loc.address); setCity(loc.city); setCountry(loc.country) }
-            }}
-            className="text-sm text-gray-400 hover:text-gray-700 transition-colors"
-          >
-            Discard
+        {/* General save */}
+        <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
+          <button onClick={handleSave} disabled={saving || !isDirty}
+            className="text-sm font-medium bg-gray-900 text-white px-5 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors">
+            {saving ? 'Saving…' : 'Save changes'}
           </button>
-        )}
-      </div>
+          {isDirty && (
+            <button onClick={() => { if (!studio) return; setName(studio.name); setSlug(studio.slug); setTimezone(studio.timezone); setCurrency(studio.currency); setTimeFormat((studio.timeFormat ?? '24h') as '12h' | '24h'); setWebsiteUrl((studio as StudioExt).websiteUrl ?? ''); setSupportEmail((studio as StudioExt).supportEmail ?? ''); const loc = studio.locations[0]; if (loc) { setLocName(loc.name); setAddress(loc.address); setCity(loc.city); setCountry(loc.country) } }}
+              className="text-sm text-gray-400 hover:text-gray-700 transition-colors">Discard</button>
+          )}
+        </div>
+      </div>}{/* end General panel */}
 
-      {/* ── Cancellation Policy — full width ──────────────────────────── */}
-      <section className="space-y-4 pt-2 border-t border-gray-100">
-        <div>
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Cancellation Policy</h3>
-          <p className="text-xs text-gray-400 mt-0.5">Rules applied when members cancel bookings or fail to show up.</p>
+      {/* ── POLICIES ───────────────────────────────────────────────────── */}
+      {panel === 'policies' && <div className="space-y-6">
+
+        {/* Booking */}
+        <section className="space-y-3">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Booking</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-gray-500 font-medium">Booking window (days)</label>
+              <p className="text-[10px] text-gray-400 mb-1">How far in advance members can book</p>
+              <input type="number" min="1" max="365"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+                value={bookingWindowDays} onChange={e => setBookingWindowDays(parseInt(e.target.value) || 30)} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 font-medium">Booking close (hours before)</label>
+              <p className="text-[10px] text-gray-400 mb-1">Locks N hours before class starts</p>
+              <input type="number" min="0" max="72"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+                value={bookingCloseHours} onChange={e => setBookingCloseHours(parseInt(e.target.value) || 0)} />
+            </div>
+          </div>
+        </section>
+
+        {/* Cancellation */}
+        <section className="space-y-3">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Cancellation</h3>
+          {policyLoading ? (
+            <div className="space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="h-10 bg-gray-50 rounded-xl animate-pulse" />)}</div>
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-gray-500 font-medium">Late cancel window</label>
+                <div className="flex items-center gap-2 mt-1">
+                  <input type="number" min={0} value={lateCancelWindowHours}
+                    onChange={e => setLateCancelWindowHours(Math.max(0, parseInt(e.target.value) || 0))}
+                    className="w-24 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400 tabular-nums" />
+                  <span className="text-sm text-gray-500">hours before class</span>
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1">Cancellations within this window are treated as late cancels.</p>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="text-xs text-gray-500 font-medium">Late cancel fee</label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <input type="number" min={0} value={lateCancelFeeCredits}
+                      onChange={e => setLateCancelFeeCredits(Math.max(0, parseInt(e.target.value) || 0))}
+                      className="w-20 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400 tabular-nums" />
+                    <span className="text-sm text-gray-500">cr</span>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">0 = no fee</p>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium">No-show fee</label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <input type="number" min={0} value={noShowFeeCredits}
+                      onChange={e => setNoShowFeeCredits(Math.max(0, parseInt(e.target.value) || 0))}
+                      className="w-20 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400 tabular-nums" />
+                    <span className="text-sm text-gray-500">cr</span>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">Charged post-session without check-in</p>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium">Waitlist confirm window</label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <input type="number" min={1} value={waitlistWindowMinutes}
+                      onChange={e => setWaitlistWindowMinutes(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-20 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400 tabular-nums" />
+                    <span className="text-sm text-gray-500">min</span>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">To confirm a waitlist spot</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 pt-1">
+                <button onClick={handleSavePolicy} disabled={policySaving || !isPolicyDirty}
+                  className="text-sm font-medium bg-gray-900 text-white px-5 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors">
+                  {policySaving ? 'Saving…' : 'Save cancellation policy'}
+                </button>
+                {isPolicyDirty && (
+                  <button onClick={() => { setLateCancelWindowHours(savedPolicy.lateCancelWindowHours); setLateCancelFeeCredits(savedPolicy.lateCancelFeeCredits); setNoShowFeeCredits(savedPolicy.noShowFeeCredits); setWaitlistWindowMinutes(savedPolicy.waitlistWindowMinutes) }}
+                    className="text-sm text-gray-400 hover:text-gray-700 transition-colors">Discard</button>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Membership pause */}
+        <section className="space-y-3">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Membership pause</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-gray-500 font-medium">Max pause duration (days)</label>
+              <input type="number" min="1" max="365"
+                className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+                value={maxPauseDays} onChange={e => setMaxPauseDays(parseInt(e.target.value) || 30)} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 font-medium">Max pauses per year</label>
+              <input type="number" min="1" max="12"
+                className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+                value={maxPausesPerYear} onChange={e => setMaxPausesPerYear(parseInt(e.target.value) || 2)} />
+            </div>
+          </div>
+        </section>
+
+        {/* Policies save */}
+        <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
+          <button onClick={handleSave} disabled={saving || !isDirty}
+            className="text-sm font-medium bg-gray-900 text-white px-5 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors">
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
+          {isDirty && (
+            <button onClick={() => { if (!studio) return; setBookingWindowDays((studio as StudioExt).bookingWindowDays ?? 30); setBookingCloseHours((studio as StudioExt).bookingCloseHours ?? 1); setMaxPauseDays((studio as StudioExt).maxPauseDays ?? 30); setMaxPausesPerYear((studio as StudioExt).maxPausesPerYear ?? 2) }}
+              className="text-sm text-gray-400 hover:text-gray-700 transition-colors">Discard</button>
+          )}
         </div>
 
-        {policyLoading ? (
-          <div className="space-y-3">
-            {[...Array(4)].map((_, i) => <div key={i} className="h-10 bg-gray-50 rounded-xl animate-pulse" />)}
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {/* Late cancel window */}
-            <div className="space-y-1">
-              <label className="text-xs text-gray-500 font-medium">Late cancel window</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min={0}
-                  value={lateCancelWindowHours}
-                  onChange={e => setLateCancelWindowHours(Math.max(0, parseInt(e.target.value) || 0))}
-                  className="w-24 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400 tabular-nums"
-                />
-                <span className="text-sm text-gray-500">hours before class</span>
-              </div>
-              <p className="text-[10px] text-gray-400">Cancellations within this window are treated as late cancels.</p>
-            </div>
+      </div>}{/* end Policies panel */}
 
-            {/* Fees grid */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <div className="space-y-1">
-                <label className="text-xs text-gray-500 font-medium">Late cancel fee</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={0}
-                    value={lateCancelFeeCredits}
-                    onChange={e => setLateCancelFeeCredits(Math.max(0, parseInt(e.target.value) || 0))}
-                    className="w-20 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400 tabular-nums"
-                  />
-                  <span className="text-sm text-gray-500">cr</span>
-                </div>
-                <p className="text-[10px] text-gray-400">0 = no additional fee</p>
-              </div>
+      {/* ── FEATURES ───────────────────────────────────────────────────── */}
+      {panel === 'features' && <div className="space-y-6">
 
-              <div className="space-y-1">
-                <label className="text-xs text-gray-500 font-medium">No-show fee</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={0}
-                    value={noShowFeeCredits}
-                    onChange={e => setNoShowFeeCredits(Math.max(0, parseInt(e.target.value) || 0))}
-                    className="w-20 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400 tabular-nums"
-                  />
-                  <span className="text-sm text-gray-500">cr</span>
-                </div>
-                <p className="text-[10px] text-gray-400">Charged when session ends without check-in</p>
-              </div>
-            </div>
+        <section className="space-y-1">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Features</h3>
+          {([
+            { label: 'Waitlist', description: 'Members can join the waitlist when a class is full', value: waitlistEnabled, set: setWaitlistEnabled },
+            { label: 'Guest check-in', description: 'Staff can use guest passes to check in guests', value: guestCheckInEnabled, set: setGuestCheckInEnabled },
+            { label: 'Online credit purchase', description: 'Members can buy plans and credits via Stripe on their account page', value: creditPurchaseEnabled, set: setCreditPurchaseEnabled },
+            { label: 'Member self check-in', description: 'Members can check themselves in within 30 min of class start', value: selfCheckInEnabled, set: setSelfCheckInEnabled },
+          ] as const).map(({ label, description, value, set }) => (
+            <label key={label} className="flex items-start gap-3 cursor-pointer select-none px-3 py-3 rounded-xl hover:bg-gray-50 transition-colors">
+              <input type="checkbox" checked={value} onChange={e => (set as (v: boolean) => void)(e.target.checked)} className="mt-0.5 rounded" />
+              <span>
+                <span className="text-sm font-medium text-gray-900 block">{label}</span>
+                <span className="text-xs text-gray-400">{description}</span>
+              </span>
+            </label>
+          ))}
+        </section>
 
-            {/* Waitlist window — inline on large screens */}
-            <div className="space-y-1 lg:col-span-4">
-              <label className="text-xs text-gray-500 font-medium">Waitlist confirmation window</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min={1}
-                  value={waitlistWindowMinutes}
-                  onChange={e => setWaitlistWindowMinutes(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-24 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400 tabular-nums"
-                />
-                <span className="text-sm text-gray-500">minutes to confirm</span>
-                <span className="text-[10px] text-gray-400">— how long a promoted waitlist member has to confirm their spot</span>
-              </div>
+        <section className="space-y-3 pt-4 border-t border-gray-100">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Class reminder email</h3>
+          <label className="flex items-start gap-3 cursor-pointer select-none px-3 py-3 rounded-xl hover:bg-gray-50 transition-colors">
+            <input type="checkbox" checked={classReminderEnabled} onChange={e => setClassReminderEnabled(e.target.checked)} className="mt-0.5 rounded" />
+            <span>
+              <span className="text-sm font-medium text-gray-900 block">Send class reminders</span>
+              <span className="text-xs text-gray-400">Email members before their upcoming class</span>
+            </span>
+          </label>
+          {classReminderEnabled && (
+            <div className="flex items-center gap-2 pl-3">
+              <input type="number" min="1" max="168"
+                className="w-20 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+                value={classReminderHours} onChange={e => setClassReminderHours(parseInt(e.target.value) || 24)} />
+              <span className="text-sm text-gray-500">hours before class</span>
             </div>
+          )}
+        </section>
 
-            <div className="flex items-center gap-3 pt-1">
-              <button
-                onClick={handleSavePolicy}
-                disabled={policySaving || !isPolicyDirty}
-                className="text-sm font-medium bg-gray-900 text-white px-5 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors"
-              >
-                {policySaving ? 'Saving…' : 'Save policy'}
-              </button>
-              {isPolicyDirty && (
-                <button
-                  onClick={() => {
-                    setLateCancelWindowHours(savedPolicy.lateCancelWindowHours)
-                    setLateCancelFeeCredits(savedPolicy.lateCancelFeeCredits)
-                    setNoShowFeeCredits(savedPolicy.noShowFeeCredits)
-                    setWaitlistWindowMinutes(savedPolicy.waitlistWindowMinutes)
-                  }}
-                  className="text-sm text-gray-400 hover:text-gray-700 transition-colors"
-                >
-                  Discard
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-      </section>
+        <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
+          <button onClick={handleSave} disabled={saving || !isDirty}
+            className="text-sm font-medium bg-gray-900 text-white px-5 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors">
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
+          {isDirty && (
+            <button onClick={() => { if (!studio) return; const s = studio as StudioExt; setWaitlistEnabled(s.waitlistEnabled ?? true); setGuestCheckInEnabled(s.guestCheckInEnabled ?? true); setCreditPurchaseEnabled(s.creditPurchaseEnabled ?? true); setSelfCheckInEnabled(s.selfCheckInEnabled ?? false); setClassReminderEnabled(s.classReminderHours !== null); setClassReminderHours(s.classReminderHours ?? 24) }}
+              className="text-sm text-gray-400 hover:text-gray-700 transition-colors">Discard</button>
+          )}
+        </div>
+
+      </div>}{/* end Features panel */}
 
       {toast && (
         <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg ${
