@@ -11,22 +11,13 @@ function verifySignature(rawBody: Buffer, secret: string, header: string): boole
 }
 
 export async function webhookRoutes(app: FastifyInstance) {
-  // Register a raw body parser scoped to this plugin only.
-  // Other route plugins are unaffected — they keep Fastify's default JSON parser.
-  app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (_req, body, done) => {
-    try {
-      done(null, body)
-    } catch (e) {
-      done(e as Error)
-    }
-  })
-
   // POST /webhooks/mariana-tek
   // Mariana Tek sends events here; we verify the signature then dispatch by event type.
+  // rawBody is populated by the global content-type parser in server.ts.
   app.post<{ Headers: { 'x-mt-signature'?: string; 'x-mt-studio-id'?: string } }>(
     '/mariana-tek',
     async (request, reply) => {
-      const rawBody = request.body as Buffer
+      const rawBody = (request as unknown as { rawBody: Buffer }).rawBody
       const signature = request.headers['x-mt-signature'] ?? ''
       const studioSlug = request.headers['x-mt-studio-id'] ?? ''
 
@@ -51,12 +42,8 @@ export async function webhookRoutes(app: FastifyInstance) {
         return reply.code(401).send({ error: 'Invalid signature' })
       }
 
-      let event: { type: string; data: Record<string, unknown> }
-      try {
-        event = JSON.parse(rawBody.toString('utf8'))
-      } catch {
-        return reply.code(400).send({ error: 'Invalid JSON body' })
-      }
+      const event = request.body as { type: string; data: Record<string, unknown> }
+      if (!event?.type) return reply.code(400).send({ error: 'Invalid JSON body' })
 
       await handleEvent(studio.id, event.type, event.data)
 
