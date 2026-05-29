@@ -78,6 +78,7 @@ export async function bookingRoutes(app: FastifyInstance) {
           include: {
             _count: { select: { bookings: { where: { status: 'CONFIRMED' } } } },
             template: { select: { name: true } },
+            studio: { select: { bookingWindowDays: true, bookingCloseHours: true } },
           },
         })
 
@@ -90,6 +91,21 @@ export async function bookingRoutes(app: FastifyInstance) {
         const isMember = !user.role || user.role === 'member'
         if (isMember && session.startsAt <= new Date()) {
           throw Object.assign(new Error('Class has already started'), { statusCode: 400 })
+        }
+
+        // Enforce booking window and close time for members (privileged roles bypass)
+        if (isMember) {
+          const now = new Date()
+          const bookingWindowDays = session.studio?.bookingWindowDays ?? 30
+          const bookingCloseHours = session.studio?.bookingCloseHours ?? 1
+          const windowOpen = new Date(now.getTime() - bookingWindowDays * 24 * 60 * 60 * 1000)
+          const closeTime = new Date(session.startsAt.getTime() - bookingCloseHours * 60 * 60 * 1000)
+          if (session.startsAt < windowOpen) {
+            throw Object.assign(new Error(`Booking opens ${bookingWindowDays} days before the class`), { statusCode: 400 })
+          }
+          if (now > closeTime) {
+            throw Object.assign(new Error(`Booking closed ${bookingCloseHours}h before class starts`), { statusCode: 400 })
+          }
         }
 
         if (session._count.bookings >= session.capacity) {

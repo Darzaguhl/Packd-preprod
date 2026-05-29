@@ -19,6 +19,15 @@ model Studio {
   timezone    String   @default("UTC")
   currency    String   @default("USD")
   timeFormat  String   @default("24h")
+  websiteUrl  String?
+  supportEmail String?
+  // Booking window settings
+  bookingWindowDays   Int  @default(30)  // how far in advance members can book
+  bookingCloseHours   Int  @default(1)   // booking closes N hours before class
+  // Feature toggles
+  waitlistEnabled          Boolean @default(true)
+  guestCheckInEnabled      Boolean @default(true)
+  creditPurchaseEnabled    Boolean @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

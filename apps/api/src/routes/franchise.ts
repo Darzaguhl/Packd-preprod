@@ -34,6 +34,10 @@ interface InstructorPermissions {
   canCancelSession: boolean
   canCreateSchedules: boolean
   canSetSubstitute: boolean
+  canGrantCredits: boolean
+  canManagePromoCodes: boolean
+  canViewPurchaseHistory: boolean
+  canOverrideBookingRestrictions: boolean
 }
 
 const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
@@ -45,6 +49,10 @@ const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
   canCancelSession: false,
   canCreateSchedules: false,
   canSetSubstitute: false,
+  canGrantCredits: false,
+  canManagePromoCodes: false,
+  canViewPurchaseHistory: false,
+  canOverrideBookingRestrictions: false,
 }
 
 
@@ -54,6 +62,12 @@ interface FronthostPermissions {
   canManageBookings: boolean
   canManageWaitlist: boolean
   canViewMemberContact: boolean
+  canGrantCredits: boolean
+  canIssueRefunds: boolean
+  canManagePromoCodes: boolean
+  canViewPurchaseHistory: boolean
+  canExportData: boolean
+  canOverrideBookingRestrictions: boolean
 }
 
 const DEFAULT_FRONTHOST_PERMISSIONS: FronthostPermissions = {
@@ -62,6 +76,12 @@ const DEFAULT_FRONTHOST_PERMISSIONS: FronthostPermissions = {
   canManageBookings: true,
   canManageWaitlist: true,
   canViewMemberContact: true,
+  canGrantCredits: true,
+  canIssueRefunds: true,
+  canManagePromoCodes: false,
+  canViewPurchaseHistory: true,
+  canExportData: false,
+  canOverrideBookingRestrictions: true,
 }
 
 export async function assertStudioAccess(
@@ -273,7 +293,8 @@ export async function franchiseRoutes(app: FastifyInstance) {
       const VALID_PERMISSION_KEYS: (keyof InstructorPermissions)[] = [
         'canCheckInMembers', 'canManageBookings', 'canViewMemberContact',
         'canManageWaitlist', 'canEditSessionDetails', 'canCancelSession', 'canCreateSchedules',
-        'canSetSubstitute',
+        'canSetSubstitute', 'canGrantCredits', 'canManagePromoCodes',
+        'canViewPurchaseHistory', 'canOverrideBookingRestrictions',
       ]
       const sanitized = Object.fromEntries(
         Object.entries(request.body).filter(([k, v]) =>
@@ -563,6 +584,8 @@ export async function franchiseRoutes(app: FastifyInstance) {
 
       const VALID_KEYS: (keyof FronthostPermissions)[] = [
         'canCheckInMembers', 'canAdjustCredits', 'canManageBookings', 'canManageWaitlist', 'canViewMemberContact',
+        'canGrantCredits', 'canIssueRefunds', 'canManagePromoCodes', 'canViewPurchaseHistory',
+        'canExportData', 'canOverrideBookingRestrictions',
       ]
       const sanitized = Object.fromEntries(
         Object.entries(request.body).filter(([k, v]) =>

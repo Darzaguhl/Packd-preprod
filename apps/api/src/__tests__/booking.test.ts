@@ -67,6 +67,8 @@ const mockSession = (overrides = {}) => ({
   creditsRequired: 1,
   startsAt: new Date(Date.now() + 3_600_000),
   _count: { bookings: 5 },
+  // bookingCloseHours:0 means booking never closes — keeps existing tests unaffected
+  studio: { bookingWindowDays: 365, bookingCloseHours: 0 },
   ...overrides,
 })
 

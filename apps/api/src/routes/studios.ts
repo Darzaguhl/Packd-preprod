@@ -115,6 +115,13 @@ export async function studioRoutes(app: FastifyInstance) {
       timezone?: string
       currency?: string
       timeFormat?: string
+      websiteUrl?: string | null
+      supportEmail?: string | null
+      bookingWindowDays?: number
+      bookingCloseHours?: number
+      waitlistEnabled?: boolean
+      guestCheckInEnabled?: boolean
+      creditPurchaseEnabled?: boolean
       location?: { id: string; name?: string; address?: string; city?: string; country?: string }
     }
   }>(
@@ -122,7 +129,13 @@ export async function studioRoutes(app: FastifyInstance) {
     { preHandler: requireStudioAdmin },
     async (request, reply) => {
       const { studioId } = request.params
-      const { name, slug, timezone, currency, timeFormat, location } = request.body
+      const {
+        name, slug, timezone, currency, timeFormat,
+        websiteUrl, supportEmail,
+        bookingWindowDays, bookingCloseHours,
+        waitlistEnabled, guestCheckInEnabled, creditPurchaseEnabled,
+        location,
+      } = request.body
       const user = getUser(request)
       if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
@@ -139,6 +152,13 @@ export async function studioRoutes(app: FastifyInstance) {
           ...(timezone && { timezone }),
           ...(currency && { currency }),
           ...(timeFormat && { timeFormat }),
+          ...(websiteUrl !== undefined && { websiteUrl }),
+          ...(supportEmail !== undefined && { supportEmail }),
+          ...(bookingWindowDays !== undefined && { bookingWindowDays }),
+          ...(bookingCloseHours !== undefined && { bookingCloseHours }),
+          ...(waitlistEnabled !== undefined && { waitlistEnabled }),
+          ...(guestCheckInEnabled !== undefined && { guestCheckInEnabled }),
+          ...(creditPurchaseEnabled !== undefined && { creditPurchaseEnabled }),
         },
         include: { locations: true },
       })

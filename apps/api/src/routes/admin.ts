@@ -241,7 +241,7 @@ export async function adminRoutes(app: FastifyInstance) {
       tomorrow.setDate(tomorrow.getDate() + 1)
 
       const [studio, todaySessions, totalMembers, totalBookingsToday, waitlistToday] = await Promise.all([
-        prisma.studio.findUnique({ where: { id: studioId }, select: { name: true, timeFormat: true, currency: true } }),
+        prisma.studio.findUnique({ where: { id: studioId }, select: { name: true, timeFormat: true, currency: true, timezone: true, bookingWindowDays: true, bookingCloseHours: true, waitlistEnabled: true, guestCheckInEnabled: true, creditPurchaseEnabled: true, websiteUrl: true, supportEmail: true } }),
         prisma.classSession.count({ where: { studioId, startsAt: { gte: today, lt: tomorrow } } }),
         prisma.member.count({ where: { studioId } }),
         prisma.booking.count({
@@ -252,7 +252,20 @@ export async function adminRoutes(app: FastifyInstance) {
         }),
       ])
 
-      return { studioName: studio?.name ?? null, timeFormat: studio?.timeFormat ?? '24h', currency: studio?.currency ?? 'USD', todaySessions, totalMembers, totalBookingsToday, waitlistToday }
+      return {
+        studioName: studio?.name ?? null,
+        timeFormat: studio?.timeFormat ?? '24h',
+        currency: studio?.currency ?? 'USD',
+        timezone: studio?.timezone ?? 'UTC',
+        bookingWindowDays: studio?.bookingWindowDays ?? 30,
+        bookingCloseHours: studio?.bookingCloseHours ?? 1,
+        waitlistEnabled: studio?.waitlistEnabled ?? true,
+        guestCheckInEnabled: studio?.guestCheckInEnabled ?? true,
+        creditPurchaseEnabled: studio?.creditPurchaseEnabled ?? true,
+        websiteUrl: studio?.websiteUrl ?? null,
+        supportEmail: studio?.supportEmail ?? null,
+        todaySessions, totalMembers, totalBookingsToday, waitlistToday,
+      }
     },
   )
 
@@ -1107,6 +1120,10 @@ export async function adminRoutes(app: FastifyInstance) {
       if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
       const { memberId, guestName, sessionId, studioId } = request.body
       if (!memberId || !guestName?.trim() || !studioId) return reply.badRequest('memberId, guestName and studioId are required')
+
+      // Check studio feature flag
+      const studioSettings = await prisma.studio.findUnique({ where: { id: studioId }, select: { guestCheckInEnabled: true } })
+      if (!studioSettings?.guestCheckInEnabled) return reply.badRequest('Guest check-in is not enabled for this studio')
 
       const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true, guestPassBalance: true } })
       if (!member) return reply.notFound('Member not found')

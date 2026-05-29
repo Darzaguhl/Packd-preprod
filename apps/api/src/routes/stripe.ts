@@ -40,11 +40,16 @@ export async function stripeRoutes(app: FastifyInstance) {
       const { planId, studioId, promoCodeId } = request.body
       const user = getUser(request)
 
-      const [plan, member, userRecord] = await Promise.all([
+      const [plan, member, userRecord, studioSettings] = await Promise.all([
         prisma.membershipPlan.findUniqueOrThrow({ where: { id: planId } }),
         prisma.member.findUniqueOrThrow({ where: { userId: user.id }, include: { user: true } }),
         prisma.user.findUniqueOrThrow({ where: { id: user.id } }),
+        prisma.studio.findUnique({ where: { id: studioId }, select: { creditPurchaseEnabled: true } }),
       ])
+
+      if (studioSettings?.creditPurchaseEnabled === false) {
+        return reply.code(403).send({ error: 'Online credit purchase is not enabled for this studio.' })
+      }
 
       // Intro offer guard — prevent re-purchase beyond maxRedemptionsPerMember
       if (plan.isIntroOffer) {

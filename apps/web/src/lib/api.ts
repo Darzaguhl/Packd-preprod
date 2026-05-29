@@ -25,6 +25,10 @@ export interface InstructorPermissions {
   canCancelSession: boolean
   canCreateSchedules: boolean
   canSetSubstitute: boolean
+  canGrantCredits: boolean
+  canManagePromoCodes: boolean
+  canViewPurchaseHistory: boolean
+  canOverrideBookingRestrictions: boolean
 }
 
 export const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
@@ -36,6 +40,10 @@ export const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
   canCancelSession: false,
   canCreateSchedules: false,
   canSetSubstitute: false,
+  canGrantCredits: false,
+  canManagePromoCodes: false,
+  canViewPurchaseHistory: false,
+  canOverrideBookingRestrictions: false,
 }
 
 
@@ -45,6 +53,12 @@ export interface FronthostPermissions {
   canManageBookings: boolean
   canManageWaitlist: boolean
   canViewMemberContact: boolean
+  canGrantCredits: boolean
+  canIssueRefunds: boolean
+  canManagePromoCodes: boolean
+  canViewPurchaseHistory: boolean
+  canExportData: boolean
+  canOverrideBookingRestrictions: boolean
 }
 
 export const DEFAULT_FRONTHOST_PERMISSIONS: FronthostPermissions = {
@@ -53,6 +67,12 @@ export const DEFAULT_FRONTHOST_PERMISSIONS: FronthostPermissions = {
   canManageBookings: true,
   canManageWaitlist: true,
   canViewMemberContact: true,
+  canGrantCredits: true,
+  canIssueRefunds: true,
+  canManagePromoCodes: false,
+  canViewPurchaseHistory: true,
+  canExportData: false,
+  canOverrideBookingRestrictions: true,
 }
 
 export interface StaffWithPermissions {
@@ -749,7 +769,7 @@ export const api = {
   },
   admin: {
     stats: (studioId: string, token: string) =>
-      apiFetch<{ studioName: string | null; timeFormat: string; currency: string; todaySessions: number; totalMembers: number; totalBookingsToday: number; waitlistToday: number }>(
+      apiFetch<{ studioName: string | null; timeFormat: string; currency: string; timezone: string; bookingWindowDays: number; bookingCloseHours: number; waitlistEnabled: boolean; guestCheckInEnabled: boolean; creditPurchaseEnabled: boolean; websiteUrl: string | null; supportEmail: string | null; todaySessions: number; totalMembers: number; totalBookingsToday: number; waitlistToday: number }>(
         `/admin/stats?studioId=${studioId}`, { token }),
     sessions: (studioId: string, date: string, token: string) =>
       apiFetch<AdminSession[]>(`/admin/sessions?studioId=${studioId}&date=${date}`, { token }),
@@ -1044,6 +1064,9 @@ export const api = {
       studioId: string,
       body: {
         name?: string; slug?: string; timezone?: string; currency?: string; timeFormat?: string
+        websiteUrl?: string | null; supportEmail?: string | null
+        bookingWindowDays?: number; bookingCloseHours?: number
+        waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean
         location?: { id: string; name?: string; address?: string; city?: string; country?: string }
       },
       token: string,

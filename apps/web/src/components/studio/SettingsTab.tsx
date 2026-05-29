@@ -67,6 +67,15 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
   const [timezone, setTimezone] = useState('')
   const [currency, setCurrency] = useState('')
   const [timeFormat, setTimeFormat] = useState<'12h' | '24h'>('24h')
+  const [websiteUrl, setWebsiteUrl] = useState('')
+  const [supportEmail, setSupportEmail] = useState('')
+  // Booking settings
+  const [bookingWindowDays, setBookingWindowDays] = useState(30)
+  const [bookingCloseHours, setBookingCloseHours] = useState(1)
+  // Feature toggles
+  const [waitlistEnabled, setWaitlistEnabled] = useState(true)
+  const [guestCheckInEnabled, setGuestCheckInEnabled] = useState(true)
+  const [creditPurchaseEnabled, setCreditPurchaseEnabled] = useState(true)
 
   // Location fields (first location)
   const [locName, setLocName] = useState('')
@@ -97,6 +106,13 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
       setTimezone(s.timezone)
       setCurrency(s.currency)
       setTimeFormat((s.timeFormat ?? '24h') as '12h' | '24h')
+      setWebsiteUrl((s as typeof s & { websiteUrl?: string }).websiteUrl ?? '')
+      setSupportEmail((s as typeof s & { supportEmail?: string }).supportEmail ?? '')
+      setBookingWindowDays((s as typeof s & { bookingWindowDays?: number }).bookingWindowDays ?? 30)
+      setBookingCloseHours((s as typeof s & { bookingCloseHours?: number }).bookingCloseHours ?? 1)
+      setWaitlistEnabled((s as typeof s & { waitlistEnabled?: boolean }).waitlistEnabled ?? true)
+      setGuestCheckInEnabled((s as typeof s & { guestCheckInEnabled?: boolean }).guestCheckInEnabled ?? true)
+      setCreditPurchaseEnabled((s as typeof s & { creditPurchaseEnabled?: boolean }).creditPurchaseEnabled ?? true)
       const loc = s.locations[0]
       if (loc) {
         setLocName(loc.name)
@@ -129,12 +145,20 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
     setSaving(true)
     try {
       const loc = studio.locations[0]
+      const s = studio as typeof studio & { websiteUrl?: string; supportEmail?: string; bookingWindowDays?: number; bookingCloseHours?: number; waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean }
       const res = await api.studios.update(studioId, {
         name: name !== studio.name ? name : undefined,
         slug: slug !== studio.slug ? slug : undefined,
         timezone: timezone !== studio.timezone ? timezone : undefined,
         currency: currency !== studio.currency ? currency : undefined,
         timeFormat: timeFormat !== (studio.timeFormat ?? '24h') ? timeFormat : undefined,
+        websiteUrl: websiteUrl !== (s.websiteUrl ?? '') ? (websiteUrl || null) : undefined,
+        supportEmail: supportEmail !== (s.supportEmail ?? '') ? (supportEmail || null) : undefined,
+        bookingWindowDays: bookingWindowDays !== (s.bookingWindowDays ?? 30) ? bookingWindowDays : undefined,
+        bookingCloseHours: bookingCloseHours !== (s.bookingCloseHours ?? 1) ? bookingCloseHours : undefined,
+        waitlistEnabled: waitlistEnabled !== (s.waitlistEnabled ?? true) ? waitlistEnabled : undefined,
+        guestCheckInEnabled: guestCheckInEnabled !== (s.guestCheckInEnabled ?? true) ? guestCheckInEnabled : undefined,
+        creditPurchaseEnabled: creditPurchaseEnabled !== (s.creditPurchaseEnabled ?? true) ? creditPurchaseEnabled : undefined,
         location: loc ? {
           id: loc.id,
           name: locName !== loc.name ? locName : undefined,
@@ -178,12 +202,20 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
     noShowFeeCredits        !== savedPolicy.noShowFeeCredits       ||
     waitlistWindowMinutes  !== savedPolicy.waitlistWindowMinutes
 
+  const s2 = studio as typeof studio & { websiteUrl?: string; supportEmail?: string; bookingWindowDays?: number; bookingCloseHours?: number; waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean }
   const isDirty = studio && (
     name !== studio.name ||
     slug !== studio.slug ||
     timezone !== studio.timezone ||
     currency !== studio.currency ||
     timeFormat !== (studio.timeFormat ?? '24h') ||
+    websiteUrl !== (s2?.websiteUrl ?? '') ||
+    supportEmail !== (s2?.supportEmail ?? '') ||
+    bookingWindowDays !== (s2?.bookingWindowDays ?? 30) ||
+    bookingCloseHours !== (s2?.bookingCloseHours ?? 1) ||
+    waitlistEnabled !== (s2?.waitlistEnabled ?? true) ||
+    guestCheckInEnabled !== (s2?.guestCheckInEnabled ?? true) ||
+    creditPurchaseEnabled !== (s2?.creditPurchaseEnabled ?? true) ||
     locName !== (studio.locations[0]?.name ?? '') ||
     address !== (studio.locations[0]?.address ?? '') ||
     city !== (studio.locations[0]?.city ?? '') ||
@@ -267,6 +299,88 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
               </button>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* Contact & branding */}
+      <section className="space-y-3">
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Contact &amp; branding</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-gray-500 font-medium">Website URL</label>
+            <input
+              className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
+              value={websiteUrl}
+              onChange={e => setWebsiteUrl(e.target.value)}
+              placeholder="https://mystudio.com"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 font-medium">Support email</label>
+            <input
+              type="email"
+              className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
+              value={supportEmail}
+              onChange={e => setSupportEmail(e.target.value)}
+              placeholder="hello@mystudio.com"
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Booking policy */}
+      <section className="space-y-3">
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Booking policy</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-gray-500 font-medium">Booking window (days)</label>
+            <p className="text-[10px] text-gray-400 mb-1">How far in advance members can book</p>
+            <input
+              type="number"
+              min="1"
+              max="365"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
+              value={bookingWindowDays}
+              onChange={e => setBookingWindowDays(parseInt(e.target.value) || 30)}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 font-medium">Booking close (hours before)</label>
+            <p className="text-[10px] text-gray-400 mb-1">Booking closes N hours before class starts</p>
+            <input
+              type="number"
+              min="0"
+              max="72"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
+              value={bookingCloseHours}
+              onChange={e => setBookingCloseHours(parseInt(e.target.value) || 0)}
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Feature toggles */}
+      <section className="space-y-3">
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Features</h3>
+        <div className="space-y-2">
+          {([
+            { label: 'Waitlist', description: 'Allow members to join the waitlist when a class is full', value: waitlistEnabled, set: setWaitlistEnabled },
+            { label: 'Guest check-in', description: 'Staff can check in guests using member guest passes', value: guestCheckInEnabled, set: setGuestCheckInEnabled },
+            { label: 'Online credit purchase', description: 'Members can buy plans and credits via Stripe on their account page', value: creditPurchaseEnabled, set: setCreditPurchaseEnabled },
+          ] as const).map(({ label, description, value, set }) => (
+            <label key={label} className="flex items-start gap-3 cursor-pointer select-none p-3 rounded-xl hover:bg-gray-50 transition-colors">
+              <input
+                type="checkbox"
+                checked={value}
+                onChange={e => (set as (v: boolean) => void)(e.target.checked)}
+                className="mt-0.5 rounded"
+              />
+              <span>
+                <span className="text-sm font-medium text-gray-900 block">{label}</span>
+                <span className="text-xs text-gray-400">{description}</span>
+              </span>
+            </label>
+          ))}
         </div>
       </section>
 
