@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import Stripe from 'stripe'
 import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
-import { sendWelcome } from '../lib/email.js'
+import { sendWelcome, sendPaymentFailed } from '../lib/email.js'
 import { ROLE_RANK } from '@packd/types'
 import { audit, AUDIT } from '../lib/audit.js'
 
@@ -433,12 +433,32 @@ export async function stripeRoutes(app: FastifyInstance) {
       const invoice = event.data.object as Stripe.Invoice
       if (invoice.subscription) {
         const customerId = invoice.customer as string
-        const member = await prisma.member.findFirst({ where: { stripeCustomerId: customerId } })
+        const member = await prisma.member.findFirst({
+          where: { stripeCustomerId: customerId },
+          include: { user: true, studio: { select: { id: true, name: true, supportEmail: true } } },
+        })
         if (member) {
           await prisma.membershipSubscription.updateMany({
             where: { memberId: member.id, stripeSubId: invoice.subscription as string, status: 'ACTIVE' },
             data: { status: 'PAST_DUE' },
           })
+
+          // Alert the studio if a support email is configured
+          const studio = member.studio
+          if (studio?.supportEmail) {
+            const amountCents = invoice.amount_due ?? 0
+            const currency = (invoice.currency ?? 'usd').toUpperCase()
+            const amountFormatted = `${currency} ${(amountCents / 100).toFixed(2)}`
+            const manageUrl = `${process.env.WEB_URL}/dashboard?tab=members&member=${member.id}`
+            sendPaymentFailed({
+              to: studio.supportEmail,
+              studioName: studio.name,
+              memberFirstName: member.user.firstName,
+              memberEmail: member.user.email,
+              amountFormatted,
+              manageUrl,
+            }).catch(() => {})
+          }
         }
       }
     }

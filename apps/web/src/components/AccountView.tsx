@@ -147,6 +147,7 @@ export default function AccountView() {
   const [guestPasses, setGuestPasses] = useState<import('@/lib/api').GuestPassEntry[]>([])
   const [purchases, setPurchases] = useState<import('@/lib/api').ProductSale[]>([])
   const [selfCheckInEnabled, setSelfCheckInEnabled] = useState(false)
+  const [creditPurchaseEnabled, setCreditPurchaseEnabled] = useState(false)
 
   // Show success toast and refresh data when Stripe redirects back after payment
   useEffect(() => {
@@ -199,6 +200,7 @@ export default function AccountView() {
           api.admin.stats(studioId, t).then(s => {
             setTimeFormat((s.timeFormat ?? '24h') as '12h' | '24h')
             setSelfCheckInEnabled(s.selfCheckInEnabled ?? false)
+            setCreditPurchaseEnabled(s.creditPurchaseEnabled ?? false)
           }).catch(() => {})
           api.members.stats(studioId, t).then(setMemberStats).catch(() => {})
           api.ical.getToken(t).then(d => setIcalUrl(d.urls.member)).catch(() => {})
@@ -346,7 +348,7 @@ export default function AccountView() {
             onCancelBooking={handleCancelBooking}
             onSelfCheckIn={selfCheckInEnabled ? handleSelfCheckIn : undefined}
             onSubscribe={handleSubscribe}
-            onBuyCredits={handleBuyCredits}
+            onBuyCredits={creditPurchaseEnabled ? handleBuyCredits : undefined}
             onCancelMembership={handleCancelMembership}
             onEditProfile={() => setEditingProfile(true)}
             birthday={profileExtended?.birthday}

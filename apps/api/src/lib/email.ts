@@ -179,6 +179,28 @@ export async function sendWelcome(opts: {
   )
 }
 
+export async function sendPaymentFailed(opts: {
+  to: string
+  studioName: string
+  memberFirstName: string
+  memberEmail: string
+  amountFormatted: string
+  manageUrl: string
+}) {
+  return send(
+    opts.to,
+    `Payment failed — ${opts.memberFirstName} (${opts.memberEmail})`,
+    layout(opts.studioName, `
+      <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#c00">Payment failed ⚠️</p>
+      <p style="margin:0 0 16px;font-size:15px;color:#555">A membership payment of <strong>${opts.amountFormatted}</strong> failed for member <strong>${opts.memberFirstName}</strong> (${opts.memberEmail}). Their subscription has been marked as <strong>Past Due</strong>.</p>
+      <div style="background:#fff8f8;border:1px solid #fcc;border-radius:8px;padding:16px 20px;margin-bottom:8px">
+        <p style="margin:0;font-size:14px;color:#555">The member will receive a payment retry attempt from Stripe. You can also manage their subscription directly in your dashboard.</p>
+      </div>
+      ${btn(opts.manageUrl, 'View member in dashboard')}
+    `),
+  )
+}
+
 export async function sendStaffInvite(opts: {
   to: string
   firstName: string

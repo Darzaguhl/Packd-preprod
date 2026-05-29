@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: packd
+          POSTGRES_PASSWORD: packd
+          POSTGRES_DB: packd_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://packd:packd@localhost:5432/packd_test
+      NODE_ENV: test
+      # Stripe and Resend are stubbed in unit tests — real keys not needed
+      STRIPE_SECRET_KEY: sk_test_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_placeholder
+      RESEND_API_KEY: re_placeholder
+      ICAL_SECRET: ci-test-secret
+      WEB_URL: http://localhost:3001
+      PORT: 4000
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: placeholder
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Run unit tests
+        run: npm test -- --reporter=verbose
+
+  typecheck:
+    name: TypeScript
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Type-check API
+        run: cd apps/api && npx tsc --noEmit
+
+      - name: Type-check Web
+        run: cd apps/web && npx tsc --noEmit
