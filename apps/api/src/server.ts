@@ -1,3 +1,15 @@
+import * as Sentry from '@sentry/node'
+
+// Initialise Sentry before anything else so all errors are captured
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV ?? 'development',
+    // Capture 100% of transactions in production; tune down once volume is clear
+    tracesSampleRate: 1.0,
+  })
+}
+
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import sensible from '@fastify/sensible'
@@ -27,7 +39,14 @@ import { networkRoutes } from './routes/networks.js'
 import { brandRoutes } from './routes/brands.js'
 import { setupJobs, stopJobs } from './jobs/index.js'
 
-const app = Fastify({ logger: true })
+const app = Fastify({
+  logger: {
+    level: process.env.LOG_LEVEL ?? 'info',
+    transport: process.env.NODE_ENV !== 'production'
+      ? { target: 'pino-pretty', options: { colorize: true, ignore: 'pid,hostname' } }
+      : undefined,
+  },
+})
 
 await app.register(cors, {
   origin: (process.env.CORS_ORIGIN ?? 'http://localhost:3000').split(','),
@@ -35,6 +54,14 @@ await app.register(cors, {
 })
 
 await app.register(sensible)
+
+// Forward unhandled errors to Sentry (4xx are excluded — not application bugs)
+app.setErrorHandler((error, _request, reply) => {
+  if (process.env.SENTRY_DSN && (!error.statusCode || error.statusCode >= 500)) {
+    Sentry.captureException(error)
+  }
+  reply.send(error)
+})
 
 // Rate limiting — 200 req/min per IP for general use, 20 req/min for auth-sensitive routes
 await app.register(rateLimit, {
@@ -92,11 +119,11 @@ await setupJobs()
 
 const port = Number(process.env.PORT ?? 4000)
 await app.listen({ port, host: '0.0.0.0' })
-console.log(`API running on http://localhost:${port}`)
+app.log.info(`API running on http://localhost:${port}`)
 
 // Graceful shutdown — drain in-flight requests and pg-boss jobs before exit
 const shutdown = async (signal: string) => {
-  console.log(`[server] ${signal} received — shutting down gracefully`)
+  app.log.info(`[server] ${signal} received — shutting down gracefully`)
   await app.close()
   await stopJobs()
   process.exit(0)

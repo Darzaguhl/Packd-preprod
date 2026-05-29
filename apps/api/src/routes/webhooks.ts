@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { createHmac, timingSafeEqual } from 'crypto'
 import { prisma } from '@packd/db'
+import { logger } from '../lib/logger.js'
 
 // Mariana Tek signs webhook payloads with HMAC-SHA256.
 // Signature arrives as "sha256=<hex-digest>" in X-MT-Signature header.
@@ -76,11 +77,11 @@ async function handleEvent(
       // Session sync is handled by the scheduled import job, not individual webhooks,
       // because template/room resolution requires additional API calls.
       // Log for now; implement when Mariana Tek API access is confirmed.
-      console.log(`[webhook] ${type} received for studio ${studioId} — queued for next sync`)
+      logger.info(`[webhook] ${type} received for studio ${studioId} — queued for next sync`)
       break
 
     default:
-      console.log(`[webhook] unhandled event type: ${type}`)
+      logger.info(`[webhook] unhandled event type: ${type}`)
   }
 }
 
@@ -112,7 +113,7 @@ async function handleBookingCreated(studioId: string, data: Record<string, unkno
   ])
 
   if (!member || !session) {
-    console.log(`[webhook] booking.created: member or session not found (m:${externalMemberId} s:${externalSessionId})`)
+    logger.info(`[webhook] booking.created: member or session not found (m:${externalMemberId} s:${externalSessionId})`)
     return
   }
 

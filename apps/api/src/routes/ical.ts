@@ -2,12 +2,13 @@ import type { FastifyInstance } from 'fastify'
 import { createHmac } from 'crypto'
 import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
+import { logger } from '../lib/logger.js'
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
 
 const ICAL_SECRET = process.env.ICAL_SECRET
 if (!ICAL_SECRET) {
-  console.warn('[ical] WARNING: ICAL_SECRET env var is not set — iCal feed tokens are insecure. Set ICAL_SECRET in production.')
+  logger.warn('[ical] ICAL_SECRET env var is not set — iCal feed tokens are insecure. Set ICAL_SECRET in production.')
 }
 const _ICAL_SECRET = ICAL_SECRET ?? 'packd-ical-secret-change-in-production'
 

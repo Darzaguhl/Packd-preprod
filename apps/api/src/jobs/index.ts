@@ -1,4 +1,5 @@
 import PgBoss from 'pg-boss'
+import { logger } from '../lib/logger.js'
 import { prisma } from '@packd/db'
 import { sendWaitlistPromotion, sendClassReminder } from '../lib/email.js'
 
@@ -10,7 +11,7 @@ export async function setupJobs() {
   // pg-boss requires an error listener — without one Node will throw an unhandled
   // exception and kill the entire process on any DB connectivity blip.
   boss.on('error', (err: Error) => {
-    console.error('[pg-boss]', err.message)
+    logger.error({ err: err.message }, '[pg-boss] error')
   })
 
   await boss.start()
@@ -215,7 +216,7 @@ export async function setupJobs() {
       }
     })
 
-    console.log(`[jobs] renewed subscription ${sub.id} → ${newEnd.toISOString()}`)
+    logger.info({ subscriptionId: sub.id, newEnd }, '[jobs] renewed subscription')
   })
 
   // Nightly cron: expire old waitlist entries, schedule no-show checks, renew memberships
@@ -351,7 +352,7 @@ export async function setupJobs() {
     }
   })
 
-  console.log('pg-boss jobs registered')
+  logger.info('pg-boss jobs registered')
 }
 
 export async function stopJobs() {

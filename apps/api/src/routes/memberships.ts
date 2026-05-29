@@ -3,6 +3,7 @@ import { prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { syncStripePrice, archiveStripeProduct } from '../lib/stripe-sync.js'
+import { logger } from '../lib/logger.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 
@@ -214,7 +215,7 @@ export async function membershipRoutes(app: FastifyInstance) {
           stripeProductId = synced.stripeProductId
           stripePriceId = synced.stripePriceId
         } catch (e) {
-          console.error('Stripe sync failed (plan create):', e)
+          logger.error({ err: e }, 'Stripe sync failed (plan create)')
         }
       }
 
@@ -265,7 +266,7 @@ export async function membershipRoutes(app: FastifyInstance) {
           stripeProductId = synced.stripeProductId
           stripePriceId = synced.stripePriceId
         } catch (e) {
-          console.error('Stripe sync failed (plan update):', e)
+          logger.error({ err: e }, 'Stripe sync failed (plan update)')
         }
       }
 
@@ -306,7 +307,7 @@ export async function membershipRoutes(app: FastifyInstance) {
       await prisma.membershipPlan.delete({ where: { id: planId } })
       // Archive Stripe product after DB delete (non-blocking)
       if (plan.stripeProductId) {
-        archiveStripeProduct(plan.stripeProductId).catch(e => console.error('Stripe archive failed:', e))
+        archiveStripeProduct(plan.stripeProductId).catch(e => logger.error({ err: e }, 'Stripe archive failed'))
       }
       return reply.send({ success: true })
     },

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '@packd/db'
 import { requireAuth, requireRole } from '../lib/auth.js'
 import { syncStripePrice, archiveStripeProduct } from '../lib/stripe-sync.js'
+import { logger } from '../lib/logger.js'
 
 export async function productRoutes(app: FastifyInstance) {
   // GET /products?studioId= — list products for a studio (all authenticated staff)
@@ -45,7 +46,7 @@ export async function productRoutes(app: FastifyInstance) {
           stripeProductId = synced.stripeProductId
           stripePriceId = synced.stripePriceId
         } catch (e) {
-          console.error('Stripe sync failed (product create):', e)
+          logger.error({ err: e }, 'Stripe sync failed (product create)')
         }
       }
 
@@ -94,7 +95,7 @@ export async function productRoutes(app: FastifyInstance) {
           stripeProductId = synced.stripeProductId
           stripePriceId = synced.stripePriceId
         } catch (e) {
-          console.error('Stripe sync failed (product update):', e)
+          logger.error({ err: e }, 'Stripe sync failed (product update)')
         }
       }
 
@@ -124,7 +125,7 @@ export async function productRoutes(app: FastifyInstance) {
       if (!existing) return reply.notFound()
       await prisma.product.delete({ where: { id: request.params.id } })
       if (existing.stripeProductId) {
-        archiveStripeProduct(existing.stripeProductId).catch(e => console.error('Stripe archive failed:', e))
+        archiveStripeProduct(existing.stripeProductId).catch(e => logger.error({ err: e }, 'Stripe archive failed'))
       }
       return { success: true }
     },

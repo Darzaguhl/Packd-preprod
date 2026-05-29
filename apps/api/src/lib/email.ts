@@ -1,4 +1,5 @@
 import { Resend } from 'resend'
+import { logger } from './logger.js'
 
 const FROM = process.env.EMAIL_FROM ?? 'onboarding@resend.dev'
 
@@ -15,7 +16,7 @@ async function send(to: string, subject: string, html: string): Promise<boolean>
     await getResend().emails.send({ from: FROM, to, subject, html })
     return true
   } catch (e) {
-    console.error('[email] send failed:', e)
+    logger.error({ err: e, to, subject }, '[email] send failed')
     return false
   }
 }

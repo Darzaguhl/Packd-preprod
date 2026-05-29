@@ -42,5 +42,8 @@
   "optionalDependencies": {
     "@esbuild/darwin-arm64": "^0.28.0",
     "@esbuild/darwin-x64": "0.28.0"
+  },
+  "dependencies": {
+    "@sentry/node": "^10.55.0"
   }
 }

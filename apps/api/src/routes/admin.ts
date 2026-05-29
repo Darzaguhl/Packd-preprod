@@ -3,6 +3,7 @@ import { prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK, type UserRole } from '@packd/types'
 import { enqueueNoShowCheck } from '../jobs/index.js'
+import { logger } from '../lib/logger.js'
 import Stripe from 'stripe'
 
 // Lazy-init so tests without STRIPE_SECRET_KEY don't blow up at import time
@@ -167,7 +168,7 @@ export async function adminRoutes(app: FastifyInstance) {
       // When a session completes, trigger no-show fee processing
       if (status === 'COMPLETED') {
         await enqueueNoShowCheck(session.id, session.startsAt).catch(err =>
-          console.error('[jobs] failed to enqueue no-show check', err),
+          logger.error({ err }, '[jobs] failed to enqueue no-show check'),
         )
       }
 
