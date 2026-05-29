@@ -314,18 +314,20 @@ export async function membershipRoutes(app: FastifyInstance) {
 
   // ─── Subscriptions ─────────────────────────────────────────────────────────
 
-  // GET /memberships?studioId=&memberId= — list subscriptions (studio_admin+)
-  app.get<{ Querystring: { studioId?: string; memberId?: string } }>(
+  // GET /memberships?studioId=&memberId=&all= — list subscriptions (studio_admin+)
+  // By default returns only ACTIVE and PAUSED. Pass all=true to include CANCELLED/EXPIRED.
+  app.get<{ Querystring: { studioId?: string; memberId?: string; all?: string } }>(
     '/',
     { preHandler: requireStudioAdmin },
     async (request, reply) => {
-      const { studioId, memberId } = request.query
+      const { studioId, memberId, all } = request.query
       if (!studioId && !memberId) return reply.badRequest('studioId or memberId is required')
 
       const subscriptions = await prisma.membershipSubscription.findMany({
         where: {
           ...(memberId && { memberId }),
           ...(studioId && { plan: { studioId } }),
+          ...(all !== 'true' && { status: { in: ['ACTIVE', 'PAUSED'] } }),
         },
         include: {
           plan: { select: { name: true, creditsPerCycle: true, intervalMonths: true, priceInCents: true } },
