@@ -18,7 +18,7 @@ Boutique fitness studio management platform (think Zingfit / Mariana Tek). Full-
 
 ## Ports
 
-- Web: `http://localhost:3001`
+- Web: `http://localhost:3000`
 - API: `http://localhost:4000`
 
 ## Running the project
@@ -27,7 +27,7 @@ Boutique fitness studio management platform (think Zingfit / Mariana Tek). Full-
 npm install && npm run db:generate   # fresh install
 
 cd apps/api && npm run dev           # API on :4000
-cd apps/web && npm run dev           # Web on :3001
+cd apps/web && npm run dev           # Web on :3000
 
 npm test                             # Vitest unit tests
 npm run test:e2e                     # Playwright (needs both servers)
