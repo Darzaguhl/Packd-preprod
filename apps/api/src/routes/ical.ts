@@ -5,10 +5,14 @@ import { requireAuth, getUser } from '../lib/auth.js'
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
 
-const ICAL_SECRET = process.env.ICAL_SECRET ?? 'packd-ical-secret-change-in-production'
+const ICAL_SECRET = process.env.ICAL_SECRET
+if (!ICAL_SECRET) {
+  console.warn('[ical] WARNING: ICAL_SECRET env var is not set — iCal feed tokens are insecure. Set ICAL_SECRET in production.')
+}
+const _ICAL_SECRET = ICAL_SECRET ?? 'packd-ical-secret-change-in-production'
 
 function makeToken(userId: string): string {
-  return createHmac('sha256', ICAL_SECRET).update(userId).digest('hex')
+  return createHmac('sha256', _ICAL_SECRET).update(userId).digest('hex')
 }
 
 function verifyToken(userId: string, token: string): boolean {
@@ -51,25 +55,30 @@ export async function icalRoutes(app: FastifyInstance) {
       select: { id: true },
     })
 
+    // userId is embedded in the URL so validation is O(1) — no full-table scan needed
     const urls: Record<string, string> = {
-      member: `${base}/ical/member/${token}`,
+      member: `${base}/ical/member/${user.id}/${token}`,
     }
     if (instructor) {
-      urls.instructor = `${base}/ical/instructor/${token}`
+      urls.instructor = `${base}/ical/instructor/${user.id}/${token}`
     }
 
     return reply.send({ token, urls })
   })
 
-  // GET /ical/instructor/:token — public, no auth required
-  app.get<{ Params: { token: string } }>(
-    '/instructor/:token',
+  // GET /ical/instructor/:userId/:token — public, no auth required
+  app.get<{ Params: { userId: string; token: string } }>(
+    '/instructor/:userId/:token',
     async (request, reply) => {
-      const { token } = request.params
+      const { userId, token } = request.params
 
-      // Find user by matching derived token
-      const users = await prisma.user.findMany({ select: { id: true, firstName: true, lastName: true } })
-      const user = users.find(u => verifyToken(u.id, token))
+      // O(1) token validation — derive expected token from userId, compare
+      if (!verifyToken(userId, token)) return reply.status(404).send('Not found')
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, firstName: true, lastName: true },
+      })
       if (!user) return reply.status(404).send('Not found')
 
       const instructor = await prisma.instructor.findFirst({
@@ -132,14 +141,19 @@ export async function icalRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /ical/member/:token — public, no auth required
-  app.get<{ Params: { token: string } }>(
-    '/member/:token',
+  // GET /ical/member/:userId/:token — public, no auth required
+  app.get<{ Params: { userId: string; token: string } }>(
+    '/member/:userId/:token',
     async (request, reply) => {
-      const { token } = request.params
+      const { userId, token } = request.params
 
-      const users = await prisma.user.findMany({ select: { id: true, firstName: true, lastName: true } })
-      const user = users.find(u => verifyToken(u.id, token))
+      // O(1) token validation — derive expected token from userId, compare
+      if (!verifyToken(userId, token)) return reply.status(404).send('Not found')
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, firstName: true, lastName: true },
+      })
       if (!user) return reply.status(404).send('Not found')
 
       const member = await prisma.member.findUnique({

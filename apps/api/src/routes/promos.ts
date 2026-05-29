@@ -212,8 +212,19 @@ export async function promoRoutes(app: FastifyInstance) {
       let discount: { type: string; value: number; promoCodeId: string } | null = null
 
       if (promo.type === 'MEMBERSHIP_PCT' || promo.type === 'MEMBERSHIP_FLAT') {
-        // Discount types are NOT consumed here — they are applied and consumed at Stripe checkout.
-        // Just validate and return the discount info + promoCodeId for the checkout call.
+        // Write a provisional redemption immediately to prevent the member from using
+        // the same discount code in multiple concurrent Stripe checkout sessions.
+        // The webhook's own redemption write (stripe.ts) has an !alreadyRedeemed guard
+        // so it will safely skip if this record already exists.
+        await prisma.$transaction(async (tx) => {
+          await tx.promoCodeRedemption.create({
+            data: { promoCodeId: promo.id, memberId: member!.id },
+          })
+          await tx.promoCode.update({
+            where: { id: promo.id },
+            data: { usageCount: { increment: 1 } },
+          })
+        })
         discount = { type: promo.type, value: promo.value, promoCodeId: promo.id }
       } else {
         // CREDIT_GRANT / FREE_CLASS — consume immediately

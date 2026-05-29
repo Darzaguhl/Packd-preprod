@@ -120,12 +120,14 @@ describe('POST /promos/redeem', () => {
     expect(body.creditsAdded).toBe(1)
   })
 
-  it('returns discount info without creating redemption for MEMBERSHIP_PCT', async () => {
+  it('writes provisional redemption and returns discount info for MEMBERSHIP_PCT', async () => {
     vi.mocked(prisma.member.findFirst).mockResolvedValue(makeMember() as never)
     vi.mocked(prisma.promoCode.findUnique).mockResolvedValue(
       makePromo({ type: 'MEMBERSHIP_PCT', value: 20 }) as never,
     )
     vi.mocked(prisma.promoCodeRedemption.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.promoCodeRedemption.create).mockResolvedValue({} as never)
+    vi.mocked(prisma.promoCode.update).mockResolvedValue({} as never)
 
     const app = await buildApp()
     const res = await app.inject({
@@ -138,16 +140,21 @@ describe('POST /promos/redeem', () => {
     const body = JSON.parse(res.body)
     expect(body.creditsAdded).toBe(0)
     expect(body.discount).toMatchObject({ type: 'MEMBERSHIP_PCT', value: 20, promoCodeId: 'promo-1' })
-    // Should NOT have called $transaction (no immediate consumption)
-    expect(vi.mocked(prisma.$transaction)).not.toHaveBeenCalled()
+    // Provisional redemption IS now written immediately to prevent race condition
+    expect(vi.mocked(prisma.$transaction)).toHaveBeenCalled()
+    expect(vi.mocked(prisma.promoCodeRedemption.create)).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ promoCodeId: 'promo-1', memberId: 'member-1' }) }),
+    )
   })
 
-  it('returns discount info for MEMBERSHIP_FLAT', async () => {
+  it('writes provisional redemption and returns discount info for MEMBERSHIP_FLAT', async () => {
     vi.mocked(prisma.member.findFirst).mockResolvedValue(makeMember() as never)
     vi.mocked(prisma.promoCode.findUnique).mockResolvedValue(
       makePromo({ type: 'MEMBERSHIP_FLAT', value: 500 }) as never,
     )
     vi.mocked(prisma.promoCodeRedemption.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.promoCodeRedemption.create).mockResolvedValue({} as never)
+    vi.mocked(prisma.promoCode.update).mockResolvedValue({} as never)
 
     const app = await buildApp()
     const res = await app.inject({
@@ -160,6 +167,7 @@ describe('POST /promos/redeem', () => {
     const body = JSON.parse(res.body)
     expect(body.discount).toMatchObject({ type: 'MEMBERSHIP_FLAT', value: 500 })
     expect(body.message).toContain('5.00 off')
+    expect(vi.mocked(prisma.$transaction)).toHaveBeenCalled()
   })
 
   it('returns 422 when code is inactive', async () => {
