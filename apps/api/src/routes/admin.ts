@@ -1666,6 +1666,9 @@ export async function adminRoutes(app: FastifyInstance) {
       const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       const toDate   = to   ? new Date(to)   : new Date()
 
+      const studio = await prisma.studio.findUnique({ where: { id: studioId }, select: { currency: true } })
+      const currency = studio?.currency ?? 'USD'
+
       const sessions = await prisma.classSession.findMany({
         where: {
           studioId,
@@ -1714,7 +1717,7 @@ export async function adminRoutes(app: FastifyInstance) {
         row.checkedIn += s.bookings.filter(b => b.checkedIn).length
       }
 
-      const headers = ['Instructor', 'Sessions', 'Total Bookings', 'Checked In', 'Rate/Head ($)', 'Est. Pay ($)']
+      const headers = ['Instructor', 'Sessions', 'Total Bookings', 'Checked In', `Rate/Head (${currency})`, `Est. Pay (${currency})`]
       const rows = [...byInstructor.values()].map(r => {
         const rate = r.payRatePerHeadCents != null ? r.payRatePerHeadCents / 100 : null
         const pay  = rate != null ? (rate * r.checkedIn).toFixed(2) : 'N/A'

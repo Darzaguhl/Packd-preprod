@@ -437,7 +437,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
           <p className="text-sm text-gray-500 mb-4">
             Manage staff for this studio. Assign instructor and front-desk roles — staff can hold both.
           </p>
-          <StaffTab studioId={studioId} token={token} onOpenPermissions={() => changeTab('permissions')} />
+          <StaffTab studioId={studioId} token={token} currency={currency} onOpenPermissions={() => changeTab('permissions')} />
         </div>
       )}
 

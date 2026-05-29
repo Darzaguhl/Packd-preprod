@@ -7,6 +7,7 @@ import PhotosTab from './PhotosTab'
 interface Props {
   studioId: string
   token: string
+  currency?: string
   onOpenPermissions?: () => void
 }
 
@@ -17,7 +18,7 @@ const ROLE_LABEL: Record<string, string> = {
 
 const ALL_ROLES = ['fronthost', 'instructor'] as const
 
-export default function StaffTab({ studioId, token, onOpenPermissions }: Props) {
+export default function StaffTab({ studioId, token, currency = 'USD', onOpenPermissions }: Props) {
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -346,7 +347,7 @@ export default function StaffTab({ studioId, token, onOpenPermissions }: Props) 
                     <div className="flex items-center gap-2 shrink-0">
                       {member.instructorId && (
                         <>
-                          <PayRateInput member={member} token={token} onSaved={load} />
+                          <PayRateInput member={member} token={token} currency={currency} onSaved={load} />
                           <button
                             onClick={() => setPhotoMember(photoMember?.id === member.id ? null : member)}
                             className={`text-xs font-medium transition-colors shrink-0 ${
@@ -416,12 +417,16 @@ export default function StaffTab({ studioId, token, onOpenPermissions }: Props) 
 function PayRateInput({
   member,
   token,
+  currency = 'USD',
   onSaved,
 }: {
   member: StaffMember
   token: string
+  currency?: string
   onSaved: () => void
 }) {
+  const currencySymbol = new Intl.NumberFormat('en', { style: 'currency', currency, maximumFractionDigits: 0 })
+    .format(0).replace(/[\d,.\s]/g, '').trim() || currency
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(
     member.payRatePerHeadCents != null ? (member.payRatePerHeadCents / 100).toFixed(2) : '',
@@ -449,7 +454,7 @@ function PayRateInput({
         title="Set pay rate per head"
       >
         {member.payRatePerHeadCents != null
-          ? `$${(member.payRatePerHeadCents / 100).toFixed(2)}/head`
+          ? `${currencySymbol}${(member.payRatePerHeadCents / 100).toFixed(2)}/head`
           : 'Pay rate'}
       </button>
     )
@@ -457,7 +462,7 @@ function PayRateInput({
 
   return (
     <div className="flex items-center gap-1 shrink-0">
-      <span className="text-xs text-gray-400">$</span>
+      <span className="text-xs text-gray-400">{currencySymbol}</span>
       <input
         type="number"
         min="0"
