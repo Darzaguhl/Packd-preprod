@@ -20,7 +20,7 @@ export async function membershipRoutes(app: FastifyInstance) {
       const plans = await prisma.membershipPlan.findMany({
         where: { studioId },
         orderBy: { priceInCents: 'asc' },
-        select: { id: true, name: true, description: true, priceInCents: true, intervalMonths: true, creditsPerCycle: true },
+        select: { id: true, name: true, description: true, priceInCents: true, intervalMonths: true, creditsPerCycle: true, stripePriceId: true },
       })
       return reply.send(plans)
     },

@@ -147,11 +147,25 @@ export default function AccountView() {
   const [guestPasses, setGuestPasses] = useState<import('@/lib/api').GuestPassEntry[]>([])
   const [purchases, setPurchases] = useState<import('@/lib/api').ProductSale[]>([])
 
-  // Show success toast when Stripe redirects back after payment
+  // Show success toast and refresh data when Stripe redirects back after payment
   useEffect(() => {
     if (searchParams.get('checkout') === 'success') {
       showToast('Payment successful! Your membership is now active.')
       router.replace('/account')
+      // Re-fetch profile + history so updated credits/subscription are shown immediately
+      createClient().auth.getSession().then(async ({ data: { session } }) => {
+        const t = session?.access_token
+        if (!t) return
+        try {
+          const [profileData, historyData] = await Promise.all([
+            api.members.me(t),
+            api.members.history(t),
+          ])
+          setProfile(profileData)
+          setPastBookings(historyData.pastBookings)
+          setTransactions(historyData.transactions)
+        } catch { /* non-fatal */ }
+      })
     }
   }, [searchParams])
 
