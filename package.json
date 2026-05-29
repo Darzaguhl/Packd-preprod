@@ -8,7 +8,7 @@
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
-    "postinstall": "npm_config_cpu=arm64 npm install @esbuild/darwin-arm64 --no-save --ignore-scripts 2>/dev/null; npm_config_cpu=arm64 npm install @esbuild/darwin-arm64 --no-save --ignore-scripts --prefix node_modules/vite 2>/dev/null; true",
+    "postinstall": "node -e \"if(process.platform==='darwin'&&process.arch==='arm64'){require('child_process').execSync('npm_config_cpu=arm64 npm install @esbuild/darwin-arm64 --no-save --ignore-scripts 2>/dev/null || true')}\"",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "db:generate": "turbo db:generate",
@@ -21,7 +21,6 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
-    "@rollup/rollup-darwin-x64": "^4.60.4",
     "@types/node": "^22.10.2",
     "@vitest/coverage-v8": "^4.1.6",
     "prettier": "^3.4.2",
@@ -41,7 +40,10 @@
   },
   "optionalDependencies": {
     "@esbuild/darwin-arm64": "^0.28.0",
-    "@esbuild/darwin-x64": "0.28.0"
+    "@esbuild/darwin-x64": "0.28.0",
+    "@rollup/rollup-darwin-arm64": "^4.60.4",
+    "@rollup/rollup-darwin-x64": "^4.60.4",
+    "@rollup/rollup-linux-x64-gnu": "^4.60.4"
   },
   "dependencies": {
     "@sentry/node": "^10.55.0"
