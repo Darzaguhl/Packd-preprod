@@ -49,7 +49,8 @@ describe('POST /admin/members/:memberId/credits', () => {
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({ success: true, newBalance: 15 })
-    expect(vi.mocked(prisma.creditBalance.upsert).mock.calls[0][0].update.balance.increment).toBe(10)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((vi.mocked(prisma.creditBalance.upsert).mock.calls[0][0].update as any).balance.increment).toBe(10)
   })
 
   it('deducts credits with a negative amount', async () => {
@@ -66,7 +67,8 @@ describe('POST /admin/members/:memberId/credits', () => {
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({ success: true, newBalance: 3 })
-    expect(vi.mocked(prisma.creditBalance.upsert).mock.calls[0][0].update.balance.increment).toBe(-5)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((vi.mocked(prisma.creditBalance.upsert).mock.calls[0][0].update as any).balance.increment).toBe(-5)
   })
 
   it('rejects amount of zero', async () => {

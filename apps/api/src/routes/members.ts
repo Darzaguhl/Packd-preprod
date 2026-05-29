@@ -344,7 +344,7 @@ export async function memberRoutes(app: FastifyInstance) {
           },
         },
         take: 10000,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { bookedAt: 'desc' },
       })
 
       // Build per-member visit count
@@ -361,8 +361,9 @@ export async function memberRoutes(app: FastifyInstance) {
       const instrCount = new Map<string, { name: string; count: number }>()
       for (const b of allBookings) {
         if (b.memberId !== member.id) continue
-        const id = b.session.substituteInstructorId ?? b.session.instructorId
-        const name = `${b.session.instructor.user.firstName} ${b.session.instructor.user.lastName}`
+        const s = b.session as { instructorId: string; substituteInstructorId: string | null; instructor: { user: { firstName: string; lastName: string } } }
+        const id = s.substituteInstructorId ?? s.instructorId
+        const name = `${s.instructor.user.firstName} ${s.instructor.user.lastName}`
         const existing = instrCount.get(id) ?? { name, count: 0 }
         instrCount.set(id, { ...existing, count: existing.count + 1 })
       }

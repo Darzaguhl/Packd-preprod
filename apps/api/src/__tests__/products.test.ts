@@ -62,7 +62,8 @@ describe('GET /products', () => {
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toHaveLength(2)
     // Should NOT filter by inStock when all=true
-    expect(vi.mocked(prisma.product.findMany).mock.calls[0][0].where).not.toHaveProperty('inStock')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((vi.mocked(prisma.product.findMany).mock.calls[0][0] as any).where).not.toHaveProperty('inStock')
   })
 
   it('returns 400 when studioId is missing', async () => {
