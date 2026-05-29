@@ -424,6 +424,7 @@ model Member {
   productSales    ProductSale[]
 
   @@unique([studioId, externalId])
+  @@index([studioId])              // member list / export queries
   @@index([staffRoles], type: Gin)
   @@index([studioIds], type: Gin)
 }
@@ -450,6 +451,7 @@ model Booking {
   @@unique([sessionId, stationId])
   @@index([memberId])
   @@index([sessionId, status])
+  @@index([bookedAt])              // stats query: bookedAt >= today AND status = CONFIRMED
 }
 
 enum BookingStatus {
@@ -508,7 +510,8 @@ model CreditTransaction {
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
   @@index([memberId])
-  @@index([expiresAt])  // speeds up the nightly credit expiry sweep
+  @@index([expiresAt])             // nightly credit expiry sweep
+  @@index([createdAt])             // analytics window queries
 }
 
 enum TransactionType {
@@ -559,6 +562,7 @@ model MembershipSubscription {
   plan   MembershipPlan @relation(fields: [planId], references: [id])
 
   @@index([memberId])
+  @@index([status])                // analytics subscription count by status
 }
 
 enum SubscriptionStatus {
