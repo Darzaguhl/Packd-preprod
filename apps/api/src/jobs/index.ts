@@ -149,7 +149,7 @@ export async function setupJobs() {
         where: { memberId: { in: memberIds } },
         select: { memberId: true, balance: true },
       })
-      const balanceMap = new Map(balances.map(b => [b.memberId, b.balance]))
+      const balanceMap = new Map<string, number>(balances.map(b => [b.memberId, b.balance] as [string, number]))
 
       for (const booking of noShows) {
         const current = balanceMap.get(booking.memberId) ?? 0

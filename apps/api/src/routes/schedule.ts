@@ -84,7 +84,8 @@ export async function scheduleRoutes(app: FastifyInstance) {
         waitlistPositionMap.set(entry.sessionId, ahead + 1)
       }
 
-      const bookingMap = new Map(userBookings.map((b) => [b.sessionId, b]))
+      type UserBooking = typeof userBookings[number]
+      const bookingMap = new Map<string, UserBooking>(userBookings.map(b => [b.sessionId, b] as [string, UserBooking]))
 
       return reply.send({
         timeFormat: studioSettings?.timeFormat ?? '24h',

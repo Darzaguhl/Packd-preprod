@@ -261,7 +261,7 @@ export async function adminSessionRoutes(app: FastifyInstance) {
             data: { status: 'CANCELLED', stationId: null },
           })
 
-          const sessionCredits = new Map(sessions.map(s => [s.id, s.creditsRequired]))
+          const sessionCredits = new Map<string, number>(sessions.map(s => [s.id, s.creditsRequired] as [string, number]))
           const refundsByMember = new Map<string, number>()
           for (const b of bookings) {
             const credits = sessionCredits.get(b.sessionId) ?? 0

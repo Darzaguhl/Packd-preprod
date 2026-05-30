@@ -60,9 +60,26 @@ jobs:
       - name: Run unit tests
         run: npm test -- --reporter=verbose
 
-  # TypeScript strict-mode has ~150 pre-existing implicit-any errors across
-  # the codebase (Prisma $transaction callbacks, array map/filter params).
-  # Re-enable this job after a dedicated type-cleanup sprint.
-  # typecheck:
-  #   name: TypeScript
-  #   ...
+  typecheck:
+    name: TypeScript
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Type-check API
+        run: cd apps/api && npx tsc --noEmit
+
+      - name: Type-check Web
+        run: cd apps/web && npx tsc --noEmit

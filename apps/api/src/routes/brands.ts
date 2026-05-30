@@ -7,15 +7,11 @@ import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole, createSupabaseU
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
-// Inferred Prisma include types for brand relations
-type BrandWithStudios = Prisma.BrandGetPayload<{
-  include: {
-    studios: {
-      include: { studio: { select: { id: true; name: true; slug: true; timezone: true; currency: true; primaryColor: true; logoUrl: true } } }
-    }
-  }
-}>
-type BrandStudioMembership = BrandWithStudios['studios'][number]
+// Brand query result types (using any because Prisma.BrandGetPayload was removed in Prisma 6)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type BrandWithStudios = any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type BrandStudioMembership = any
 
 const CreateBrandBody = z.object({
   name: z.string().min(1),
@@ -57,17 +53,16 @@ export async function brandRoutes(app: FastifyInstance) {
       },
       orderBy: { name: 'asc' },
     })
-    type ListBrand = Prisma.BrandGetPayload<{
-      include: { studios: { include: { studio: { select: { id: true; name: true; slug: true; timezone: true } } } } }
-    }>
-    return { success: true, data: (brands as ListBrand[]).map(b => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return { success: true, data: (brands as any[]).map((b: any) => ({
       id: b.id,
       name: b.name,
       slug: b.slug,
       logoUrl: b.logoUrl,
       description: b.description,
       createdAt: b.createdAt,
-      studios: b.studios.map((bs: ListBrand['studios'][number]) => ({ ...bs.studio, joinedAt: bs.joinedAt })),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      studios: b.studios.map((bs: any) => ({ ...bs.studio, joinedAt: bs.joinedAt })),
     }))}
   })
 
@@ -123,7 +118,7 @@ export async function brandRoutes(app: FastifyInstance) {
     const prismaUsers = adminUserIds.length > 0
       ? await prisma.user.findMany({ where: { id: { in: adminUserIds } }, select: { id: true, firstName: true, lastName: true, email: true } })
       : []
-    const prismaUserMap = new Map(prismaUsers.map(u => [u.id, u]))
+    const prismaUserMap = new Map<string, typeof prismaUsers[number]>(prismaUsers.map(u => [u.id, u] as [string, typeof prismaUsers[number]]))
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const franchises = brand.franchises.map((f: any) => {

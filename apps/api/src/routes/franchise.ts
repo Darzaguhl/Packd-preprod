@@ -312,7 +312,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
 
       const updated = await prisma.instructor.update({
         where: { id: instructorId },
-        data: { permissions: merged as unknown as Prisma.InputJsonValue },
+        data: { permissions: merged as unknown as Record<string, unknown> },
       })
 
       return reply.send({ success: true, permissions: updated.permissions })
@@ -451,7 +451,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
         where: { userId: { in: adminUserIds } },
         include: { user: { select: { firstName: true, lastName: true, email: true } } },
       })
-      const memberByUserId = new Map(members.map(m => [m.userId, m]))
+      const memberByUserId = new Map<string, typeof members[number]>(members.map(m => [m.userId, m] as [string, typeof members[number]]))
 
       // Sync staffRoles in DB for any admin whose Member record is out of date
       for (const m of members) {
@@ -602,7 +602,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
 
       await prisma.member.update({
         where: { id: memberId },
-        data: { staffPermissions: merged as unknown as Prisma.InputJsonValue },
+        data: { staffPermissions: merged as unknown as Record<string, unknown> },
       })
 
       return reply.send({ success: true, permissions: merged })

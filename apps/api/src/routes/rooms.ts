@@ -147,7 +147,7 @@ export async function roomRoutes(app: FastifyInstance) {
             lengthM,
             stations: {
               create: stations.map(s => ({
-                type: s.type as import('@packd/db').StationType,
+                type: s.type as string,
                 label: s.label,
                 xM: s.xM,
                 yM: s.yM,
@@ -219,7 +219,7 @@ export async function roomRoutes(app: FastifyInstance) {
             isActive: true,
             stations: {
               create: stations.map(s => ({
-                type: s.type as import('@packd/db').StationType,
+                type: s.type as string,
                 label: s.label,
                 xM: s.xM,
                 yM: s.yM,

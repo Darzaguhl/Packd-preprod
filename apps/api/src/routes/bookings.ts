@@ -175,8 +175,8 @@ export async function bookingRoutes(app: FastifyInstance) {
             newBooking = await tx.booking.create({
               data: { sessionId, memberId: member.id, status: 'CONFIRMED' },
             })
-          } catch (e) {
-            if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+          } catch (e: unknown) {
+            if (e instanceof Error && (e as { code?: string }).code === 'P2002') {
               throw Object.assign(new Error('Already booked'), { statusCode: 409 })
             }
             throw e

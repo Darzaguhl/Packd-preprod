@@ -41,7 +41,7 @@ export async function adminExportsRoutes(app: FastifyInstance) {
       try {
         rows = await prisma.$transaction(async (tx) => {
           await tx.$executeRawUnsafe('SET LOCAL statement_timeout = 10000')
-          return tx.$queryRawUnsafe<Record<string, unknown>[]>(capped)
+          return tx.$queryRawUnsafe(capped) as Promise<Record<string, unknown>[]>
         })
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e)

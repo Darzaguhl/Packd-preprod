@@ -338,7 +338,7 @@ export async function membershipRoutes(app: FastifyInstance) {
       })
 
       // Enrich with user name/email
-      const userIds = [...new Set(subscriptions.map(s => s.member.userId))]
+      const userIds: string[] = [...new Set<string>(subscriptions.map(s => String(s.member.userId)))]
       const { createClient } = await import('@supabase/supabase-js')
       const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
       const userMap: Record<string, { firstName: string; lastName: string; email: string }> = {}
