@@ -147,7 +147,7 @@ export async function roomRoutes(app: FastifyInstance) {
             lengthM,
             stations: {
               create: stations.map(s => ({
-                type: s.type as string,
+                type: s.type as 'BIKE' | 'TREADMILL' | 'BENCH' | 'ROWER' | 'MAT' | 'REFORMER' | 'BARRE' | 'OTHER',
                 label: s.label,
                 xM: s.xM,
                 yM: s.yM,
@@ -219,7 +219,7 @@ export async function roomRoutes(app: FastifyInstance) {
             isActive: true,
             stations: {
               create: stations.map(s => ({
-                type: s.type as string,
+                type: s.type as 'BIKE' | 'TREADMILL' | 'BENCH' | 'ROWER' | 'MAT' | 'REFORMER' | 'BARRE' | 'OTHER',
                 label: s.label,
                 xM: s.xM,
                 yM: s.yM,
