@@ -13,8 +13,11 @@ Boutique fitness studio management platform (think Zingfit / Mariana Tek). Full-
 | Auth | Supabase Auth (publishable key format) |
 | Jobs | pg-boss v10 (no Redis) |
 | Payments | Stripe |
+| Email | Resend |
+| Error tracking | Sentry (`@sentry/node`) |
 | DnD | @dnd-kit/core + @dnd-kit/sortable |
 | Tests | Vitest 3 (unit) + Playwright 1.60 (E2E) |
+| CI | GitHub Actions (unit tests + typecheck on every push; E2E on PRs when secrets configured) |
 
 ## Ports
 
@@ -24,20 +27,22 @@ Boutique fitness studio management platform (think Zingfit / Mariana Tek). Full-
 ## Running the project
 
 ```bash
-npm install && npm run db:generate   # fresh install
+npm install              # also runs prisma generate via postinstall
 
 cd apps/api && npm run dev           # API on :4000
 cd apps/web && npm run dev           # Web on :3000
 
-npm test                             # Vitest unit tests
-npm run test:e2e                     # Playwright (needs both servers)
+npm test                             # Vitest unit tests (136 passing)
+npm run test:e2e                     # Playwright (needs both servers + .auth/ state files)
 ```
 
 ## Key environment files
 
-**`apps/api/.env`** — `DATABASE_URL`, `SUPABASE_URL`, `CORS_ORIGIN=http://localhost:3000,http://localhost:3001`, `PORT=4000`
+**`apps/api/.env`** — `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CORS_ORIGIN=http://localhost:3000`, `PORT=4000`, `WEB_URL=http://localhost:3000`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `ICAL_SECRET`, `SENTRY_DSN` (optional), `OPS_EMAIL` (fallback alert address when studio has no supportEmail)
 
 **`apps/web/.env.local`** — `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (sb_publishable_... format), `NEXT_PUBLIC_API_URL=http://localhost:4000`, `NEXT_PUBLIC_STUDIO_ID`
+
+See `apps/api/.env.example` for full documented list.
 
 ## Architecture gotchas
 
@@ -46,10 +51,17 @@ npm run test:e2e                     # Playwright (needs both servers)
 - JWT via JWKS (`jose`) — **no issuer check** (Supabase issuer has `/auth/v1` suffix)
 - Role read from `app_metadata` only — never `user_metadata`
 - Set role: `PUT /auth/v1/admin/users/:userId` `{"app_metadata":{"role":"studio_admin"}}` with service role key
+- `assertStudioAccess` is defined **once** in `routes/admin-shared.ts` and imported everywhere — do not add local copies
 
 ### Next.js 15 + Supabase SSR
 - Server Components can't set cookies — `setAll` in `supabase/server.ts` is wrapped in `try/catch`
 - Token fetching for API calls must be client-side in `useEffect`
+
+### Prisma 6
+- `PrismaClientKnownRequestError` is imported from `@prisma/client/runtime/library.js`, not from the `Prisma` namespace
+- `Prisma.BrandGetPayload` / `Prisma.XxxGetPayload` do not exist in Prisma 6 — use `Awaited<ReturnType<typeof prisma.xxx.findFirst<{include:{...}}>>>` instead
+- `Prisma.InputJsonValue` is not exported from the namespace — use `as unknown as object` for JSON field casts
+- `noImplicitAny: false` is set in `apps/api/tsconfig.json` — Prisma's complex transaction callback types can't be inferred in strict mode
 
 ### pg-boss v10
 - `boss.createQueue(name)` before scheduling — queues are not auto-created
@@ -60,12 +72,20 @@ npm run test:e2e                     # Playwright (needs both servers)
 - Prisma `$transaction` mock: share the same model `vi.fn()` instances in both the `prisma` export and the `$transaction` proxy
 - `$transaction` callback form: `vi.fn(async (fn) => fn(tx))`; array form: `vi.fn(async (arr) => Promise.all(arr))`
 - Custom errors use `{ statusCode: N }` not `{ code: 'NAME' }`
+- When mocking `@packd/db`, always include `auditLog: { create: vi.fn().mockResolvedValue({}) }` — audit() is called in many routes
+- When mocking routes that touch Stripe sync, also mock `../lib/stripe-sync.js`
+
+### Stripe
+- Webhook signature verification requires raw body — registered via `addContentTypeParser('application/json', { parseAs: 'buffer' }, ...)` in `server.ts`
+- `StripeEvent` table provides idempotency — duplicate webhook deliveries are deduplicated on `id`
+- Replay endpoint: `POST /stripe/replay/:eventId` (studio_admin+) — deletes idempotency record and re-injects
 
 ### Tailwind CSS v4
 - `@import "tailwindcss"` in `globals.css`; `postcss.config.js` with `@tailwindcss/postcss`; no `tailwind.config.js` needed
 
 ### React
 - Root `package.json` overrides pin React 19 — do not remove (Expo conflict)
+- Platform-specific rollup/esbuild binaries are in `optionalDependencies` — npm picks the right one per platform automatically
 
 ## Database schema
 
@@ -76,8 +96,15 @@ Studio → ClassTemplate → ClassSession → Booking → Member
                       ↗ ClassSchedule (recurring)   ↘ WaitlistEntry
 Member → CreditBalance + CreditTransaction
 Member → MembershipSubscription → MembershipPlan
+Member → GuestPass
 Studio → CancellationPolicy
-Studio → Product
+Studio → Product → ProductSale
+Studio → StudioIntegration
+Studio → PromoCode → PromoCodeRedemption
+Studio → StudioNetwork → StudioNetworkMembership
+AuditLog                           # staff action log
+StripeEvent                        # webhook idempotency
+MemberNote                         # staff notes on members
 ```
 
 Key fields:
@@ -87,7 +114,10 @@ Key fields:
 - `Station`: `type: StationType`, `xM`, `yM`, `rotation`, `label`
 - `Booking.stationId` — spot assignment
 - `Member.staffRoles String[] @default([])` — all roles; `studioIds` in `app_metadata` for multi-studio
+- `Member.guestPassBalance` — current guest pass balance
 - `Product`: `category @default("Other")`, `priceInCents`, `creditsRequired Int @default(0)`, `inStock`; free = both price and credits = 0
+- `AuditLog`: `actorId`, `actorRole`, `action`, `targetId`, `meta Json`, `studioId`, `createdAt`
+- `GuestPass`: signed `amount` (positive = grant, negative = use), `guestName` on use entries
 
 Seed (`packages/db/src/seed.ts`): 1 studio (Packd Demo), Stockholm City location, 2 rooms (Ride Room cap 20, The Floor cap 16), 3 templates, 1 instructor (Alex Rivera), 3 plans, ~26 sessions.
 
@@ -96,46 +126,105 @@ Seed (`packages/db/src/seed.ts`): 1 studio (Packd Demo), Stockholm City location
 - **Roles**: `admin=5`, `franchise_admin=4`, `studio_admin=3`, `instructor=2`, `fronthost=2`, `member=1`
 - `fronthost` and `instructor` share rank 2 — both pass `requireRole('instructor')` but not `requireRole('studio_admin')`
 - **Dual-role**: `app_metadata.roles[]` for all roles, `app_metadata.role` for primary. `DualRoleDashboard` renders for users with both `fronthost` + `instructor`.
-- **Multi-studio**: `app_metadata.studioIds[]` — `assertStudioAccess` checks JWT `studioIds` first (fast path), then DB `member.studioId` + `member.studioIds` (fallback). All three copies of this function (`franchise.ts`, `studios.ts`, `integrations.ts`) use this pattern.
+- **Multi-studio**: `app_metadata.studioIds[]` — `assertStudioAccess` (in `routes/admin-shared.ts`) checks JWT `studioIds` first (fast path), then DB `member.studioId` + `member.studioIds` (fallback). Single authoritative copy — imported by admin-sessions, admin-members, admin-analytics, admin-exports, admin-sales, studios, franchise, integrations.
 - **Booking guards**: past-class booking blocked for members (400); privileged roles (rank ≥ fronthost) bypass. LATE_CANCELLED re-books via `update` not `create` (avoids P2002). Cancel clears `stationId`.
 - **Instructor permissions** (JSON on `Instructor`): `canCheckInMembers`, `canManageWaitlist` (true), `canManageBookings`, `canViewMemberContact`, `canEditSessionDetails`, `canCancelSession`, `canCreateSchedules` (all false default).
 - `StudioManagerDashboard`: reads role from `session.user.app_metadata.role` as `sessionRole` fallback; `effectiveRole = role ?? sessionRole`.
+- **Audit log**: `audit()` helper in `lib/audit.ts` — fire-and-forget, never throws. Wired into: credit adjust, note delete, subscription pause/resume, guest pass grant, refund, stripe replay.
 
 ## File map
 
 ```
 apps/
   api/src/
-    server.ts            # Fastify setup, CORS, plugins
-    lib/auth.ts          # requireAuth, JWKS, role helpers
-    jobs/index.ts        # pg-boss handlers
-    routes/              # schedule, bookings, waitlist, members, studios,
-                         # admin, rooms, schedules, staff, franchise,
-                         # products, integrations, stripe
-    __tests__/           # Vitest unit tests
-  web/src/
-    app/                 # Next.js pages (login, onboarding, schedule, dashboard)
-    components/
-      ScheduleView.tsx   # Member schedule shell + location picker
-      schedule/          # ClassCard, SessionDetailView, DayTabs, FilterBar, etc.
-      admin/             # AdminShell (mgmt/front-desk toggle), SessionPanel
-      calendar/          # CalendarView (week/month/schedules), ScheduleModal, SubstituteModal
-      franchise/         # FranchiseDashboard
-      studio/            # StudioManagerDashboard, RoomsTab, PermissionsTab,
-                         # SettingsTab, StaffTab, ProductsTab, AnalyticsTab, QueryTab
-      room/              # RoomMapView, RoomMapEditor, SessionRoomMap, SpotPicker, constants
-      fronthost/         # FronthostDashboard, MemberDrawer, CreditModal
-      dual/              # DualRoleDashboard
+    server.ts              # Fastify setup, CORS, rate limiting, Sentry, swagger
     lib/
-      api.ts             # Typed API client
-      supabase/          # client.ts + server.ts
-    middleware.ts        # Session refresh
+      auth.ts              # requireAuth, JWKS, role helpers
+      audit.ts             # AuditLog write helper (fire-and-forget)
+      email.ts             # Resend senders: welcome, confirmation, cancellation,
+                           # reminder, waitlist promotion, staff invite, payment failed
+      logger.ts            # pino logger instance
+      stripe-sync.ts       # Stripe product/price create/update/archive
+      studio-ctx.ts        # withStudioCtx() — RLS context helper
+      supabase-admin.ts    # Supabase admin API helpers
+    jobs/index.ts          # pg-boss handlers (no-show fee, late cancel, reminders)
+    routes/
+      admin.ts             # thin barrel — registers 5 sub-plugins
+      admin-shared.ts      # assertStudioAccess + validateSelectQuery (single source)
+      admin-sessions.ts    # session list, bookings view, check-in, bulk cancel/sub
+      admin-members.ts     # member CRUD, credits, notes, subscriptions, guest passes,
+                           # purchases, audit-log read
+      admin-analytics.ts   # stats, leaderboard, analytics (capped at 2000 sessions)
+      admin-sales.ts       # product sales, guest check-in
+      admin-exports.ts     # CSV exports + custom SELECT query (10/min rate limit)
+      availability.ts      # instructor availability blocks
+      bookings.ts          # member booking create/cancel/checkin
+      brands.ts            # brand management (franchise_admin+)
+      franchise.ts         # franchise/studio management, instructor/fronthost permissions
+      ical.ts              # iCal feed generation
+      integrations.ts      # Mariana Tek integration config + member/session sync
+      memberships.ts       # membership plans + subscriptions
+      members.ts           # member profile, me, stats, POST /ensure
+      networks.ts          # studio networks (cross-location booking)
+      products.ts          # product CRUD + Stripe sync
+      promos.ts            # promo codes
+      rooms.ts             # room + layout + station management
+      schedule.ts          # member-facing schedule
+      schedules.ts         # class schedule (recurring) management + month view
+      staff.ts             # staff invite, role management
+      stripe.ts            # checkout, webhook, refund, replay, customer portal
+      studios.ts           # studio settings
+      waitlist.ts          # waitlist join/leave/promote
+      webhooks.ts          # Mariana Tek inbound webhooks
+    __tests__/             # 136 Vitest unit tests across 16 files
+  web/src/
+    app/                   # Next.js pages (login, onboarding, schedule, dashboard, account)
+    components/
+      ScheduleView.tsx     # Member schedule shell + location picker
+      AccountView.tsx      # Member account page (credits, bookings, plans, purchases)
+      schedule/            # ClassCard, SessionDetailView, DayTabs, FilterBar, CapacityBar
+      admin/               # AdminShell (mgmt/front-desk toggle), SessionPanel
+      calendar/            # CalendarView (week/month/schedules), ScheduleModal, SubstituteModal
+      franchise/           # FranchiseDashboard
+      studio/              # StudioManagerDashboard, RoomsTab, PermissionsTab,
+                           # SettingsTab (3-tab: general/policies/features), StaffTab,
+                           # ProductsTab, AnalyticsTab, QueryTab
+      room/                # RoomMapView, RoomMapEditor, SessionRoomMap, SpotPicker
+      fronthost/           # FronthostDashboard, MemberDrawer, CreditModal
+      member/              # MemberHistoryView, MemberProfilePage
+      dual/                # DualRoleDashboard
+      onboarding/          # OnboardingFlow (studio setup wizard — admin first-time only)
+    lib/
+      api.ts               # Typed API client
+      supabase/            # client.ts + server.ts
+      audit.ts             # (frontend) audit log display helpers
+    middleware.ts          # Session refresh
 packages/
   db/prisma/schema.prisma
   db/src/seed.ts
-  types/src/index.ts     # Shared types (SessionSlot has locationId/locationName)
-e2e/                     # Playwright specs
+  types/src/index.ts       # Shared types
+e2e/
+  global-setup.ts          # Creates test users in Supabase, seeds credits, saves auth state
+  fixtures.ts              # authedPage + adminPage fixtures (load .auth/ saved state)
+  auth.spec.ts             # Auth flow tests
+  booking.spec.ts          # Book → verify booked → cancel → verify unbooked
+  schedule.spec.ts         # Schedule structure tests
+  frontdesk.spec.ts        # Admin dashboard, member search, check-in
+  performance.spec.ts      # LCP, CLS, API latency benchmarks
+.github/workflows/ci.yml   # Unit tests + typecheck on every push; E2E on PRs (disabled
+                           # until GitHub secrets configured)
 ```
+
+## Key patterns
+
+- `studioId` for admin views: use `profile.studioId` (from member record, always set) not `app_metadata.studioId` (often absent for admins)
+- `isFree(product)`: check BOTH `priceInCents === 0 && creditsRequired === 0` — 0 credits alone is not free
+- On-behalf booking: rank check `ROLE_RANK[user.role] >= ROLE_RANK['fronthost']`; members always book for themselves
+- Atomic balance guard: `updateMany({ where: { id, balance: { gte: 1 } } })` + check `count === 0` — prevents race conditions
+- Lazy SDK init: `let _client = null; function get() { return _client ?? (_client = new SDK(key)) }` — applies to Stripe, Resend
+- CSV export: `Content-Type: text/csv` + `Content-Disposition: attachment`; frontend uses Blob + `URL.createObjectURL` + `<a>.click()`
+- Guest passes follow CreditTransaction pattern: signed `amount`, `guestName` on use entries
+- `vi.mock` factory hoisting: define `vi.fn()` instances INSIDE the factory, access via `vi.mocked()` after import
 
 ## Security and architecture review protocol
 
@@ -180,9 +269,13 @@ For each file in `apps/api/src/routes/`, check:
 ## Backlog
 
 ### High priority
+- [ ] Stripe credit purchase flow — checkout + webhook exist; plans need real `stripePriceId` values set in DB before "Buy online" button works
+- [ ] Database migration history — currently using `prisma db push`; no rollback or schema audit trail
 - [ ] Push/email notifications when promoted from waitlist
-- [ ] Stripe credit purchase flow
+- [ ] E2E tests in CI — workflow job exists but disabled (`if: false`); needs 5 GitHub secrets: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `STUDIO_ID`
+- [ ] Analytics DB-side aggregation — currently loads up to 2000 sessions into memory; needs `groupBy` or raw SQL for scale
 
 ### Lower priority
 - [ ] Expo mobile app
 - [ ] RLS Option B — DB-level tenant isolation via `SET LOCAL app.current_studio_id`
+- [ ] Audit log UI — `GET /admin/audit-log` endpoint exists; no frontend tab yet
