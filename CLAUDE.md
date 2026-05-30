@@ -137,6 +137,46 @@ packages/
 e2e/                     # Playwright specs
 ```
 
+## Security and architecture review protocol
+
+When asked to do a security review, architectural review, or audit:
+
+**Step 1 — Search before reading**
+Run these before opening any file:
+```bash
+grep -rn "async function" apps/api/src/routes/ | grep -v "//\|import"  # find duplicated helpers
+grep -rn "catch.*{}" apps/api/src/                                      # find swallowed exceptions
+grep -rn "\.catch(() => {})" apps/api/src/                              # find silent fire-and-forget
+grep -rn "process\.env\." apps/api/src/ | grep -v "\.env\."            # find unvalidated env usage
+```
+
+**Step 2 — Cover every route file systematically**
+For each file in `apps/api/src/routes/`, check:
+- [ ] Auth check exists (`requireAuth` / `requireRole`)
+- [ ] Role check uses `ROLE_RANK` comparison, not string equality (`=== 'admin'`)
+- [ ] `studioId` access check present (`assertStudioAccess` or equivalent)
+- [ ] Input validated before use
+- [ ] Rate limiting on expensive or destructive operations
+- [ ] Idempotency on payment/financial mutations
+- [ ] Response doesn't leak fields above the caller's role
+
+**Step 3 — Check cross-file patterns**
+- [ ] Is any security-critical function defined more than once? (`assertStudioAccess`, `validateSelectQuery`, etc.)
+- [ ] Does a fix in one file also need to happen in others?
+- [ ] Are library API contracts verified against the installed version, not assumed?
+
+**Step 4 — Check what fails silently**
+- [ ] Every `.catch(() => {})` — is silence acceptable, or should it alert?
+- [ ] Every webhook handler — if the DB write succeeds but the email fails, is that acceptable?
+- [ ] Every payment flow — if it fails at step N, are credits/money in a consistent state?
+
+**Step 5 — Check test coverage on critical paths**
+- [ ] Is every payment webhook event covered by a test?
+- [ ] Is every auth bypass scenario covered by a test?
+- [ ] Do tests verify failure cases, not just the happy path?
+
+**Do not report findings from memory. Verify every claim with a grep or file read before stating it.**
+
 ## Backlog
 
 ### High priority
