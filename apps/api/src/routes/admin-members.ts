@@ -278,6 +278,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
         actorRole: getUser(request).role,
         action: AUDIT.CREDIT_ADJUST,
         targetId: memberId,
+        studioId: member.studioId,
         meta: { amount, note, newBalance: balance.balance },
       })
 
@@ -365,7 +366,10 @@ export async function adminMembersRoutes(app: FastifyInstance) {
     { preHandler: requireStudioAdmin },
     async (request, reply) => {
       const { memberId, noteId } = request.params
-      const note = await prisma.memberNote.findUnique({ where: { id: noteId } })
+      const note = await prisma.memberNote.findUnique({
+        where: { id: noteId },
+        include: { member: { select: { studioId: true } } },
+      })
       if (!note) return reply.notFound()
       if (note.memberId !== memberId) return reply.notFound()
       await prisma.memberNote.delete({ where: { id: noteId } })
@@ -374,6 +378,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
         actorRole: getUser(request).role,
         action: AUDIT.MEMBER_NOTE_DELETE,
         targetId: memberId,
+        studioId: note.member.studioId,
         meta: { noteId },
       })
       return reply.send({ success: true })
@@ -482,10 +487,13 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
       const { memberId } = request.params
 
-      const sub = await prisma.membershipSubscription.findFirst({
-        where: { memberId, status: 'PAUSED' },
-        orderBy: { startDate: 'desc' },
-      })
+      const [sub, memberForResume] = await Promise.all([
+        prisma.membershipSubscription.findFirst({
+          where: { memberId, status: 'PAUSED' },
+          orderBy: { startDate: 'desc' },
+        }),
+        prisma.member.findUnique({ where: { id: memberId }, select: { studioId: true } }),
+      ])
       if (!sub) return reply.notFound('No paused subscription found')
 
       const updated = await prisma.membershipSubscription.update({
@@ -503,6 +511,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
         actorId: user.id, actorRole: user.role,
         action: AUDIT.RESUME_SUBSCRIPTION,
         targetId: memberId,
+        studioId: memberForResume?.studioId,
         meta: { subscriptionId: sub.id },
       })
 

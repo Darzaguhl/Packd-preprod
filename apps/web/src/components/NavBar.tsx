@@ -47,26 +47,26 @@ export default function NavBar({ title, subtitle, leading, action, children }: P
   const navLinks: { label: string; href: string }[] = [
     { label: 'Schedule', href: '/schedule' },
     ...(isElevated ? [{ label: 'Dashboard', href: '/dashboard' }] : []),
-    ...(isFronthost ? [{ label: 'Front Desk', href: '/fronthost' }] : []),
+    ...(isFronthost ? [{ label: 'Live', href: '/fronthost' }] : []),
     { label: 'Account', href: '/account' },
   ]
 
   return (
     <div className="bg-white border-b border-gray-100 sticky top-0 z-10">
       <div className="max-w-6xl mx-auto px-4">
-        {/* Title + nav row */}
-        <div className="flex items-center justify-between py-4">
+        {/* Title + nav row — 3-column grid keeps the center action truly centered */}
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center py-4 min-h-[64px]">
           <div className="flex items-center gap-1 min-w-0">
             {leading}
             <div className="min-w-0">
               <h1 className="text-xl font-bold text-gray-900 truncate">{title}</h1>
-              {subtitle && <p className="text-sm text-gray-400">{subtitle}</p>}
+              <p className="text-sm text-gray-400 min-h-[1.25rem]">{subtitle ?? ''}</p>
             </div>
           </div>
 
-          {action && <div className="flex-1 flex justify-center">{action}</div>}
+          <div>{action}</div>
 
-          <nav className="flex items-center gap-5">
+          <nav className="flex items-center gap-5 justify-end">
             {navLinks.map(({ label, href }) => {
               const active = pathname === href
               return (

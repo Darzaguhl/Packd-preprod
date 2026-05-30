@@ -52,6 +52,10 @@ export async function stripeRoutes(app: FastifyInstance) {
         return reply.code(403).send({ error: 'Online credit purchase is not enabled for this studio.' })
       }
 
+      if (!plan.stripePriceId) {
+        return reply.code(422).send({ error: 'This plan is not yet configured for online purchase. Please contact the studio.' })
+      }
+
       // Intro offer guard — prevent re-purchase beyond maxRedemptionsPerMember
       if (plan.isIntroOffer) {
         const timesUsed = await prisma.membershipSubscription.count({
@@ -107,7 +111,7 @@ export async function stripeRoutes(app: FastifyInstance) {
         customer: customerId,
         payment_method_collection: 'always',
         mode: plan.intervalMonths > 0 ? 'subscription' : 'payment',
-        line_items: [{ price: plan.stripePriceId!, quantity: 1 }],
+        line_items: [{ price: plan.stripePriceId, quantity: 1 }],
         success_url: `${process.env.WEB_URL}/account?checkout=success`,
         cancel_url: `${process.env.WEB_URL}/account`,
         metadata: { userId: user.id, planId, studioId, memberId: member.id, ...(promoCodeId ? { promoCodeId } : {}) },
@@ -543,11 +547,13 @@ export async function stripeRoutes(app: FastifyInstance) {
         headers: { 'content-type': 'application/json', 'stripe-signature': sig },
       })
 
+      const studioForReplay = (user.studioIds?.[0]) ?? undefined
       audit({
         actorId: user.id,
         actorRole: user.role,
         action: AUDIT.STRIPE_REPLAY,
         targetId: eventId,
+        studioId: studioForReplay,
         meta: { eventType: event.type, webhookStatus: result.statusCode },
       })
 

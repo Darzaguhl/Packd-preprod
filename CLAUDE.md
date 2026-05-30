@@ -32,7 +32,7 @@ npm install              # also runs prisma generate via postinstall
 cd apps/api && npm run dev           # API on :4000
 cd apps/web && npm run dev           # Web on :3000
 
-npm test                             # Vitest unit tests (136 passing)
+npm test                             # Vitest unit tests (149 passing across 17 files)
 npm run test:e2e                     # Playwright (needs both servers + .auth/ state files)
 
 npm run db:migrate                   # create + apply migration locally (interactive)
@@ -105,6 +105,8 @@ Studio → Product → ProductSale
 Studio → StudioIntegration
 Studio → PromoCode → PromoCodeRedemption
 Studio → StudioNetwork → StudioNetworkMembership
+Member → StaffShift                # individual shift instance (one-off or generated)
+Studio → StaffShiftPattern → StaffShift  # recurring shift pattern
 AuditLog                           # staff action log
 StripeEvent                        # webhook idempotency
 MemberNote                         # staff notes on members
@@ -118,6 +120,9 @@ Key fields:
 - `Booking.stationId` — spot assignment
 - `Member.staffRoles String[] @default([])` — all roles; `studioIds` in `app_metadata` for multi-studio
 - `Member.guestPassBalance` — current guest pass balance
+- `Member.payRateHourlyCents Int?` — hourly pay rate for shift-based staff (fronthosts)
+- `StaffShift`: `memberId`, `studioId`, `startsAt`, `endsAt`, `note`, `patternId` (null = one-off)
+- `StaffShiftPattern`: `daysOfWeek Int[]`, `startTime`, `endTime`, `intervalWeeks @default(1)`, `validFrom`, `validUntil?`, `note` — generates StaffShift instances 12 weeks out on create/update
 - `Product`: `category @default("Other")`, `priceInCents`, `creditsRequired Int @default(0)`, `inStock`; free = both price and credits = 0
 - `AuditLog`: `actorId`, `actorRole`, `action`, `targetId`, `meta Json`, `studioId`, `createdAt`
 - `GuestPass`: signed `amount` (positive = grant, negative = use), `guestName` on use entries
@@ -133,7 +138,7 @@ Seed (`packages/db/src/seed.ts`): 1 studio (Packd Demo), Stockholm City location
 - **Booking guards**: past-class booking blocked for members (400); privileged roles (rank ≥ fronthost) bypass. LATE_CANCELLED re-books via `update` not `create` (avoids P2002). Cancel clears `stationId`.
 - **Instructor permissions** (JSON on `Instructor`): `canCheckInMembers`, `canManageWaitlist` (true), `canManageBookings`, `canViewMemberContact`, `canEditSessionDetails`, `canCancelSession`, `canCreateSchedules` (all false default).
 - `StudioManagerDashboard`: reads role from `session.user.app_metadata.role` as `sessionRole` fallback; `effectiveRole = role ?? sessionRole`.
-- **Audit log**: `audit()` helper in `lib/audit.ts` — fire-and-forget, never throws. Wired into: credit adjust, note delete, subscription pause/resume, guest pass grant, refund, stripe replay.
+- **Audit log**: `audit()` helper in `lib/audit.ts` — fire-and-forget, never throws. `studioId` is required in every call so the query (which filters by studioId) finds entries. Wired into: credit adjust, note delete, subscription pause/resume, guest pass grant, refund, stripe replay, schedule create/delete, session cancel/reschedule/checkin, bulk ops, booking cancel by admin, shift create/update/delete, shift pattern create/delete, staff role add/remove, staff pay update.
 
 ## File map
 
@@ -164,7 +169,7 @@ apps/
       bookings.ts          # member booking create/cancel/checkin
       brands.ts            # brand management (franchise_admin+)
       franchise.ts         # franchise/studio management, instructor/fronthost permissions
-      ical.ts              # iCal feed generation
+      ical.ts              # iCal feeds: /member/:id/:token, /instructor/:id/:token, /fronthost/:id/:token
       integrations.ts      # Mariana Tek integration config + member/session sync
       memberships.ts       # membership plans + subscriptions
       members.ts           # member profile, me, stats, POST /ensure
@@ -174,12 +179,15 @@ apps/
       rooms.ts             # room + layout + station management
       schedule.ts          # member-facing schedule
       schedules.ts         # class schedule (recurring) management + month view
-      staff.ts             # staff invite, role management
+      shifts.ts            # staff shift CRUD (GET/mine, POST, PATCH, DELETE) at /admin/shifts
+      shift-patterns.ts    # recurring shift patterns (GET, POST, PATCH, DELETE) at /admin/shift-patterns
+                           # POST generates StaffShift instances 12w out; PATCH drops future + regenerates
+      staff.ts             # staff invite, role management, hourly pay rate (PATCH /:id/hourly-pay)
       stripe.ts            # checkout, webhook, refund, replay, customer portal
       studios.ts           # studio settings
       waitlist.ts          # waitlist join/leave/promote
       webhooks.ts          # Mariana Tek inbound webhooks
-    __tests__/             # 136 Vitest unit tests across 16 files
+    __tests__/             # 143 Vitest unit tests across 16 files
   web/src/
     app/                   # Next.js pages (login, onboarding, schedule, dashboard, account)
     components/
@@ -191,8 +199,8 @@ apps/
       franchise/           # FranchiseDashboard
       studio/              # StudioManagerDashboard, RoomsTab, PermissionsTab,
                            # SettingsTab (3-tab: general/policies/features), StaffTab,
-                           # ProductsTab, AnalyticsTab, QueryTab
-      room/                # RoomMapView, RoomMapEditor, SessionRoomMap, SpotPicker
+                           # ProductsTab, AnalyticsTab, QueryTab, AuditLogTab, BulkOpsPanel
+      room/                # RoomMapView, RoomMapEditor, SessionRoomMap (S/M/L/XL font), SpotPicker
       fronthost/           # FronthostDashboard, MemberDrawer, CreditModal
       member/              # MemberHistoryView, MemberProfilePage
       dual/                # DualRoleDashboard
@@ -228,6 +236,10 @@ e2e/
 - CSV export: `Content-Type: text/csv` + `Content-Disposition: attachment`; frontend uses Blob + `URL.createObjectURL` + `<a>.click()`
 - Guest passes follow CreditTransaction pattern: signed `amount`, `guestName` on use entries
 - `vi.mock` factory hoisting: define `vi.fn()` instances INSIDE the factory, access via `vi.mocked()` after import
+- **audit() studioId**: always pass `studioId` — the audit-log query filters by it, so entries without it are invisible in the UI
+- **Shift pattern generation**: `generateOccurrences()` in `shift-patterns.ts` anchors the week-interval to the Monday of `validFrom`; uses `weeksSinceStart % intervalWeeks === 0` check. PATCH drops future shifts and regenerates; past shifts are untouched.
+- **iCal token endpoint** (`GET /ical/token`): checks `prisma.instructor.findFirst` (→ `urls.instructor`) and `prisma.member.findFirst` with `staffRoles.has('fronthost')` (→ `urls.fronthost`). Tests must mock both.
+- **StaffTab ShiftsSection**: only loads one-off shifts (those without `patternId`) in the one-off list; patterns are fetched separately via `GET /admin/shift-patterns?memberId=`. Uses `api.shifts.list` (admin endpoint), not `api.shifts.mine`, because the viewer is always an admin.
 
 ## Security and architecture review protocol
 
@@ -271,14 +283,39 @@ For each file in `apps/api/src/routes/`, check:
 
 ## Backlog
 
-### High priority
-- [ ] Stripe credit purchase flow — checkout + webhook exist; plans need real `stripePriceId` values set in DB before "Buy online" button works
-- [ ] Database migration history — currently using `prisma db push`; no rollback or schema audit trail
-- [ ] Push/email notifications when promoted from waitlist
-- [ ] E2E tests in CI — workflow job exists but disabled (`if: false`); needs 5 GitHub secrets: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `STUDIO_ID`
-- [ ] Analytics DB-side aggregation — currently loads up to 2000 sessions into memory; needs `groupBy` or raw SQL for scale
+### Remaining
+- [ ] E2E tests in CI — all specs written; CI job exists but disabled (`if: false`). Needs 5 GitHub secrets configured in the repo: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `STUDIO_ID`. Once set, remove `if: false` from `.github/workflows/ci.yml`.
 
-### Lower priority
-- [ ] Expo mobile app
-- [ ] RLS Option B — DB-level tenant isolation via `SET LOCAL app.current_studio_id`
-- [ ] Audit log UI — `GET /admin/audit-log` endpoint exists; no frontend tab yet
+## Completed features
+
+### Infrastructure
+- Database migration history — `packages/db/prisma/migrations/0_baseline/` establishes the baseline; use `npm run db:migrate` (interactive) or `npm run db:migrate:deploy` (CI) going forward instead of `db push`
+- Analytics DB-side aggregation — `admin-analytics.ts` runs all heavy aggregations as raw `GROUP BY` SQL queries; only instructor loyalty rate (requires time-ordered sequential processing) runs in JS on a minimal dataset
+- Waitlist promotion email — `sendWaitlistPromotion` called in `bookings.ts` when a cancellation triggers a waitlist promotion; sends branded Resend email with booking details
+- Stripe credit purchase flow — `MembershipsTab` has "Sync" button per plan that calls `stripe-sync.ts` to create/update a Stripe product+price and store `stripePriceId`; plans show green "Stripe" badge when synced or amber "Not synced" warning; `POST /stripe/checkout` uses the `stripePriceId` for subscription checkout
+- RLS Option B — `packages/db/sql/rls_studio_isolation.sql` enables RLS on all tenant tables; `apps/api/src/lib/studio-ctx.ts` provides `withStudioCtx(studioId, fn)` which runs `SET LOCAL ROLE packd_api` + `set_config('app.current_studio_id', ...)` inside a transaction so policies are enforced
+- Expo mobile app — `apps/mobile/` with Expo Router; login (`app/(auth)/login.tsx`), schedule (`app/(tabs)/schedule.tsx`), account (`app/(tabs)/account.tsx`) screens; auth via Supabase, API calls via `src/lib/api.ts`
+
+### Staff scheduling (2026-05-30)
+- Staff shift scheduling — `StaffShift` + `StaffShiftPattern` models; one-off and recurring (every 1–4 weeks) shifts; full CRUD API at `/admin/shifts` and `/admin/shift-patterns`; StaffTab drawer has Shifts section with add/edit/delete for both; shift blocks visualised in CalendarView week view (colour-coded per fronthost, filter strip, click to edit)
+- Recurring shifts — `intervalWeeks` field; "Repeat every 1/2/3/4 weeks" segmented control in modal; generation anchored to `validFrom` Monday; PATCH drops future instances and regenerates
+- Hourly pay rate — `Member.payRateHourlyCents`; `PATCH /staff/:memberId/hourly-pay`; shown and editable in StaffTab drawer; estimated pay displayed per shift and per pattern
+- iCal feeds — instructor feed (`/ical/instructor/:id/:token`) and fronthost shift feed (`/ical/fronthost/:id/:token`); `/ical/token` returns `urls.instructor` / `urls.fronthost` based on DB role lookup; AccountView shows subscribe cards for each feed
+
+### Audit log (2026-05-30)
+- Audit log coverage — fixed `studioId = null` bug (entries were invisible in queries); added `audit()` calls to: schedule create/delete, session cancel/reschedule/checkin, bulk ops, booking cancel by admin, shift CRUD, shift pattern CRUD, staff role add/remove, staff pay update
+- Audit log UI — `AuditLogTab` wired into StudioManagerDashboard under "Audit Log" tab
+
+### E2E tests (2026-05-30)
+- `shifts.spec.ts` — add/edit/delete one-off shift; add/delete recurring pattern; verify audit log entry after shift actions
+- `account.spec.ts` — account page loads, iCal member card visible, upcoming section present
+- `global-setup.ts` — seeds fronthost role on `e2e-member` so shift tests have a target; `data-testid` attributes added to StaffTab, AuditLogTab, AccountView
+
+### UX polish (2026-05-30)
+- Bulk ops toggle moved into CalendarView toolbar (alongside "+ New schedule") — removes the standalone strip below the header
+- Live view name size — SessionRoomMap now has S / M / L / **XL** (18 px) option, persisted to localStorage
+
+### Session announcements + payroll export (2026-05-30)
+- Session announcements — `POST /admin/sessions/:id/announce` (studio_admin+, rate-limited 5/min); emails all confirmed attendees via Resend with admin-supplied subject + message; inline compose form in `SessionPanel` (blue "Announce" button → subject + textarea + send); audit-logged
+- Staff pay export — `GET /admin/export/staff-pay` combines instructor per-head earnings + fronthost shift-hours earnings in one CSV; "Staff Pay" download button added to AnalyticsTab alongside existing exports; `sendSessionAnnouncement` email template added to `email.ts`
+- 6 new unit tests across `announce.test.ts` and `exports.test.ts` (149 total, 17 files)

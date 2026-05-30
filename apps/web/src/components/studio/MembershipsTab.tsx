@@ -41,6 +41,7 @@ export default function MembershipsTab({ studioId, token, currency = 'USD' }: Pr
   const [subscriptions, setSubscriptions] = useState<MembershipSubscription[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [syncingPlanId, setSyncingPlanId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Plan form
@@ -132,6 +133,28 @@ export default function MembershipsTab({ studioId, token, currency = 'USD' }: Pr
     }
   }
 
+  async function syncPlan(plan: MembershipPlan) {
+    setSyncingPlanId(plan.id)
+    setError(null)
+    try {
+      const res = await api.memberships.updatePlan(plan.id, {
+        name: plan.name,
+        description: plan.description ?? undefined,
+        priceInCents: plan.priceInCents,
+        intervalMonths: plan.intervalMonths,
+      }, token)
+      if (!res.data.stripePriceId) {
+        setError('Stripe sync failed — check that your Stripe key is valid and the plan price is greater than 0')
+      } else {
+        setPlans(prev => prev.map(p => p.id === plan.id ? { ...p, ...res.data } : p))
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Stripe sync failed')
+    } finally {
+      setSyncingPlanId(null)
+    }
+  }
+
   async function deletePlan(plan: MembershipPlan) {
     if (!confirm(`Delete "${plan.name}"? This cannot be undone.`)) return
     try {
@@ -215,12 +238,23 @@ export default function MembershipsTab({ studioId, token, currency = 'USD' }: Pr
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold text-sm text-gray-900">{plan.name}</span>
                   <span className="text-xs bg-gray-100 text-gray-600 rounded-full px-2 py-0.5">
-                    {plan.intervalMonths}mo
+                    {plan.intervalMonths === 0 ? 'ongoing' : `${plan.intervalMonths}mo`}
                   </span>
                   {plan.activeSubscriptions !== undefined && plan.activeSubscriptions > 0 && (
                     <span className="text-xs bg-emerald-50 text-emerald-700 rounded-full px-2 py-0.5">
                       {plan.activeSubscriptions} active
                     </span>
+                  )}
+                  {plan.priceInCents > 0 && (
+                    plan.stripePriceId
+                      ? <span title={plan.stripePriceId} className="text-xs bg-emerald-50 text-emerald-700 rounded-full px-2 py-0.5 flex items-center gap-1">
+                          <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                          Stripe
+                        </span>
+                      : <span className="text-xs bg-amber-50 text-amber-600 rounded-full px-2 py-0.5 flex items-center gap-1">
+                          <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5"/><path d="M6 4v2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="6" cy="8.5" r="0.5" fill="currentColor"/></svg>
+                          Not synced
+                        </span>
                   )}
                 </div>
                 {plan.description && (
@@ -239,6 +273,15 @@ export default function MembershipsTab({ studioId, token, currency = 'USD' }: Pr
                 </div>
               </div>
               <div className="flex gap-2 shrink-0">
+                {plan.priceInCents > 0 && !plan.stripePriceId && (
+                  <button
+                    onClick={() => syncPlan(plan)}
+                    disabled={syncingPlanId === plan.id}
+                    className="text-xs px-3 py-1.5 rounded-xl border border-amber-200 text-amber-600 hover:bg-amber-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {syncingPlanId === plan.id ? 'Syncing…' : 'Sync'}
+                  </button>
+                )}
                 <button
                   onClick={() => openEditPlan(plan)}
                   className="text-xs px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors"
@@ -292,14 +335,17 @@ export default function MembershipsTab({ studioId, token, currency = 'USD' }: Pr
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Duration (months)</label>
+                  <label className="text-xs text-gray-500 mb-1 flex items-center justify-between">
+                    <span>Duration (months)</span>
+                    <span className="text-gray-400 font-normal">0 = ongoing</span>
+                  </label>
                   <input
                     type="number"
-                    min="1"
+                    min="0"
                     max="24"
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
                     value={planForm.intervalMonths}
-                    onChange={e => setPlanForm(f => ({ ...f, intervalMonths: parseInt(e.target.value) || 1 }))}
+                    onChange={e => setPlanForm(f => ({ ...f, intervalMonths: Math.max(0, parseInt(e.target.value) || 0) }))}
                   />
                 </div>
                 <div>

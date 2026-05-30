@@ -58,6 +58,7 @@ export default function ProductsTab({ studioId, token, currency }: Props) {
   const [saving, setSaving]       = useState(false)
   const [error, setError]         = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [syncingProductId, setSyncingProductId] = useState<string | null>(null)
 
   function f(key: keyof FormState, val: string) {
     setForm(prev => ({ ...prev, [key]: val }))
@@ -123,6 +124,26 @@ export default function ProductsTab({ studioId, token, currency }: Props) {
     finally { setDeletingId(null) }
   }
 
+  async function syncProduct(product: Product) {
+    setSyncingProductId(product.id)
+    setError('')
+    try {
+      const updated = await api.products.update(product.id, {
+        name: product.name,
+        priceInCents: product.priceInCents,
+      }, token)
+      if (!updated.stripePriceId) {
+        setError('Stripe sync failed — check that your Stripe key is valid and the product price is greater than 0')
+      } else {
+        setProducts(prev => prev.map(p => p.id === product.id ? updated : p))
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Stripe sync failed')
+    } finally {
+      setSyncingProductId(null)
+    }
+  }
+
   if (loading) {
     return (
       <div className="space-y-2">
@@ -153,6 +174,9 @@ export default function ProductsTab({ studioId, token, currency }: Props) {
       {section === 'promos' && <PromoCodesTab studioId={studioId} token={token} />}
 
       {section === 'products' && <div className="space-y-4">
+      {error && (
+        <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">{error}</div>
+      )}
       <div>
         <p className="text-sm text-gray-500">
           Products available for purchase at the front desk. Each product has a credit cost used when selling via the Walk-in drawer.
@@ -170,10 +194,21 @@ export default function ProductsTab({ studioId, token, currency }: Props) {
               {items.map(product => (
                 <div key={product.id} className="flex items-center gap-3 bg-white border border-gray-100 rounded-xl px-4 py-3">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-semibold text-gray-900">{product.name}</p>
                       {!product.inStock && (
                         <span className="text-[10px] font-medium text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">Out of stock</span>
+                      )}
+                      {product.priceInCents > 0 && (
+                        product.stripePriceId
+                          ? <span title={product.stripePriceId} className="text-[10px] font-medium bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded flex items-center gap-1">
+                              <svg className="w-2.5 h-2.5" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                              Stripe
+                            </span>
+                          : <span className="text-[10px] font-medium bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded flex items-center gap-1">
+                              <svg className="w-2.5 h-2.5" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5"/><path d="M6 4v2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="6" cy="8.5" r="0.5" fill="currentColor"/></svg>
+                              Not synced
+                            </span>
                       )}
                     </div>
                     <p className="text-xs text-gray-400">
@@ -187,6 +222,15 @@ export default function ProductsTab({ studioId, token, currency }: Props) {
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
+                    {product.priceInCents > 0 && !product.stripePriceId && (
+                      <button
+                        onClick={() => syncProduct(product)}
+                        disabled={syncingProductId === product.id}
+                        className="text-xs text-amber-600 border border-amber-200 hover:bg-amber-50 rounded-md px-2.5 py-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {syncingProductId === product.id ? 'Syncing…' : 'Sync'}
+                      </button>
+                    )}
                     <button
                       onClick={() => handleToggleStock(product)}
                       className="text-xs text-gray-400 hover:text-gray-700 border border-gray-200 rounded-md px-2.5 py-1 transition-colors"

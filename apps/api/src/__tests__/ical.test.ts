@@ -5,10 +5,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 vi.mock('@packd/db', () => {
   const user        = { findUnique: vi.fn() }
   const instructor  = { findFirst: vi.fn() }
+  const member      = { findFirst: vi.fn(), findUnique: vi.fn() }
   const classSession = { findMany: vi.fn() }
   const booking     = { findMany: vi.fn() }
+  const staffShift  = { findMany: vi.fn() }
 
-  return { prisma: { user, instructor, classSession, booking } }
+  return { prisma: { user, instructor, member, classSession, booking, staffShift } }
 })
 
 // ── Auth mock ─────────────────────────────────────────────────────────────────
@@ -65,6 +67,7 @@ describe('GET /ical/token', () => {
 
   it('returns member URL for a regular member', async () => {
     vi.mocked(prisma.instructor.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.member.findFirst).mockResolvedValue({ id: 'member-1', staffRoles: [] } as never)
 
     const app = await buildApp()
     const res = await app.inject({ method: 'GET', url: '/ical/token' })
@@ -73,10 +76,12 @@ describe('GET /ical/token', () => {
     const body = JSON.parse(res.body)
     expect(body.urls.member).toContain('/ical/member/user-1/')
     expect(body.urls.instructor).toBeUndefined()
+    expect(body.urls.fronthost).toBeUndefined()
   })
 
   it('includes instructor URL when user is an instructor', async () => {
     vi.mocked(prisma.instructor.findFirst).mockResolvedValue({ id: 'instr-1' } as never)
+    vi.mocked(prisma.member.findFirst).mockResolvedValue({ id: 'member-1', staffRoles: [] } as never)
 
     const app = await buildApp()
     const res = await app.inject({ method: 'GET', url: '/ical/token' })
@@ -85,6 +90,18 @@ describe('GET /ical/token', () => {
     const body = JSON.parse(res.body)
     expect(body.urls.member).toContain('/ical/member/user-1/')
     expect(body.urls.instructor).toContain('/ical/instructor/user-1/')
+  })
+
+  it('includes fronthost URL when user is a fronthost', async () => {
+    vi.mocked(prisma.instructor.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.member.findFirst).mockResolvedValue({ id: 'member-1', staffRoles: ['fronthost'] } as never)
+
+    const app = await buildApp()
+    const res = await app.inject({ method: 'GET', url: '/ical/token' })
+
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.urls.fronthost).toContain('/ical/fronthost/user-1/')
   })
 })
 

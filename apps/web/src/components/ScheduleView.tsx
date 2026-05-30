@@ -17,12 +17,19 @@ import { type TimeFormat } from '@/lib/fmt-time'
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
-/** Local-time ISO date — avoids UTC offset shifting midnight to the previous day. */
+/** ISO date in browser local time (fallback when studio timezone is not yet known). */
 function toIsoDate(d: Date): string {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
+}
+
+/** ISO date (YYYY-MM-DD) in the given timezone, or browser local time if tz is absent. */
+function toIsoDateInZone(d: Date, tz?: string): string {
+  if (!tz) return toIsoDate(d)
+  // en-CA locale natively produces YYYY-MM-DD
+  return new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(d)
 }
 
 /** ISO week number (Mon-based) */
@@ -43,6 +50,9 @@ function weekStart(date: Date): Date {
   return d
 }
 
+type BrandStudios = Awaited<ReturnType<typeof api.schedule.brandStudios>>
+type BrandStudio = BrandStudios['franchises'][0]['studios'][0]
+
 export default function ScheduleView({ studioId }: { studioId: string }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -59,6 +69,12 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   const [activeStudioId, setActiveStudioId] = useState<string>(studioId)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
+
+  // Brand hierarchy for country/franchise/studio filters
+  const [brandStudios, setBrandStudios] = useState<BrandStudios | null>(null)
+  const [filterCountry, setFilterCountry] = useState<string | null>(null)
+  const [filterFranchise, setFilterFranchise] = useState<string | null>(null)
+  const [filterStudio, setFilterStudio] = useState<string | null>(null)
 
   // Initialise day + week from URL if present, so a hard refresh restores position.
   const [selectedDay, setSelectedDay] = useState<string>(() => {
@@ -82,49 +98,85 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
     else p.set('week', String(weekOffset))
     router.replace(`?${p.toString()}`, { scroll: false })
   }, [selectedDay, weekOffset])
+
   // Derive the selected session from the live sessions array so mutations stay reflected
   const selectedSession = selectedSessionId ? sessions.find(s => s.id === selectedSessionId) ?? null : null
-  // Admins and fronthosts can interact with past/running classes; members cannot
-  const isPrivileged = userRole !== 'member'
+  // Past sessions are always greyed out in the schedule — no one books from here.
+  // Fronthost+ can still act on past/running sessions from the Live GUI.
+  const isPrivileged = false
 
   async function getFreshToken(): Promise<string> {
     const { data } = await createClient().auth.getSession()
     return data.session?.access_token ?? token ?? ''
   }
 
-  // Load token + sessions
+  // Load brand hierarchy once — independent of auth
+  useEffect(() => {
+    api.schedule.brandStudios(studioId).then(setBrandStudios).catch(() => {})
+  }, [studioId])
+
+  // All studios in the brand, augmented with franchiseId for filtering
+  const allBrandStudios = useMemo<(BrandStudio & { franchiseId: string | null })[]>(() => {
+    if (!brandStudios) return []
+    return [
+      ...brandStudios.franchises.flatMap(f => f.studios.map(s => ({ ...s, franchiseId: f.id }))),
+      ...brandStudios.standalone.map(s => ({ ...s, franchiseId: null })),
+    ]
+  }, [brandStudios])
+
+  // Studios visible in the studio picker after applying country + franchise filters
+  const filteredStudios = useMemo(() => {
+    let list = allBrandStudios
+    if (filterCountry) list = list.filter(s => s.country === filterCountry)
+    if (filterFranchise) list = list.filter(s => s.franchiseId === filterFranchise)
+    return list
+  }, [allBrandStudios, filterCountry, filterFranchise])
+
+  // The single studio whose schedule is shown.
+  // Priority: explicit studio pick → first studio in filtered list → primary studioId.
+  const selectedStudioId = filterStudio ?? filteredStudios[0]?.id ?? studioId
+
+  // Derived lists for filter UI
+  const availableCountries = useMemo(() => [...new Set(allBrandStudios.map(s => s.country).filter(Boolean))].sort(), [allBrandStudios])
+  const availableFranchises = useMemo(() => {
+    if (!brandStudios) return []
+    if (!filterCountry) return brandStudios.franchises
+    return brandStudios.franchises.filter(f => f.studios.some(s => s.country === filterCountry))
+  }, [brandStudios, filterCountry])
+
+  // Load auth (optional — schedule is public)
+  useEffect(() => {
+    createClient().auth.getSession().then(({ data: { session } }) => {
+      const t = session?.access_token ?? null
+      setToken(t)
+      const role = (session?.user?.app_metadata?.role as string | undefined) ?? 'member'
+      setUserRole(role)
+      if (t && role === 'member') {
+        api.networks.my(t).then(info => {
+          if (info.network) setNetworkInfo(info)
+        }).catch(() => {})
+      }
+    })
+  }, [])
+
+  // Fetch sessions for the selected studio when studio or week changes
   useEffect(() => {
     setLoading(true)
-    createClient()
-      .auth.getSession()
-      .then(({ data: { session } }) => {
-        const t = session?.access_token ?? null
-        setToken(t)
-        const role = (session?.user?.app_metadata?.role as string | undefined) ?? 'member'
-        setUserRole(role)
-        if (!t) return
-
-        // Load network info for members so they can switch between studios in their network
-        if (role === 'member') {
-          api.networks.my(t).then(info => {
-            if (info.network) setNetworkInfo(info)
-          }).catch(() => {})
-        }
-
-        const base = weekStart(new Date(Date.now() + weekOffset * WEEK_MS))
-        const to = new Date(base.getTime() + WEEK_MS)
-        return api.schedule.list(activeStudioId, base.toISOString(), to.toISOString(), t)
+    const base = weekStart(new Date(Date.now() + weekOffset * WEEK_MS))
+    const to = new Date(base.getTime() + WEEK_MS)
+    api.schedule.list(selectedStudioId, base.toISOString(), to.toISOString(), token ?? undefined)
+      .then(data => {
+        setSessions(data.sessions)
+        setTimeFormat((data.timeFormat ?? '24h') as TimeFormat)
+        const tz = data.timezone ?? 'UTC'
+        setStudioTimezone(tz)
+        if (!searchParams.get('day')) setSelectedDay(toIsoDateInZone(new Date(), tz))
+        setCancelPolicy({ windowHours: data.lateCancelWindowHours ?? 12, feeCredits: data.lateCancelFeeCredits ?? 1 })
       })
-      .then((data) => {
-        if (data) {
-          setSessions(data.sessions)
-          setTimeFormat((data.timeFormat ?? '24h') as TimeFormat)
-          setStudioTimezone(data.timezone ?? 'UTC')
-          setCancelPolicy({ windowHours: data.lateCancelWindowHours ?? 12, feeCredits: data.lateCancelFeeCredits ?? 1 })
-        }
-      })
+      .catch(() => setSessions([]))
       .finally(() => setLoading(false))
-  }, [activeStudioId, weekOffset])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStudioId, weekOffset, token])
 
   // Derived: current week's Monday
   const currentWeekMonday = useMemo(
@@ -153,17 +205,18 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
 
   // Derived: day tabs (counts respect location filter)
   const days = useMemo<DayTab[]>(() => {
+    const tzOpt = studioTimezone ? { timeZone: studioTimezone } : {}
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date(currentWeekMonday.getTime() + i * 86400000)
-      const iso = toIsoDate(d)
+      const iso = toIsoDateInZone(d, studioTimezone)
       return {
-        label: d.toLocaleDateString('en-US', { weekday: 'short' }),
-        date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        label: d.toLocaleDateString('en-US', { weekday: 'short', ...tzOpt }),
+        date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...tzOpt }),
         iso,
-        count: locationSessions.filter((s) => toIsoDate(new Date(s.startsAt)) === iso).length,
+        count: locationSessions.filter((s) => toIsoDateInZone(new Date(s.startsAt), studioTimezone) === iso).length,
       }
     })
-  }, [locationSessions, currentWeekMonday])
+  }, [locationSessions, currentWeekMonday, studioTimezone])
 
   // Derived: sports present in current week (respect location filter)
   const availableSports = useMemo(
@@ -175,12 +228,12 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   const daySessions = useMemo(() => {
     return locationSessions
       .filter((s) => {
-        const matchDay = toIsoDate(new Date(s.startsAt)) === selectedDay
+        const matchDay = toIsoDateInZone(new Date(s.startsAt), studioTimezone) === selectedDay
         const matchSport = selectedSport === 'ALL' || s.sport === selectedSport
         return matchDay && matchSport
       })
       .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
-  }, [locationSessions, selectedDay, selectedSport])
+  }, [locationSessions, selectedDay, selectedSport, studioTimezone])
 
   // Derived: selected day label for subtitle
   const selectedDayLabel = days.find((d) => d.iso === selectedDay)
@@ -282,6 +335,58 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
         <div className="flex gap-5 items-start">
           {/* Day tabs + filters constrained to main column width */}
           <div className="flex-1 min-w-0">
+            {/* Brand filters — country → franchise → studio (one studio at a time) */}
+            {allBrandStudios.length > 1 && (
+              <div className="pt-2 pb-1 flex flex-wrap gap-2 items-center">
+                {/* Country — dropdown (can have many entries) */}
+                {availableCountries.length > 1 && (
+                  <select
+                    value={filterCountry ?? ''}
+                    onChange={e => {
+                      const v = e.target.value || null
+                      setFilterCountry(v)
+                      setFilterFranchise(null)
+                      setFilterStudio(null)
+                    }}
+                    className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  >
+                    <option value="">All countries</option>
+                    {availableCountries.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                )}
+
+                {/* Franchise — dropdown */}
+                {availableFranchises.length > 1 && (
+                  <select
+                    value={filterFranchise ?? ''}
+                    onChange={e => {
+                      setFilterFranchise(e.target.value || null)
+                      setFilterStudio(null)
+                    }}
+                    className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  >
+                    <option value="">All franchises</option>
+                    {availableFranchises.map(f => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                )}
+
+                {/* Studio — pills (final pick, typically fewer options after filtering) */}
+                {filteredStudios.length > 1 && filteredStudios.map(s => (
+                  <button key={s.id} onClick={() => setFilterStudio(s.id)}
+                    className={`text-xs font-medium px-2.5 py-1.5 rounded-lg border transition-colors ${
+                      selectedStudioId === s.id
+                        ? 'bg-gray-900 text-white border-gray-900'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                    }`}>
+                    {s.name}{s.city ? ` · ${s.city}` : ''}
+                  </button>
+                ))}
+              </div>
+            )}
             <DayTabs
               days={days}
               selected={selectedDay}

@@ -4,8 +4,11 @@ export interface AdminSession {
   id: string
   templateName: string
   sport: string
+  instructorId: string
   instructorName: string
   instructorUserId: string
+  substituteInstructorId?: string | null
+  substituteInstructorUserId?: string | null
   roomId: string
   roomName: string
   capacity: number
@@ -14,6 +17,7 @@ export interface AdminSession {
   endsAt: string
   status: string
   creditsRequired: number
+  isPrivate?: boolean
 }
 
 export interface InstructorPermissions {
@@ -75,6 +79,30 @@ export const DEFAULT_FRONTHOST_PERMISSIONS: FronthostPermissions = {
   canOverrideBookingRestrictions: true,
 }
 
+/** Unified permission set used in the Live view — covers both fronthost and instructor fields. */
+export interface LivePermissions {
+  canCheckInMembers: boolean
+  canManageBookings: boolean
+  canManageWaitlist: boolean
+  canViewMemberContact: boolean
+  canGrantCredits: boolean
+  canAdjustCredits: boolean
+  canIssueRefunds: boolean
+  canOverrideBookingRestrictions: boolean
+}
+
+/** Full access — used for studio_admin+ who bypass permission checks entirely. */
+export const FULL_LIVE_PERMISSIONS: LivePermissions = {
+  canCheckInMembers: true,
+  canManageBookings: true,
+  canManageWaitlist: true,
+  canViewMemberContact: true,
+  canGrantCredits: true,
+  canAdjustCredits: true,
+  canIssueRefunds: true,
+  canOverrideBookingRestrictions: true,
+}
+
 export interface StaffWithPermissions {
   /** Instructor record id if they are an instructor, otherwise the member id */
   id: string
@@ -96,6 +124,7 @@ export interface Product {
   creditsRequired: number
   imageUrl: string | null
   inStock: boolean
+  stripePriceId?: string | null
 }
 
 export interface CartSaleItem {
@@ -356,6 +385,7 @@ export interface CalendarSession {
   capacity: number
   creditsRequired: number
   status: string
+  isPrivate?: boolean
 }
 
 export interface ClassTemplate {
@@ -366,6 +396,7 @@ export interface ClassTemplate {
   durationMin: number
   description?: string | null
   color: string
+  isPrivate?: boolean
   defaultInstructorId?: string | null
   defaultRoomId?: string | null
   defaultCapacity?: number | null
@@ -381,6 +412,7 @@ export interface CalendarTemplate {
   name: string
   sport: string
   durationMin: number
+  isPrivate?: boolean
   defaultInstructorId?: string | null
   defaultRoomId?: string | null
   defaultCapacity?: number | null
@@ -454,6 +486,8 @@ export interface StaffMember {
   joinedAt: string
   instructorId: string | null  // Instructor record id for this studio (null for fronthost-only)
   payRatePerHeadCents?: number | null
+  payRateHourlyCents?: number | null
+  avatarUrl?: string | null
 }
 
 export interface AdminBooking {
@@ -526,6 +560,33 @@ export interface AdminMemberProfile {
     nextBillingDate?: string | null
   } | null
   joinedAt: string
+}
+
+export interface StaffShift {
+  id: string
+  memberId: string
+  memberName: string
+  studioId: string
+  startsAt: string
+  endsAt: string
+  note: string | null
+  patternId: string | null
+  createdAt: string
+}
+
+export interface StaffShiftPattern {
+  id: string
+  memberId: string
+  memberName: string
+  studioId: string
+  daysOfWeek: number[]
+  startTime: string
+  endTime: string
+  intervalWeeks: number
+  validFrom: string
+  validUntil: string | null
+  note: string | null
+  createdAt: string
 }
 
 export interface AvailabilityBlock {
@@ -726,8 +787,18 @@ async function apiFetch<T>(
 
 export const api = {
   schedule: {
-    list: (studioId: string, from: string, to: string, token: string) =>
-      apiFetch<{ timeFormat: string; timezone: string; lateCancelWindowHours: number; lateCancelFeeCredits: number; sessions: SessionSlot[] }>(`/schedule/${studioId}?from=${from}&to=${to}`, { token }),
+    list: (studioId: string, from: string, to: string, token?: string) =>
+      apiFetch<{ studioId: string; studioName: string; timeFormat: string; timezone: string; lateCancelWindowHours: number; lateCancelFeeCredits: number; sessions: SessionSlot[] }>(
+        `/schedule/${studioId}?from=${from}&to=${to}`,
+        token ? { token } : {},
+      ),
+    brandStudios: (studioId: string) =>
+      apiFetch<{
+        brandId: string | null
+        brandName: string | null
+        franchises: { id: string; name: string; studios: { id: string; name: string; city: string; country: string }[] }[]
+        standalone: { id: string; name: string; city: string; country: string }[]
+      }>(`/schedule/brand-studios?studioId=${studioId}`),
   },
   bookings: {
     create: (sessionId: string, token: string, memberId?: string) =>
@@ -830,6 +901,8 @@ export const api = {
     },
     bulkExecute: (body: { studioId: string; from: string; to: string; instructorId?: string; templateId?: string; action: 'CANCEL' | 'SUBSTITUTE'; substituteInstructorId?: string }, token: string) =>
       apiFetch<{ affected: number; sessionIds: string[] }>('/admin/sessions/bulk', { method: 'POST', body: JSON.stringify(body), token }),
+    announce: (sessionId: string, subject: string, message: string, token: string) =>
+      apiFetch<{ sent: number; total: number }>(`/admin/sessions/${sessionId}/announce`, { method: 'POST', body: JSON.stringify({ subject, message }), token }),
     memberNotes: (memberId: string, token: string) =>
       apiFetch<StaffNote[]>(`/admin/members/${memberId}/notes`, { token }),
     addNote: (memberId: string, content: string, token: string) =>
@@ -846,7 +919,7 @@ export const api = {
       apiFetch<GuestPassEntry[]>(`/admin/members/${memberId}/guest-passes`, { token }),
     memberPurchases: (memberId: string, token: string, studioId?: string) =>
       apiFetch<ProductSale[]>(`/admin/members/${memberId}/purchases${studioId ? `?studioId=${studioId}` : ''}`, { token }),
-    exportCsv: async (type: 'members' | 'attendance' | 'revenue' | 'instructor-pay', studioId: string, token: string, params?: { from?: string; to?: string }) => {
+    exportCsv: async (type: 'members' | 'attendance' | 'revenue' | 'instructor-pay' | 'staff-pay', studioId: string, token: string, params?: { from?: string; to?: string }) => {
       const qs = new URLSearchParams({ studioId })
       if (params?.from) qs.set('from', params.from)
       if (params?.to) qs.set('to', params.to)
@@ -863,6 +936,14 @@ export const api = {
       a.click()
       URL.revokeObjectURL(url)
     },
+    auditLog: (studioId: string, token: string, cursor?: string) =>
+      apiFetch<{
+        entries: {
+          id: string; actorId: string; actorRole: string
+          action: string; targetId: string | null; meta: unknown; createdAt: string
+        }[]
+        nextCursor: string | null
+      }>(`/admin/audit-log?studioId=${studioId}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, { token }),
   },
   franchise: {
     info: (token: string) =>
@@ -872,7 +953,9 @@ export const api = {
     studios: (token: string) =>
       apiFetch<StudioSummary[]>('/franchise/studios', { token }),
     myInstructor: (studioId: string, token: string) =>
-      apiFetch<{ id: string; permissions: InstructorPermissions }>(`/franchise/studios/${studioId}/my-instructor`, { token }),
+      apiFetch<{ id: string; memberId: string | null; avatarUrl: string | null; permissions: InstructorPermissions }>(`/franchise/studios/${studioId}/my-instructor`, { token }),
+    myFronthostPermissions: (studioId: string, token: string) =>
+      apiFetch<{ permissions: FronthostPermissions }>(`/franchise/studios/${studioId}/my-fronthost-permissions`, { token }),
     updatePermissions: (studioId: string, instructorId: string, permissions: Partial<InstructorPermissions>, token: string) =>
       apiFetch<{ success: boolean; permissions: InstructorPermissions }>(
         `/franchise/studios/${studioId}/instructors/${instructorId}/permissions`,
@@ -972,6 +1055,7 @@ export const api = {
         roomId: string
         capacity: number
         creditsRequired?: number
+        isPrivate?: boolean
         daysOfWeek: number[]
         startTime: string
         durationMin: number
@@ -1054,6 +1138,18 @@ export const api = {
       apiFetch<{ success: boolean }>(`/staff/instructors/${instructorId}`, {
         method: 'PATCH',
         body: JSON.stringify({ payRatePerHeadCents }),
+        token,
+      }),
+    updateHourlyPayRate: (memberId: string, payRateHourlyCents: number | null, token: string) =>
+      apiFetch<{ success: boolean }>(`/staff/${memberId}/hourly-pay`, {
+        method: 'PATCH',
+        body: JSON.stringify({ payRateHourlyCents }),
+        token,
+      }),
+    uploadAvatar: (memberId: string, body: { base64: string; fileName: string; contentType: string }, token: string) =>
+      apiFetch<{ avatarUrl: string }>(`/staff/${memberId}/avatar`, {
+        method: 'POST',
+        body: JSON.stringify(body),
         token,
       }),
   },
@@ -1229,7 +1325,32 @@ export const api = {
   },
   ical: {
     getToken: (token: string) =>
-      apiFetch<{ token: string; urls: { member: string; instructor?: string } }>('/ical/token', { token }),
+      apiFetch<{ token: string; urls: { member: string; instructor?: string; fronthost?: string } }>('/ical/token', { token }),
+  },
+  shifts: {
+    list: (studioId: string, from: string, to: string, token: string) =>
+      apiFetch<StaffShift[]>(`/admin/shifts?studioId=${studioId}&from=${from}&to=${to}`, { token }),
+    mine: (token: string, studioId?: string, from?: string) =>
+      apiFetch<StaffShift[]>(
+        `/admin/shifts/mine${studioId ? `?studioId=${studioId}` : ''}${from ? `${studioId ? '&' : '?'}from=${from}` : ''}`,
+        { token },
+      ),
+    create: (body: { studioId: string; memberId: string; startsAt: string; endsAt: string; note?: string }, token: string) =>
+      apiFetch<StaffShift>('/admin/shifts', { method: 'POST', body: JSON.stringify(body), token }),
+    update: (id: string, body: { startsAt?: string; endsAt?: string; note?: string | null }, token: string) =>
+      apiFetch<StaffShift>(`/admin/shifts/${id}`, { method: 'PATCH', body: JSON.stringify(body), token }),
+    remove: (id: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/admin/shifts/${id}`, { method: 'DELETE', token }),
+  },
+  shiftPatterns: {
+    list: (studioId: string, token: string, memberId?: string) =>
+      apiFetch<StaffShiftPattern[]>(`/admin/shift-patterns?studioId=${studioId}${memberId ? `&memberId=${memberId}` : ''}`, { token }),
+    create: (body: { studioId: string; memberId: string; daysOfWeek: number[]; startTime: string; endTime: string; intervalWeeks?: number; validFrom: string; validUntil?: string; note?: string }, token: string) =>
+      apiFetch<StaffShiftPattern & { shiftsGenerated: number }>('/admin/shift-patterns', { method: 'POST', body: JSON.stringify(body), token }),
+    update: (id: string, body: { daysOfWeek?: number[]; startTime?: string; endTime?: string; intervalWeeks?: number; validFrom?: string; validUntil?: string | null; note?: string | null }, token: string) =>
+      apiFetch<StaffShiftPattern & { shiftsRegenerated: number }>(`/admin/shift-patterns/${id}`, { method: 'PATCH', body: JSON.stringify(body), token }),
+    remove: (id: string, token: string) =>
+      apiFetch<{ success: boolean; futureShiftsDeleted: number }>(`/admin/shift-patterns/${id}`, { method: 'DELETE', token }),
   },
   networks: {
     list: (token: string) =>

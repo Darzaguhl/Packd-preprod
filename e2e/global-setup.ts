@@ -155,8 +155,8 @@ async function saveAuthState(
   const page = await ctx.newPage()
 
   await page.goto(`${BASE_URL}/login`)
-  await page.getByPlaceholder(/email/i).fill(email)
-  await page.getByPlaceholder(/password/i).fill(password)
+  await page.getByLabel(/email/i).fill(email)
+  await page.getByLabel(/password/i).fill(password)
   await page.getByRole('button', { name: /sign in/i }).click()
 
   // Wait for redirect — either to the expected URL or to onboarding
@@ -205,7 +205,14 @@ export default async function globalSetup() {
   // 3. Give the member 20 credits so booking tests pass
   await seedMemberCredits(adminToken, E2E_MEMBER_EMAIL, 20)
 
-  // 4. Verify the studio has at least one bookable future session.
+  // 4. Assign fronthost role to the e2e-member so shift tests can target them
+  await fetch(`${API_URL}/staff`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+    body: JSON.stringify({ studioId: STUDIO_ID, email: E2E_MEMBER_EMAIL, staffRole: 'fronthost' }),
+  }).catch(() => {}) // idempotent — safe to call again if already assigned
+
+  // 5. Verify the studio has at least one bookable future session.
   //    If the seed sessions are all in the past (happens after a few weeks),
   //    the booking test would silently skip — fail loudly here instead.
   const scheduleRes = await fetch(
@@ -225,7 +232,7 @@ export default async function globalSetup() {
     }
   }
 
-  // 5. Save browser auth states
+  // 6. Save browser auth states
   console.log('[setup] Saving auth states…')
   await saveAuthState(E2E_MEMBER_EMAIL, E2E_MEMBER_PASSWORD, '.auth/member.json', /schedule/)
   await saveAuthState(E2E_ADMIN_EMAIL,  E2E_ADMIN_PASSWORD,  '.auth/admin.json',  /dashboard/)

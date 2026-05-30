@@ -217,6 +217,30 @@ export async function franchiseRoutes(app: FastifyInstance) {
     },
   )
 
+  // Fronthosts fetch their own permissions for this studio
+  app.get<{ Params: { studioId: string } }>(
+    '/studios/:studioId/my-fronthost-permissions',
+    { preHandler: requireRole('instructor') }, // rank ≥ instructor covers fronthost too
+    async (request, reply) => {
+      const { studioId } = request.params
+      const user = getUser(request)
+
+      const member = await prisma.member.findFirst({
+        where: { userId: user.id, studioIds: { has: studioId } },
+        select: { staffPermissions: true },
+      })
+
+      if (!member) return reply.code(404).send({ error: 'Not a staff member for this studio' })
+
+      const raw = member.staffPermissions as Record<string, unknown> | null
+      const permissions: FronthostPermissions = raw && Object.keys(raw).length > 0
+        ? { ...DEFAULT_FRONTHOST_PERMISSIONS, ...(raw as Partial<FronthostPermissions>) }
+        : { ...DEFAULT_FRONTHOST_PERMISSIONS }
+
+      return reply.send({ permissions })
+    },
+  )
+
   // Instructors fetch their own record (id + permissions) — lower role threshold
   app.get<{ Params: { studioId: string } }>(
     '/studios/:studioId/my-instructor',
@@ -225,9 +249,14 @@ export async function franchiseRoutes(app: FastifyInstance) {
       const { studioId } = request.params
       const user = getUser(request)
 
-      const instructor = await prisma.instructor.findFirst({
-        where: { studioId, userId: user.id },
-      })
+      const [instructor, member, userRecord] = await Promise.all([
+        prisma.instructor.findFirst({ where: { studioId, userId: user.id } }),
+        prisma.member.findFirst({
+          where: { userId: user.id, studioIds: { has: studioId } },
+          select: { id: true },
+        }),
+        prisma.user.findUnique({ where: { id: user.id }, select: { avatarUrl: true } }),
+      ])
 
       if (!instructor) {
         return reply.code(404).send({ error: 'Instructor record not found' })
@@ -239,7 +268,12 @@ export async function franchiseRoutes(app: FastifyInstance) {
         ? { ...DEFAULT_INSTRUCTOR_PERMISSIONS, ...(raw as Partial<InstructorPermissions>) }
         : { ...DEFAULT_INSTRUCTOR_PERMISSIONS }
 
-      return reply.send({ id: instructor.id, permissions })
+      return reply.send({
+        id: instructor.id,
+        memberId: member?.id ?? null,
+        avatarUrl: userRecord?.avatarUrl ?? null,
+        permissions,
+      })
     },
   )
 

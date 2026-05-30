@@ -20,11 +20,12 @@ const SCALE = 90 // px per metre
 const STATION_MIN_W = 130
 const STATION_MIN_H = 100
 
-type NameSize = 's' | 'm' | 'l'
+type NameSize = 's' | 'm' | 'l' | 'xl'
 const NAME_SIZE_CLASS: Record<NameSize, string> = {
-  s: 'text-[9px]',
-  m: 'text-[11px]',
-  l: 'text-[14px]',
+  s:  'text-[9px]',
+  m:  'text-[11px]',
+  l:  'text-[14px]',
+  xl: 'text-[18px]',
 }
 const LS_KEY = 'packd-map-name-size'
 
@@ -569,7 +570,7 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
             <div className="flex items-center gap-2">
               {/* Name size toggle */}
               <div className="flex rounded-md border border-gray-200 overflow-hidden">
-                {(['s', 'm', 'l'] as NameSize[]).map(s => (
+                {(['s', 'm', 'l', 'xl'] as NameSize[]).map(s => (
                   <button
                     key={s}
                     onClick={() => cycleNameSize(s)}

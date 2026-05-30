@@ -20,6 +20,7 @@ type FormState = {
   durationMin: number
   description: string
   color: string
+  isPrivate: boolean
   defaultInstructorId: string
   defaultRoomId: string
   defaultCapacity: string
@@ -32,6 +33,7 @@ type FormState = {
 
 const EMPTY_FORM: FormState = {
   name: '', sport: 'CYCLING', durationMin: 60, description: '', color: '#6366f1',
+  isPrivate: false,
   defaultInstructorId: '', defaultRoomId: '', defaultCapacity: '', defaultCreditsRequired: '',
   defaultStartTime: '', defaultStartTime2: '', defaultDaysOfWeek: [], defaultIntervalWeeks: 1,
 }
@@ -42,6 +44,7 @@ function templateToForm(t: ClassTemplate): FormState {
     sport: t.sport,
     durationMin: t.durationMin,
     description: t.description ?? '',
+    isPrivate: t.isPrivate ?? false,
     color: t.color,
     defaultInstructorId: t.defaultInstructorId ?? '',
     defaultRoomId: t.defaultRoomId ?? '',
@@ -114,6 +117,7 @@ export default function ClassTemplatesSection({ studioId, token }: Props) {
         durationMin: form.durationMin,
         description: form.description || undefined,
         color: form.color,
+        isPrivate: form.isPrivate,
         defaultInstructorId: form.defaultInstructorId || null,
         defaultRoomId: form.defaultRoomId || null,
         defaultCapacity: form.defaultCapacity ? Number(form.defaultCapacity) : null,
@@ -170,9 +174,12 @@ export default function ClassTemplatesSection({ studioId, token }: Props) {
           <div key={t.id} className="flex items-center gap-3 bg-white border border-gray-100 rounded-xl px-4 py-3">
             <div className={`w-1.5 h-8 rounded-full ${cfg.accent}`} />
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <p className="text-sm font-semibold text-gray-900">{t.name}</p>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${cfg.bg} ${cfg.color}`}>{cfg.label}</span>
+                {t.isPrivate && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-purple-100 text-purple-600">Private</span>
+                )}
               </div>
               <p className="text-xs text-gray-400">
                 {t.durationMin} min
@@ -223,6 +230,22 @@ export default function ClassTemplatesSection({ studioId, token }: Props) {
                 onChange={e => f('description', e.target.value)}
                 className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400" />
             </div>
+          </div>
+
+          {/* Private event toggle */}
+          <div className="pt-2 border-t border-gray-200">
+            <label className="flex items-start gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={form.isPrivate}
+                onChange={e => f('isPrivate', e.target.checked)}
+                className="mt-0.5 rounded"
+              />
+              <span>
+                <span className="text-sm font-medium text-gray-900 block">Private template</span>
+                <span className="text-xs text-gray-400">Sessions created from this template will not appear on the member schedule. Only visible to staff.</span>
+              </span>
+            </label>
           </div>
 
           {/* Schedule defaults */}

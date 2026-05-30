@@ -32,8 +32,8 @@ export const test = base.extend<{
       const email    = process.env.E2E_EMAIL    ?? 'e2e-member@packd.test'
       const password = process.env.E2E_PASSWORD ?? 'E2ePass123!'
       await page.goto('/login')
-      await page.getByPlaceholder(/email/i).fill(email)
-      await page.getByPlaceholder(/password/i).fill(password)
+      await page.getByLabel(/email/i).fill(email)
+      await page.getByLabel(/password/i).fill(password)
       await page.getByRole('button', { name: /sign in/i }).click()
       await page.waitForURL(/schedule/, { timeout: 15_000 })
     } else {
@@ -60,8 +60,8 @@ export const test = base.extend<{
       const email    = process.env.E2E_ADMIN_EMAIL    ?? 'e2e-admin@packd.test'
       const password = process.env.E2E_ADMIN_PASSWORD ?? 'E2ePass123!'
       await page.goto('/login')
-      await page.getByPlaceholder(/email/i).fill(email)
-      await page.getByPlaceholder(/password/i).fill(password)
+      await page.getByLabel(/email/i).fill(email)
+      await page.getByLabel(/password/i).fill(password)
       await page.getByRole('button', { name: /sign in/i }).click()
       await page.waitForURL(/dashboard/, { timeout: 15_000 })
     } else {

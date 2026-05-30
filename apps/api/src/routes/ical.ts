@@ -50,11 +50,11 @@ export async function icalRoutes(app: FastifyInstance) {
     const token = makeToken(user.id)
     const base = process.env.NEXT_PUBLIC_API_URL ?? `http://localhost:4000`
 
-    // Determine if the user is an instructor
-    const instructor = await prisma.instructor.findFirst({
-      where: { userId: user.id },
-      select: { id: true },
-    })
+    // Determine if the user is an instructor or fronthost
+    const [instructor, member] = await Promise.all([
+      prisma.instructor.findFirst({ where: { userId: user.id }, select: { id: true } }),
+      prisma.member.findFirst({ where: { userId: user.id }, select: { id: true, staffRoles: true } }),
+    ])
 
     // userId is embedded in the URL so validation is O(1) — no full-table scan needed
     const urls: Record<string, string> = {
@@ -62,6 +62,9 @@ export async function icalRoutes(app: FastifyInstance) {
     }
     if (instructor) {
       urls.instructor = `${base}/ical/instructor/${user.id}/${token}`
+    }
+    if (member?.staffRoles.includes('fronthost')) {
+      urls.fronthost = `${base}/ical/fronthost/${user.id}/${token}`
     }
 
     return reply.send({ token, urls })
@@ -215,6 +218,67 @@ export async function icalRoutes(app: FastifyInstance) {
 
       reply.header('Content-Type', 'text/calendar; charset=utf-8')
       reply.header('Content-Disposition', 'inline; filename="my-classes.ics"')
+      return reply.send(lines.join('\r\n'))
+    },
+  )
+
+  // GET /ical/fronthost/:userId/:token — public, no auth required
+  app.get<{ Params: { userId: string; token: string } }>(
+    '/fronthost/:userId/:token',
+    async (request, reply) => {
+      const { userId, token } = request.params
+
+      if (!verifyToken(userId, token)) return reply.status(404).send('Not found')
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, firstName: true, lastName: true },
+      })
+      if (!user) return reply.status(404).send('Not found')
+
+      const member = await prisma.member.findFirst({
+        where: { userId: user.id, staffRoles: { has: 'fronthost' } },
+        select: { id: true, studioId: true },
+      })
+      if (!member) return reply.status(404).send('Not a fronthost')
+
+      const now = new Date()
+      const shifts = await prisma.staffShift.findMany({
+        where: { memberId: member.id, startsAt: { gte: now } },
+        include: { studio: { select: { name: true } } },
+        orderBy: { startsAt: 'asc' },
+        take: 200,
+      })
+
+      const calName = `${user.firstName} – Packd Shifts`
+      const lines: string[] = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//Packd//Studio//EN',
+        `X-WR-CALNAME:${icalEscape(calName)}`,
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH',
+      ]
+
+      for (const s of shifts) {
+        const summary = `Shift – ${s.studio.name}`
+        const desc = s.note ? icalEscape(s.note) : ''
+        lines.push(
+          'BEGIN:VEVENT',
+          `UID:shift-${s.id}@packd`,
+          `DTSTART:${icalDate(s.startsAt)}`,
+          `DTEND:${icalDate(s.endsAt)}`,
+          foldLine(`SUMMARY:${icalEscape(summary)}`),
+          ...(desc ? [foldLine(`DESCRIPTION:${desc}`)] : []),
+          'STATUS:CONFIRMED',
+          'END:VEVENT',
+        )
+      }
+
+      lines.push('END:VCALENDAR')
+
+      reply.header('Content-Type', 'text/calendar; charset=utf-8')
+      reply.header('Content-Disposition', 'inline; filename="my-shifts.ics"')
       return reply.send(lines.join('\r\n'))
     },
   )

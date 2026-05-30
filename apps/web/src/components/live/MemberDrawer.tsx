@@ -65,6 +65,7 @@ interface Props {
   studioId: string
   currency: string
   selectedSession: AdminSession | null
+  permissions?: import('@/lib/api').LivePermissions
   onClose: () => void
   /** Called when a booking is created so the parent can refresh session counts */
   onBookingChanged: () => void
@@ -80,7 +81,12 @@ interface Props {
   onProductsCharged?: (memberId: string) => void
 }
 
-export default function MemberDrawer({ studioId, currency, selectedSession, onClose, onBookingChanged, initialMember, targetStation, onAssigned, onPatchCheckin, onProductsCharged }: Props) {
+export default function MemberDrawer({ studioId, currency, selectedSession, permissions, onClose, onBookingChanged, initialMember, targetStation, onAssigned, onPatchCheckin, onProductsCharged }: Props) {
+  // Treat missing permissions as full access (admin context)
+  const canViewContact    = permissions?.canViewMemberContact  ?? true
+  const canAdjustCredits  = permissions?.canAdjustCredits      ?? true
+  const canGrantCredits   = permissions?.canGrantCredits       ?? true
+  const canIssueRefunds   = permissions?.canIssueRefunds       ?? true
   const timeFormat = useTimeFormat()
 
   // Member search
@@ -557,7 +563,7 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                       </span>
                     )}
                   </div>
-                  {member.email && <p className="text-xs text-gray-400 truncate">{member.email}</p>}
+                  {canViewContact && member.email && <p className="text-xs text-gray-400 truncate">{member.email}</p>}
                   {memberBirthday && (
                     <p className="text-xs text-gray-400">
                       🎂 {new Date(memberBirthday).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -629,65 +635,62 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                 </div>
               )}
 
-              {/* ── Credit adjustment ── */}
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Adjust credits</p>
-                  <button
-                    onClick={() => setCreditDeduct(d => !d)}
-                    className={`text-[10px] font-semibold px-2 py-1 rounded-lg transition-colors ${
-                      creditDeduct ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
-                    }`}
-                  >
-                    {creditDeduct ? '− Deduct' : '+ Add'}
-                  </button>
-                </div>
-                {/* Presets */}
-                <div className="flex gap-1.5">
-                  {[5, 10, 20, 30].map(n => (
+              {/* ── Credit adjustment — gated by canAdjustCredits / canGrantCredits ── */}
+              {(canAdjustCredits || canGrantCredits) && (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Adjust credits</p>
                     <button
-                      key={n}
-                      onClick={() => { setCreditPreset(creditPreset === n ? null : n); setCreditCustom('') }}
-                      className={`flex-1 text-xs font-semibold py-1.5 rounded-lg transition-colors ${
-                        creditPreset === n
-                          ? creditDeduct ? 'bg-red-500 text-white' : 'bg-gray-900 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      onClick={() => setCreditDeduct(d => !d)}
+                      className={`text-[10px] font-semibold px-2 py-1 rounded-lg transition-colors ${
+                        creditDeduct ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
                       }`}
                     >
-                      {creditDeduct ? `−${n}` : `+${n}`}
+                      {creditDeduct ? '− Deduct' : '+ Add'}
                     </button>
-                  ))}
+                  </div>
+                  <div className="flex gap-1.5">
+                    {[5, 10, 20, 30].map(n => (
+                      <button
+                        key={n}
+                        onClick={() => { setCreditPreset(creditPreset === n ? null : n); setCreditCustom('') }}
+                        className={`flex-1 text-xs font-semibold py-1.5 rounded-lg transition-colors ${
+                          creditPreset === n
+                            ? creditDeduct ? 'bg-red-500 text-white' : 'bg-gray-900 text-white'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        {creditDeduct ? `−${n}` : `+${n}`}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="number" min={1} value={creditCustom}
+                      onChange={e => { setCreditCustom(e.target.value); setCreditPreset(null) }}
+                      placeholder="Custom…"
+                      className="w-24 shrink-0 text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-gray-400"
+                    />
+                    <input
+                      type="text" value={creditNote}
+                      onChange={e => setCreditNote(e.target.value)}
+                      placeholder="Note (optional)"
+                      className="flex-1 min-w-0 text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-gray-400"
+                    />
+                  </div>
+                  <button
+                    onClick={handleAdjustCredit}
+                    disabled={actionLoading || !creditAmount || creditAmount <= 0}
+                    className={`w-full text-sm font-semibold py-2 rounded-xl transition-colors disabled:opacity-40 ${
+                      creditDeduct ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-gray-900 text-white hover:bg-gray-700'
+                    }`}
+                  >
+                    {actionLoading ? '…' : creditAmount && creditAmount > 0
+                      ? `${creditDeduct ? 'Deduct' : 'Add'} ${creditAmount} credit${creditAmount !== 1 ? 's' : ''}`
+                      : 'Select amount'}
+                  </button>
                 </div>
-                {/* Custom amount + note + confirm */}
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    min={1}
-                    value={creditCustom}
-                    onChange={e => { setCreditCustom(e.target.value); setCreditPreset(null) }}
-                    placeholder="Custom…"
-                    className="w-24 shrink-0 text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-gray-400"
-                  />
-                  <input
-                    type="text"
-                    value={creditNote}
-                    onChange={e => setCreditNote(e.target.value)}
-                    placeholder="Note (optional)"
-                    className="flex-1 min-w-0 text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-gray-400"
-                  />
-                </div>
-                <button
-                  onClick={handleAdjustCredit}
-                  disabled={actionLoading || !creditAmount || creditAmount <= 0}
-                  className={`w-full text-sm font-semibold py-2 rounded-xl transition-colors disabled:opacity-40 ${
-                    creditDeduct ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-gray-900 text-white hover:bg-gray-700'
-                  }`}
-                >
-                  {actionLoading ? '…' : creditAmount && creditAmount > 0
-                    ? `${creditDeduct ? 'Deduct' : 'Add'} ${creditAmount} credit${creditAmount !== 1 ? 's' : ''}`
-                    : 'Select amount'}
-                </button>
-              </div>
+              )}
             </div>
           )}
 
@@ -950,7 +953,7 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                   {sale.totalCredits > 0 && !sale.totalCents && (
                     <span className="text-gray-500">{sale.totalCredits} cr</span>
                   )}
-                  {sale.paymentMethod === 'card' && !sale.refundedAt && !sale.failedAt && sale.stripePaymentIntentId && (
+                  {canIssueRefunds && sale.paymentMethod === 'card' && !sale.refundedAt && !sale.failedAt && sale.stripePaymentIntentId && (
                     <button
                       onClick={() => handleRefund(sale.id)}
                       disabled={refundingId === sale.id}

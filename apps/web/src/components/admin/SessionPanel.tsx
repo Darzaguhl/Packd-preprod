@@ -18,6 +18,11 @@ export default function SessionPanel({ session, token, onClose, onSessionUpdate,
   const [loading, setLoading] = useState(true)
   const [actionId, setActionId] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
+  const [showAnnounce, setShowAnnounce] = useState(false)
+  const [announceSubject, setAnnounceSubject] = useState('')
+  const [announceMessage, setAnnounceMessage] = useState('')
+  const [announcing, setAnnouncing] = useState(false)
+  const [announceResult, setAnnounceResult] = useState<{ sent: number; total: number } | null>(null)
   const [checkinError, setCheckinError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -53,6 +58,20 @@ export default function SessionPanel({ session, token, onClose, onSessionUpdate,
       onSessionUpdate({ ...session, status: 'CANCELLED' })
     } finally {
       setCancelling(false)
+    }
+  }
+
+  async function sendAnnouncement() {
+    if (!announceSubject.trim() || !announceMessage.trim()) return
+    setAnnouncing(true)
+    try {
+      const result = await api.admin.announce(session.id, announceSubject, announceMessage, token)
+      setAnnounceResult(result)
+      setAnnounceSubject('')
+      setAnnounceMessage('')
+      setTimeout(() => { setShowAnnounce(false); setAnnounceResult(null) }, 3000)
+    } finally {
+      setAnnouncing(false)
     }
   }
 
@@ -115,16 +134,65 @@ export default function SessionPanel({ session, token, onClose, onSessionUpdate,
           </div>
         </div>
 
-        {!isCancelled && canCancel && (
-          <button
-            onClick={cancelSession}
-            disabled={cancelling}
-            className="text-xs text-red-500 hover:text-red-700 border border-red-200 hover:border-red-300 px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-40"
-          >
-            {cancelling ? '…' : 'Cancel class'}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {!isCancelled && (
+            <button
+              onClick={() => setShowAnnounce(v => !v)}
+              className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${
+                showAnnounce ? 'bg-blue-600 text-white border-blue-600' : 'text-blue-600 border-blue-200 hover:border-blue-400'
+              }`}
+            >
+              Announce
+            </button>
+          )}
+          {!isCancelled && canCancel && (
+            <button
+              onClick={cancelSession}
+              disabled={cancelling}
+              className="text-xs text-red-500 hover:text-red-700 border border-red-200 hover:border-red-300 px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-40"
+            >
+              {cancelling ? '…' : 'Cancel class'}
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Announce form */}
+      {showAnnounce && !isCancelled && (
+        <div className="border-b border-gray-100 px-4 py-3 bg-blue-50 space-y-2">
+          {announceResult ? (
+            <p className="text-sm text-emerald-700 font-medium">✓ Sent to {announceResult.sent}/{announceResult.total} attendees</p>
+          ) : (
+            <>
+              <p className="text-xs text-blue-700 font-medium">Email all {bookings.length} attendees</p>
+              <input
+                type="text"
+                value={announceSubject}
+                onChange={e => setAnnounceSubject(e.target.value)}
+                placeholder="Subject (e.g. Room change)"
+                className="w-full text-sm border border-blue-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white"
+              />
+              <textarea
+                value={announceMessage}
+                onChange={e => setAnnounceMessage(e.target.value)}
+                placeholder="Message to attendees…"
+                rows={3}
+                className="w-full text-sm border border-blue-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white resize-none"
+              />
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setShowAnnounce(false)} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+                <button
+                  onClick={sendAnnouncement}
+                  disabled={announcing || !announceSubject.trim() || !announceMessage.trim()}
+                  className="text-xs font-medium px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-40"
+                >
+                  {announcing ? 'Sending…' : 'Send'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Attendee list */}
       <div className="flex-1 overflow-y-auto divide-y divide-gray-50">

@@ -2,10 +2,11 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '@packd/db'
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library.js'
 import { requireAuth, getUser } from '../lib/auth.js'
+import { audit, AUDIT } from '../lib/audit.js'
 import { ROLE_RANK } from '@packd/types'
-import { enqueueLateCancelCheck } from '../jobs/index.js'
+import { enqueueLateCancelCheck, enqueueWaitlistExpiry } from '../jobs/index.js'
 import { ensureMemberForAdmin } from './members.js'
-import { sendBookingConfirmation, sendBookingCancellation } from '../lib/email.js'
+import { sendBookingConfirmation, sendBookingCancellation, sendWaitlistPromotion } from '../lib/email.js'
 
 /** Format a human-readable note for credit transactions, e.g. "Cycling · 26 May, 09:00" */
 function fmtClassNote(className: string | null | undefined, startsAt: Date): string {
@@ -87,15 +88,15 @@ export async function bookingRoutes(app: FastifyInstance) {
           throw Object.assign(new Error('Class is not available for booking'), { statusCode: 400 })
         }
 
-        // Members cannot book classes that have already started; admins and
-        // fronthosts can re-book or adjust spots on running/past classes.
-        const isMember = !user.role || user.role === 'member'
-        if (isMember && session.startsAt <= new Date()) {
+        // Members and instructors cannot book classes that have already started.
+        // Fronthosts and above can re-book or adjust spots on running/past classes.
+        const isNonPrivileged = !user.role || user.role === 'member' || user.role === 'instructor'
+        if (isNonPrivileged && session.startsAt <= new Date()) {
           throw Object.assign(new Error('Class has already started'), { statusCode: 400 })
         }
 
-        // Enforce booking window and close time for members (privileged roles bypass)
-        if (isMember) {
+        // Enforce booking window and close time for members/instructors (privileged roles bypass)
+        if (isNonPrivileged) {
           const now = new Date()
           const bookingWindowDays = session.studio?.bookingWindowDays ?? 30
           const bookingCloseHours = session.studio?.bookingCloseHours ?? 1
@@ -271,6 +272,9 @@ export async function bookingRoutes(app: FastifyInstance) {
       const isPrivilegedCancel = ROLE_RANK[user.role as keyof typeof ROLE_RANK] >= ROLE_RANK['fronthost']
       const chargeFee = isLateCancel && !isPrivilegedCancel && lateCancelFeeCredits > 0
 
+      let promotedWaitlistId: string | null = null
+      let promotedExpiresAt: Date | null = null
+
       // Run waitlist promotion inside the same transaction as the cancellation
       await prisma.$transaction(async (tx) => {
         await tx.booking.update({
@@ -327,8 +331,37 @@ export async function bookingRoutes(app: FastifyInstance) {
             where: { id: next.id },
             data: { status: 'NOTIFIED', notifiedAt: new Date(), expiresAt },
           })
+          promotedWaitlistId = next.id
+          promotedExpiresAt = expiresAt
         }
       })
+
+      // Notify promoted waitlist member and schedule expiry (non-fatal)
+      if (promotedWaitlistId && promotedExpiresAt) {
+        const promoted = await prisma.waitlistEntry.findUnique({
+          where: { id: promotedWaitlistId },
+          include: {
+            member: { include: { user: true } },
+            session: {
+              include: {
+                template: { select: { name: true } },
+                studio: { select: { name: true } },
+              },
+            },
+          },
+        })
+        if (promoted) {
+          sendWaitlistPromotion({
+            to: promoted.member.user.email,
+            firstName: promoted.member.user.firstName,
+            studioName: promoted.session.studio.name,
+            className: promoted.session.template?.name ?? 'Class',
+            startsAt: promoted.session.startsAt.toISOString(),
+            webUrl: process.env.WEB_URL ?? 'http://localhost:3001',
+          }).catch(() => {})
+          enqueueWaitlistExpiry(promotedWaitlistId, promotedExpiresAt).catch(() => {})
+        }
+      }
 
       // Send cancellation email (non-fatal)
       prisma.booking.findUnique({
@@ -355,6 +388,9 @@ export async function bookingRoutes(app: FastifyInstance) {
         }).catch(() => {})
       }).catch(() => {})
 
+      if (isPrivilegedCancel) {
+        audit({ actorId: user.id, actorRole: user.role, action: AUDIT.BOOKING_CANCEL_ADMIN, targetId: booking.memberId, studioId: booking.session.studioId, meta: { bookingId: booking.id, sessionId: booking.sessionId, isLateCancel } })
+      }
       return { success: true, isLateCancel }
     },
   )

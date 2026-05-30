@@ -55,7 +55,7 @@ interface Props {
   onStudioUpdate?: (data: { name: string; timezone: string; currency: string; timeFormat: string }) => void
 }
 
-type SettingsPanel = 'general' | 'policies' | 'features'
+type SettingsPanel = 'general' | 'policies' | 'features' | 'ai'
 
 export default function SettingsTab({ studioId, token, onNameChange, onStudioUpdate }: Props) {
   const [panel, setPanel] = useState<SettingsPanel>('general')
@@ -103,6 +103,14 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
   // Saved state for dirty-check
   const [savedPolicy, setSavedPolicy] = useState({ lateCancelWindowHours: 12, lateCancelFeeCredits: 1, noShowFeeCredits: 1, waitlistWindowMinutes: 15 })
 
+  // AI settings
+  const [aiEnabled, setAiEnabled] = useState(true)
+  const [aiHasKey, setAiHasKey] = useState(false)
+  const [aiKeySuffix, setAiKeySuffix] = useState<string | null>(null)
+  const [aiKeyInput, setAiKeyInput] = useState('')
+  const [aiShowKeyInput, setAiShowKeyInput] = useState(false)
+  const [aiSaving, setAiSaving] = useState(false)
+
   function showToast(msg: string, ok = true) {
     setToast({ msg, ok })
     setTimeout(() => setToast(null), 3000)
@@ -145,6 +153,14 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
       setWaitlistWindowMinutes(p.waitlistWindowMinutes)
       setSavedPolicy(p)
     }).catch(() => {}).finally(() => setPolicyLoading(false))
+
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/studios/${studioId}/ai`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(r => r.json()).then((d: { aiEnabled: boolean; hasKey: boolean; keySuffix: string | null }) => {
+      setAiEnabled(d.aiEnabled)
+      setAiHasKey(d.hasKey)
+      setAiKeySuffix(d.keySuffix)
+    }).catch(() => {})
   }, [studioId, token])
 
   function handleNameChange(val: string) {
@@ -261,6 +277,7 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
     { id: 'general',  label: 'General'  },
     { id: 'policies', label: 'Policies' },
     { id: 'features', label: 'Features' },
+    { id: 'ai',       label: 'AI'       },
   ]
 
   return (
@@ -607,6 +624,114 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
         </div>
 
       </div>}{/* end Features panel */}
+
+      {/* ── AI ──────────────────────────────────────────────────────────── */}
+      {panel === 'ai' && (
+        <div className="space-y-6">
+          <section className="space-y-4">
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">AI Assistant</h3>
+            <p className="text-sm text-gray-500">
+              The AI assistant helps members book classes, check credits, and get answers — and gives your front desk staff a natural language interface to manage check-ins and spot assignments.
+            </p>
+
+            <label className="flex items-start gap-3 cursor-pointer select-none px-3 py-3 rounded-xl hover:bg-gray-50 transition-colors">
+              <input type="checkbox" checked={aiEnabled} onChange={e => setAiEnabled(e.target.checked)} className="mt-0.5 rounded" />
+              <span>
+                <span className="text-sm font-medium text-gray-900 block">Enable AI assistant</span>
+                <span className="text-xs text-gray-400">Shows the chat bubble to all users on your studio</span>
+              </span>
+            </label>
+          </section>
+
+          <section className="space-y-3 pt-4 border-t border-gray-100">
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Anthropic API Key</h3>
+            <p className="text-sm text-gray-500">
+              Provide your own Anthropic API key to use your own billing and rate limits. If left blank, the platform key is used.
+            </p>
+
+            {aiHasKey && !aiShowKeyInput ? (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-100 rounded-xl text-sm">
+                  <svg className="w-3.5 h-3.5 text-emerald-600" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  <span className="text-emerald-700 font-medium">Key set</span>
+                  {aiKeySuffix && <span className="text-emerald-500 font-mono text-xs">{aiKeySuffix}</span>}
+                </div>
+                <button onClick={() => setAiShowKeyInput(true)} className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Change</button>
+                <button
+                  onClick={async () => {
+                    setAiSaving(true)
+                    try {
+                      const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/studios/${studioId}/ai`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({ anthropicApiKey: null }),
+                      })
+                      const d = await r.json()
+                      setAiHasKey(d.hasKey); setAiKeySuffix(d.keySuffix)
+                      showToast('API key removed')
+                    } catch { showToast('Failed to remove key', false) }
+                    finally { setAiSaving(false) }
+                  }}
+                  className="text-sm text-red-400 hover:text-red-600 transition-colors"
+                >Remove</button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <input
+                  type="password"
+                  value={aiKeyInput}
+                  onChange={e => setAiKeyInput(e.target.value)}
+                  placeholder="sk-ant-..."
+                  className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-black/10"
+                />
+                <button
+                  disabled={!aiKeyInput.trim() || aiSaving}
+                  onClick={async () => {
+                    setAiSaving(true)
+                    try {
+                      const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/studios/${studioId}/ai`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({ anthropicApiKey: aiKeyInput.trim() }),
+                      })
+                      const d = await r.json()
+                      setAiHasKey(d.hasKey); setAiKeySuffix(d.keySuffix)
+                      setAiKeyInput(''); setAiShowKeyInput(false)
+                      showToast('API key saved')
+                    } catch { showToast('Failed to save key', false) }
+                    finally { setAiSaving(false) }
+                  }}
+                  className="text-sm font-medium bg-gray-900 text-white px-4 py-2 rounded-xl hover:bg-gray-700 disabled:opacity-40 transition-colors"
+                >{aiSaving ? 'Saving…' : 'Save key'}</button>
+                {aiShowKeyInput && (
+                  <button onClick={() => setAiShowKeyInput(false)} className="text-sm text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
+                )}
+              </div>
+            )}
+          </section>
+
+          <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
+            <button
+              disabled={aiSaving}
+              onClick={async () => {
+                setAiSaving(true)
+                try {
+                  await fetch(`${process.env.NEXT_PUBLIC_API_URL}/studios/${studioId}/ai`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ aiEnabled }),
+                  })
+                  showToast('AI settings saved')
+                } catch { showToast('Failed to save', false) }
+                finally { setAiSaving(false) }
+              }}
+              className="text-sm font-medium bg-gray-900 text-white px-5 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors"
+            >{aiSaving ? 'Saving…' : 'Save changes'}</button>
+          </div>
+        </div>
+      )}{/* end AI panel */}
 
       {toast && (
         <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg ${

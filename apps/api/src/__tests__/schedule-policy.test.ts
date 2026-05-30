@@ -28,8 +28,10 @@ vi.mock('@packd/db', () => {
 // ── Auth mock — member role ───────────────────────────────────────────────────
 
 vi.mock('../lib/auth.js', () => ({
-  requireAuth: vi.fn().mockResolvedValue(undefined),
-  getUser: vi.fn(() => ({ id: 'user-1', role: 'member' })),
+  tryAuth: vi.fn().mockImplementation(async (request: { user?: unknown }) => {
+    request.user = { id: 'user-1', role: 'member' }
+  }),
+  getUser: vi.fn((request: { user?: unknown }) => request.user ?? { id: 'user-1', role: 'member' }),
 }))
 
 import Fastify from 'fastify'
@@ -52,7 +54,7 @@ describe('GET /schedule/:studioId — cancellation policy fields', () => {
 
   it('returns the studio timezone and cancellation policy', async () => {
     vi.mocked(prisma.member.findUnique).mockResolvedValue({ studioId: 'studio-1' } as never)
-    vi.mocked(prisma.studio.findUnique).mockResolvedValue({ timeFormat: '24h', timezone: 'Europe/Stockholm' } as never)
+    vi.mocked(prisma.studio.findUnique).mockResolvedValue({ name: 'Test Studio', timeFormat: '24h', timezone: 'Europe/Stockholm' } as never)
     vi.mocked(prisma.cancellationPolicy.findUnique).mockResolvedValue({
       lateCancelWindowHours: 24,
       lateCancelFeeCredits: 2,
@@ -73,7 +75,7 @@ describe('GET /schedule/:studioId — cancellation policy fields', () => {
 
   it('falls back to UTC and defaults when no policy is configured', async () => {
     vi.mocked(prisma.member.findUnique).mockResolvedValue({ studioId: 'studio-1' } as never)
-    vi.mocked(prisma.studio.findUnique).mockResolvedValue({ timeFormat: '24h', timezone: null } as never)
+    vi.mocked(prisma.studio.findUnique).mockResolvedValue({ name: 'Test Studio', timeFormat: '24h', timezone: null } as never)
     vi.mocked(prisma.cancellationPolicy.findUnique).mockResolvedValue(null)
 
     const app = await buildApp()

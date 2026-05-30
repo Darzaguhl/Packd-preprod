@@ -43,13 +43,14 @@ export async function templateRoutes(app: FastifyInstance) {
       durationMin: number
       description?: string
       color?: string
+      isPrivate?: boolean
     } & ScheduleDefaults
   }>(
     '/',
     { preHandler: requireRole('studio_admin') },
     async (request, reply) => {
       const {
-        studioId, name, sport, durationMin, description, color,
+        studioId, name, sport, durationMin, description, color, isPrivate,
         defaultInstructorId, defaultRoomId, defaultCapacity, defaultCreditsRequired,
         defaultStartTime, defaultStartTime2, defaultDaysOfWeek, defaultIntervalWeeks,
       } = request.body
@@ -61,6 +62,7 @@ export async function templateRoutes(app: FastifyInstance) {
         data: {
           studioId, name, sport: sport as any, durationMin,
           description, color: color ?? '#6366f1',
+          isPrivate: isPrivate ?? false,
           defaultInstructorId: defaultInstructorId ?? null,
           defaultRoomId: defaultRoomId ?? null,
           defaultCapacity: defaultCapacity ?? null,
@@ -79,7 +81,7 @@ export async function templateRoutes(app: FastifyInstance) {
   app.patch<{
     Params: { id: string }
     Body: {
-      name?: string; sport?: string; durationMin?: number; description?: string; color?: string
+      name?: string; sport?: string; durationMin?: number; description?: string; color?: string; isPrivate?: boolean
     } & ScheduleDefaults
   }>(
     '/:id',
@@ -87,7 +89,7 @@ export async function templateRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { id } = request.params
       const {
-        name, sport, durationMin, description, color,
+        name, sport, durationMin, description, color, isPrivate,
         defaultInstructorId, defaultRoomId, defaultCapacity, defaultCreditsRequired,
         defaultStartTime, defaultStartTime2, defaultDaysOfWeek, defaultIntervalWeeks,
       } = request.body
@@ -105,6 +107,7 @@ export async function templateRoutes(app: FastifyInstance) {
           ...(durationMin !== undefined && { durationMin }),
           ...(description !== undefined && { description }),
           ...(color !== undefined && { color }),
+          ...(isPrivate !== undefined && { isPrivate }),
           ...(defaultInstructorId !== undefined && { defaultInstructorId }),
           ...(defaultRoomId !== undefined && { defaultRoomId }),
           ...(defaultCapacity !== undefined && { defaultCapacity }),

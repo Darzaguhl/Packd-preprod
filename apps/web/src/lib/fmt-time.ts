@@ -11,7 +11,8 @@ export function fmtTime(date: Date | string, format: TimeFormat, timeZone?: stri
   if (format === '12h') {
     return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, ...tz })
   }
-  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, ...tz })
+  // hourCycle:'h23' is the explicit override — hour12:false alone is ignored by some browsers
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', ...tz })
 }
 
 /**

@@ -52,6 +52,7 @@ export default function ClassCard({
       style={style}
       data-testid="class-card"
       data-session-id={s.id}
+      data-past={isPast ? 'true' : 'false'}
       onClick={() => !draggable && !isPast && onSelect(s)}
       className={`group relative flex items-stretch border rounded-2xl overflow-hidden transition-all duration-150 ${
         isPast

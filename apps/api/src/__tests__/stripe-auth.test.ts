@@ -7,6 +7,9 @@ const mockStripe = vi.hoisted(() => ({
   paymentIntents: { create: vi.fn() },
   refunds:        { create: vi.fn() },
   webhooks:       { constructEvent: vi.fn() },
+  customers:      { create: vi.fn(), list: vi.fn() },
+  checkout:       { sessions: { create: vi.fn() } },
+  coupons:        { create: vi.fn() },
 }))
 
 vi.mock('stripe', () => ({ default: vi.fn(() => mockStripe) }))
@@ -14,12 +17,16 @@ vi.mock('stripe', () => ({ default: vi.fn(() => mockStripe) }))
 // ── Prisma mock ───────────────────────────────────────────────────────────────
 
 vi.mock('@packd/db', () => {
-  const member       = { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() }
-  const productSale  = { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() }
-  const creditBalance = { findUnique: vi.fn(), upsert: vi.fn(), update: vi.fn() }
-  const creditTransaction = { create: vi.fn() }
-  const stripeEvent  = { create: vi.fn() }
-  const auditLog     = { create: vi.fn().mockResolvedValue({}) }
+  const member                = { findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn() }
+  const productSale           = { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() }
+  const creditBalance         = { findUnique: vi.fn(), upsert: vi.fn(), update: vi.fn() }
+  const creditTransaction     = { create: vi.fn() }
+  const stripeEvent           = { create: vi.fn() }
+  const auditLog              = { create: vi.fn().mockResolvedValue({}) }
+  const membershipPlan        = { findUniqueOrThrow: vi.fn() }
+  const membershipSubscription = { count: vi.fn(), updateMany: vi.fn(), create: vi.fn() }
+  const studio                = { findUnique: vi.fn() }
+  const user                  = { findUniqueOrThrow: vi.fn() }
 
   return {
     prisma: {
@@ -29,6 +36,10 @@ vi.mock('@packd/db', () => {
       creditTransaction,
       stripeEvent,
       auditLog,
+      membershipPlan,
+      membershipSubscription,
+      studio,
+      user,
       $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({ member, productSale, creditBalance, creditTransaction }),
       ),
@@ -209,5 +220,143 @@ describe('POST /stripe/refund', () => {
     })
 
     expect(res.statusCode).toBe(400)
+  })
+})
+
+// ── POST /stripe/checkout ─────────────────────────────────────────────────────
+
+describe('POST /stripe/checkout', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  const mockPlan = (overrides = {}) => ({
+    id: 'plan-1',
+    name: 'Monthly',
+    stripePriceId: 'price_123',
+    intervalMonths: 1,
+    isIntroOffer: false,
+    maxRedemptionsPerMember: 1,
+    creditsPerCycle: 10,
+    creditExpiryDays: null,
+    ...overrides,
+  })
+
+  const mockMember = () => ({
+    id: 'member-1',
+    userId: 'user-1',
+    stripeCustomerId: 'cus_existing',
+    creditBalance: null,
+    studio: null,
+    user: { email: 'test@example.com', firstName: 'Test' },
+  })
+
+  const mockUser = () => ({
+    id: 'user-1',
+    email: 'test@example.com',
+    firstName: 'Test',
+    lastName: 'User',
+  })
+
+  it('returns 422 when plan has no stripePriceId', async () => {
+    vi.mocked(prisma.membershipPlan.findUniqueOrThrow).mockResolvedValue(mockPlan({ stripePriceId: null }) as never)
+    vi.mocked(prisma.member.findUniqueOrThrow).mockResolvedValue(mockMember() as never)
+    vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(mockUser() as never)
+    vi.mocked(prisma.studio.findUnique).mockResolvedValue({ creditPurchaseEnabled: true } as never)
+
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/stripe/checkout',
+      payload: { planId: 'plan-1', studioId: 'studio-1' },
+    })
+
+    expect(res.statusCode).toBe(422)
+    expect(JSON.parse(res.body).error).toMatch(/not yet configured/i)
+    expect(mockStripe.checkout.sessions.create).not.toHaveBeenCalled()
+  })
+
+  it('returns 403 when creditPurchaseEnabled is false', async () => {
+    vi.mocked(prisma.membershipPlan.findUniqueOrThrow).mockResolvedValue(mockPlan() as never)
+    vi.mocked(prisma.member.findUniqueOrThrow).mockResolvedValue(mockMember() as never)
+    vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(mockUser() as never)
+    vi.mocked(prisma.studio.findUnique).mockResolvedValue({ creditPurchaseEnabled: false } as never)
+
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/stripe/checkout',
+      payload: { planId: 'plan-1', studioId: 'studio-1' },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(mockStripe.checkout.sessions.create).not.toHaveBeenCalled()
+  })
+
+  it('returns 422 when intro offer already used', async () => {
+    vi.mocked(prisma.membershipPlan.findUniqueOrThrow).mockResolvedValue(
+      mockPlan({ isIntroOffer: true, maxRedemptionsPerMember: 1 }) as never,
+    )
+    vi.mocked(prisma.member.findUniqueOrThrow).mockResolvedValue(mockMember() as never)
+    vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(mockUser() as never)
+    vi.mocked(prisma.studio.findUnique).mockResolvedValue({ creditPurchaseEnabled: true } as never)
+    vi.mocked(prisma.membershipSubscription.count).mockResolvedValue(1)
+
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/stripe/checkout',
+      payload: { planId: 'plan-1', studioId: 'studio-1' },
+    })
+
+    expect(res.statusCode).toBe(422)
+    expect(JSON.parse(res.body).error).toMatch(/intro offer/i)
+    expect(mockStripe.checkout.sessions.create).not.toHaveBeenCalled()
+  })
+
+  it('creates checkout session and returns url for valid plan', async () => {
+    vi.mocked(prisma.membershipPlan.findUniqueOrThrow).mockResolvedValue(mockPlan() as never)
+    vi.mocked(prisma.member.findUniqueOrThrow).mockResolvedValue(mockMember() as never)
+    vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(mockUser() as never)
+    vi.mocked(prisma.studio.findUnique).mockResolvedValue({ creditPurchaseEnabled: true } as never)
+    vi.mocked(prisma.member.findUnique).mockResolvedValue({ stripeCustomerId: 'cus_existing' } as never)
+    mockStripe.checkout.sessions.create.mockResolvedValue({ url: 'https://checkout.stripe.com/test' })
+
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/stripe/checkout',
+      payload: { planId: 'plan-1', studioId: 'studio-1' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).url).toBe('https://checkout.stripe.com/test')
+    expect(mockStripe.checkout.sessions.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: 'subscription',
+        line_items: [{ price: 'price_123', quantity: 1 }],
+      }),
+    )
+  })
+
+  it('uses payment mode for one-time plans (intervalMonths = 0)', async () => {
+    vi.mocked(prisma.membershipPlan.findUniqueOrThrow).mockResolvedValue(
+      mockPlan({ intervalMonths: 0 }) as never,
+    )
+    vi.mocked(prisma.member.findUniqueOrThrow).mockResolvedValue(mockMember() as never)
+    vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(mockUser() as never)
+    vi.mocked(prisma.studio.findUnique).mockResolvedValue({ creditPurchaseEnabled: true } as never)
+    vi.mocked(prisma.member.findUnique).mockResolvedValue({ stripeCustomerId: 'cus_existing' } as never)
+    mockStripe.checkout.sessions.create.mockResolvedValue({ url: 'https://checkout.stripe.com/test' })
+
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/stripe/checkout',
+      payload: { planId: 'plan-1', studioId: 'studio-1' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(mockStripe.checkout.sessions.create).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'payment' }),
+    )
   })
 })

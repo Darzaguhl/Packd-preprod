@@ -7,9 +7,10 @@ import RoomMapView from '@/components/room/RoomMapView'
 interface Props {
   studioId: string
   token: string
+  canEdit?: boolean
 }
 
-export default function RoomsTab({ studioId, token }: Props) {
+export default function RoomsTab({ studioId, token, canEdit = true }: Props) {
   const [rooms, setRooms] = useState<RoomSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedRoom, setSelectedRoom] = useState<RoomSummary | null>(null)
@@ -92,7 +93,7 @@ export default function RoomsTab({ studioId, token }: Props) {
           roomId={selectedRoom.id}
           studioId={studioId}
           token={token}
-          variant="editor"
+          variant={canEdit ? 'editor' : 'checkin'}
           onLayoutChange={(layout: RoomLayout) => {
             setRooms(prev => prev.map(r =>
               r.id === selectedRoom.id
@@ -111,12 +112,14 @@ export default function RoomsTab({ studioId, token }: Props) {
         <p className="text-sm text-gray-500">
           Rooms are shared spaces that classes are scheduled into. Design a room layout to enable spot assignment.
         </p>
-        <button
-          onClick={() => setShowAddForm(v => !v)}
-          className="text-xs font-medium bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors shrink-0 ml-4"
-        >
-          + Add room
-        </button>
+        {canEdit && (
+          <button
+            onClick={() => setShowAddForm(v => !v)}
+            className="text-xs font-medium bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors shrink-0 ml-4"
+          >
+            + Add room
+          </button>
+        )}
       </div>
 
       {/* Add room form */}
@@ -191,25 +194,27 @@ export default function RoomsTab({ studioId, token }: Props) {
                   onClick={() => setSelectedRoom(room)}
                   className="text-xs font-medium text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 hover:border-gray-400 hover:text-gray-900 transition-colors"
                 >
-                  {room.activeLayout ? 'Edit layout' : 'Design layout'}
+                  {canEdit ? (room.activeLayout ? 'Edit layout' : 'Design layout') : 'View layout'}
                 </button>
 
-                {deleteConfirm === room.id ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500">Delete?</span>
-                    <button onClick={() => deleteRoom(room.id)} className="text-xs text-red-600 font-medium hover:text-red-800 transition-colors">Yes</button>
-                    <button onClick={() => setDeleteConfirm(null)} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">No</button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setDeleteConfirm(room.id)}
-                    className="text-xs text-gray-400 hover:text-red-500 transition-colors p-1.5"
-                    title="Delete room"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                      <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </button>
+                {canEdit && (
+                  deleteConfirm === room.id ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500">Delete?</span>
+                      <button onClick={() => deleteRoom(room.id)} className="text-xs text-red-600 font-medium hover:text-red-800 transition-colors">Yes</button>
+                      <button onClick={() => setDeleteConfirm(null)} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">No</button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setDeleteConfirm(room.id)}
+                      className="text-xs text-gray-400 hover:text-red-500 transition-colors p-1.5"
+                      title="Delete room"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                        <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                  )
                 )}
               </div>
             </div>

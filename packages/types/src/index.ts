@@ -41,6 +41,8 @@ export interface SessionSlot {
   roomName: string
   locationId: string
   locationName: string
+  studioId?: string
+  studioName?: string
   startsAt: string
   endsAt: string
   capacity: number

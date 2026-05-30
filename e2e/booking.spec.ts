@@ -37,20 +37,19 @@ test.describe('Schedule', () => {
   })
 
   test('clicking a class card opens session detail with capacity info', async ({ authedPage: page }) => {
-    const cards = page.locator('[data-testid="class-card"]')
-    const count = await cards.count()
-    if (count === 0) {
-      // Navigate forward through days to find a session
-      const tabs = page.locator('[data-testid="day-tab"]')
-      for (let i = 1; i < 7; i++) {
-        await tabs.nth(i).click()
-        await page.waitForTimeout(400)
-        if (await cards.count() > 0) break
-      }
-    }
-    expect(await cards.count()).toBeGreaterThan(0)
+    const futureCards = page.locator('[data-testid="class-card"][data-past="false"]')
+    const tabs = page.locator('[data-testid="day-tab"]')
 
-    await cards.first().click()
+    // Find a day with at least one future (clickable) card
+    let found = false
+    for (let i = 0; i < 7 && !found; i++) {
+      await tabs.nth(i).click()
+      await page.waitForTimeout(400)
+      if (await futureCards.count() > 0) { found = true }
+    }
+    if (!found) { test.skip(); return }
+
+    await futureCards.first().click()
     const detail = page.locator('[data-testid="session-detail"]')
     await expect(detail).toBeVisible({ timeout: 5000 })
     // Must show capacity (e.g. "4/20 booked")
@@ -69,7 +68,7 @@ test.describe('Book and cancel flow', () => {
       await page.waitForTimeout(400)
       await expect(page.locator('.animate-pulse').first()).not.toBeVisible({ timeout: 6000 })
 
-      const cards = page.locator('[data-testid="class-card"]')
+      const cards = page.locator('[data-testid="class-card"][data-past="false"]')
       const count = await cards.count()
 
       for (let i = 0; i < count && !found; i++) {

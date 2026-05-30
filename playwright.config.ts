@@ -13,9 +13,9 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'on-first-retry',
   },
+  globalSetup: './e2e/global-setup.ts',
   projects: [
-    { name: 'setup',    testMatch: /global-setup\.ts/ },
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, dependencies: ['setup'] },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
   ],
   // In CI, Playwright starts both servers. Locally, start them manually.
   webServer: process.env.CI ? [

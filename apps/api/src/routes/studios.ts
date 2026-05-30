@@ -432,4 +432,52 @@ export async function studioRoutes(app: FastifyInstance) {
       return plans
     },
   )
+
+  // GET /studios/:studioId/ai — get AI settings (studio_admin+)
+  app.get<{ Params: { studioId: string } }>(
+    '/:studioId/ai',
+    { preHandler: requireStudioAdmin },
+    async (request, reply) => {
+      const user = getUser(request)
+      const studio = await prisma.studio.findUnique({
+        where: { id: request.params.studioId },
+        select: { aiEnabled: true, anthropicApiKey: true },
+      })
+      if (!studio) return reply.notFound()
+      if (!await assertStudioAccess(user.id, user.role, request.params.studioId, reply, user.studioIds)) return
+      return {
+        aiEnabled: studio.aiEnabled,
+        hasKey: !!studio.anthropicApiKey,
+        // Return masked key suffix so user can recognise which key is set
+        keySuffix: studio.anthropicApiKey ? `...${studio.anthropicApiKey.slice(-4)}` : null,
+      }
+    },
+  )
+
+  // PATCH /studios/:studioId/ai — update AI settings (studio_admin+)
+  app.patch<{
+    Params: { studioId: string }
+    Body: { aiEnabled?: boolean; anthropicApiKey?: string | null }
+  }>(
+    '/:studioId/ai',
+    { preHandler: requireStudioAdmin },
+    async (request, reply) => {
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, request.params.studioId, reply, user.studioIds)) return
+      const { aiEnabled, anthropicApiKey } = request.body
+      const studio = await prisma.studio.update({
+        where: { id: request.params.studioId },
+        data: {
+          ...(aiEnabled !== undefined && { aiEnabled }),
+          ...(anthropicApiKey !== undefined && { anthropicApiKey: anthropicApiKey || null }),
+        },
+        select: { aiEnabled: true, anthropicApiKey: true },
+      })
+      return {
+        aiEnabled: studio.aiEnabled,
+        hasKey: !!studio.anthropicApiKey,
+        keySuffix: studio.anthropicApiKey ? `...${studio.anthropicApiKey.slice(-4)}` : null,
+      }
+    },
+  )
 }

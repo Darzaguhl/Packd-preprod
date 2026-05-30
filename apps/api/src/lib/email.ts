@@ -227,3 +227,29 @@ export async function sendStaffInvite(opts: {
     `),
   )
 }
+
+export async function sendSessionAnnouncement(opts: {
+  to: string
+  firstName: string
+  studioName: string
+  className: string
+  startsAt: string
+  subject: string
+  message: string
+  webUrl: string
+}) {
+  return send(
+    opts.to,
+    `${opts.subject} — ${opts.className}`,
+    layout(opts.studioName, `
+      <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111">${opts.subject}</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#555">Hi ${opts.firstName},</p>
+      <div style="background:#f8f8f8;border-radius:8px;padding:16px 20px;margin-bottom:16px">
+        <p style="margin:0;font-size:15px;font-weight:600;color:#111">${opts.className}</p>
+        <p style="margin:4px 0 0;font-size:13px;color:#888">${formatDt(opts.startsAt)}</p>
+      </div>
+      <p style="margin:0;font-size:15px;color:#333;white-space:pre-line">${opts.message}</p>
+      ${btn(opts.webUrl + '/schedule', 'View schedule')}
+    `),
+  )
+}

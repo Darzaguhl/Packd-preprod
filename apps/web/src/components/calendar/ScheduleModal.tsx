@@ -46,6 +46,7 @@ export default function ScheduleModal({
   const [roomId, setRoomId] = useState(editSchedule?.roomId ?? prefill?.roomId ?? rooms[0]?.id ?? '')
   const [capacity, setCapacity] = useState(editSchedule?.capacity ?? rooms[0]?.capacity ?? 20)
   const [creditsRequired, setCreditsRequired] = useState(editSchedule?.creditsRequired ?? 1)
+  const [isPrivate, setIsPrivate] = useState(false)
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>(editSchedule?.daysOfWeek ?? prefill?.daysOfWeek ?? [])
   const [startTime, setStartTime] = useState(editSchedule?.startTime ?? prefill?.startTime ?? '07:00')
   const [startTime2, setStartTime2] = useState('')   // optional second daily slot
@@ -97,6 +98,7 @@ export default function ScheduleModal({
       if (t.defaultStartTime2) setStartTime2(t.defaultStartTime2)
       if (t.defaultDaysOfWeek?.length) setDaysOfWeek(t.defaultDaysOfWeek)
       if (t.defaultIntervalWeeks) setIntervalWeeks(t.defaultIntervalWeeks)
+      if (t.isPrivate) setIsPrivate(true)
     }
   }, [templateId, templates, editSchedule])
 
@@ -184,6 +186,7 @@ export default function ScheduleModal({
       } else {
         const base = {
           studioId, templateId, instructorId, roomId, capacity, creditsRequired,
+          isPrivate,
           daysOfWeek, durationMin, intervalWeeks, validFrom,
           validUntil: validUntil || undefined,
           generateWeeks,
@@ -484,6 +487,15 @@ export default function ScheduleModal({
               />
             </div>
           </div>
+
+          {/* Private toggle */}
+          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+            <input type="checkbox" checked={isPrivate} onChange={e => setIsPrivate(e.target.checked)} className="rounded" />
+            <span>
+              <span className="text-sm font-medium text-gray-900">Private event</span>
+              <span className="text-xs text-gray-400 ml-2">Hidden from member schedule</span>
+            </span>
+          </label>
 
           {/* Valid from / until */}
           <div className="grid grid-cols-2 gap-3">

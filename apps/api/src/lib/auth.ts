@@ -62,3 +62,27 @@ export function requireRole(minRole: UserRole) {
 export function getUser(request: FastifyRequest): AuthUser {
   return request.user as AuthUser
 }
+
+/** Tries to verify auth but never rejects — sets request.user if valid, leaves it unset otherwise. */
+export async function tryAuth(request: FastifyRequest): Promise<void> {
+  const authHeader = request.headers.authorization
+  if (!authHeader?.startsWith('Bearer ')) return
+  const token = authHeader.slice(7)
+  try {
+    const { payload } = await jwtVerify(token, JWKS)
+    const appMeta = payload.app_metadata as { role?: string; roles?: string[]; studioId?: string; studioIds?: string[]; brandId?: string; franchiseId?: string } | undefined
+    const rawRole = appMeta?.role
+    const role: UserRole = ELEVATED_ROLES.has(rawRole ?? '') ? (rawRole as UserRole) : 'member'
+    const roles: string[] = appMeta?.roles ?? (role !== 'member' ? [role] : [])
+    const studioIds: string[] = appMeta?.studioIds ?? (appMeta?.studioId ? [appMeta.studioId] : [])
+    request.user = {
+      id: payload.sub!,
+      email: payload.email as string,
+      role, roles,
+      studioId: studioIds[0],
+      studioIds,
+      brandId: appMeta?.brandId,
+      franchiseId: appMeta?.franchiseId,
+    } satisfies AuthUser
+  } catch { /* invalid or expired token — treat as anonymous */ }
+}

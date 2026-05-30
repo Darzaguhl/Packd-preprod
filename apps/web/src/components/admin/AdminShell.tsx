@@ -4,12 +4,12 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { api } from '@/lib/api'
-import FronthostDashboard from '@/components/fronthost/FronthostDashboard'
+import LiveDashboard from '@/components/live/LiveDashboard'
 import StudioManagerDashboard from '@/components/studio/StudioManagerDashboard'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Mode = 'management' | 'frontdesk'
+type Mode = 'management' | 'live'
 
 interface StudioOption {
   id: string
@@ -32,14 +32,14 @@ function ModeSwitcher({ mode, onSwitch }: { mode: Mode; onSwitch: (m: Mode) => v
         Management
       </button>
       <button
-        onClick={() => onSwitch('frontdesk')}
+        onClick={() => onSwitch('live')}
         className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-          mode === 'frontdesk'
+          mode === 'live'
             ? 'bg-white text-gray-900 shadow-sm'
             : 'text-gray-500 hover:text-gray-700'
         }`}
       >
-        Front Desk
+        Live
       </button>
     </div>
   )
@@ -117,15 +117,21 @@ interface Props {
   onBack?: () => void
   /** Called after studio settings are saved */
   onStudioUpdate?: (data: { name: string; timezone: string; currency: string; timeFormat: string }) => void
+  /** Role to pass down for permission-filtered tabs ('instructor' shows reduced tab set) */
+  role?: string
+  /** All roles the user holds — used to determine Live mode behavior (e.g. fronthost bypass) */
+  roles?: string[]
 }
 
 // ─── Shell ────────────────────────────────────────────────────────────────────
 
-export default function AdminShell({ studioId: initialStudioId, studioName: initialStudioName, studioIds, onBack, onStudioUpdate }: Props) {
+export default function AdminShell({ studioId: initialStudioId, studioName: initialStudioName, studioIds, onBack, onStudioUpdate, role, roles }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
-  const [mode, setMode] = useState<Mode>('management')
+  const [mode, setMode] = useState<Mode>(() =>
+    searchParams.get('mode') === 'live' ? 'live' : 'management'
+  )
   // Restore selected studio from URL on refresh; fall back to the primary studio.
   const [selectedStudioId, setSelectedStudioId] = useState(() => {
     const fromUrl = searchParams.get('studio')
@@ -134,7 +140,6 @@ export default function AdminShell({ studioId: initialStudioId, studioName: init
   const [studios, setStudios] = useState<StudioOption[]>(
     initialStudioName ? [{ id: initialStudioId, name: initialStudioName }] : [],
   )
-
   // Ensure the admin has a member record on first dashboard load (idempotent)
   useEffect(() => {
     createClient().auth.getSession().then(({ data: { session } }) => {
@@ -143,13 +148,18 @@ export default function AdminShell({ studioId: initialStudioId, studioName: init
     })
   }, [initialStudioId])
 
-  // Fetch studio names when the user has multiple studios
+  // Fetch studio names for the switcher.
+  // Instructors use /staff/studios (requireAuth) — always fetch so they get their full list
+  // even if app_metadata.studioIds is stale or missing. Admins use /franchise/my-studios.
   useEffect(() => {
-    if (!studioIds || studioIds.length <= 1) return
+    const isInstructor = role === 'instructor'
+    if (!isInstructor && (!studioIds || studioIds.length <= 1)) return
     createClient().auth.getSession().then(({ data: { session } }) => {
       const t = session?.access_token
       if (!t) return
-      api.franchise.myStudios(t).then(list => {
+      const fetch = isInstructor ? api.staff.myStudios(t) : api.franchise.myStudios(t)
+      fetch.then(list => {
+        if (list.length <= 1 && !isInstructor) return
         setStudios(list)
         // Ensure selected is in the list (pick first if not)
         if (!list.find(s => s.id === selectedStudioId) && list.length > 0) {
@@ -157,37 +167,47 @@ export default function AdminShell({ studioId: initialStudioId, studioName: init
         }
       }).catch(() => {})
     })
-  }, [studioIds?.join(',')])
+  }, [role, studioIds?.join(',')])
 
   const isMultiStudio = studioIds && studioIds.length > 1
   const selectedName = studios.find(s => s.id === selectedStudioId)?.name
 
   const switcher = (
     <div className="flex items-center gap-2">
-      {isMultiStudio && studios.length > 1 && (
+      {/* Studio switcher shown for admins with multiple studios; instructors get per-tab studio pills instead */}
+      {isMultiStudio && studios.length > 1 && role !== 'instructor' && (
         <StudioSwitcher
           studios={studios}
           selectedId={selectedStudioId}
           onSelect={id => {
             setSelectedStudioId(id)
             setMode('management')
-            // Persist selection in URL so hard refresh restores the same studio
             const p = new URLSearchParams(searchParams.toString())
             p.set('studio', id)
-            p.delete('tab') // reset tab when switching studios
+            p.delete('tab')
             router.replace(`?${p.toString()}`)
           }}
         />
       )}
-      <ModeSwitcher mode={mode} onSwitch={setMode} />
+      <ModeSwitcher mode={mode} onSwitch={next => {
+        setMode(next)
+        const p = new URLSearchParams(searchParams.toString())
+        if (next === 'management') p.delete('mode')
+        else p.set('mode', next)
+        router.replace(`?${p.toString()}`)
+      }} />
     </div>
   )
 
-  if (mode === 'frontdesk') {
+  // Instructors see only their own classes in Live mode unless they also hold fronthost
+  const liveMyClassesOnly = role === 'instructor' && !roles?.includes('fronthost')
+
+  if (mode === 'live') {
     return (
-      <FronthostDashboard
+      <LiveDashboard
         defaultStudioId={selectedStudioId}
         modeSwitch={switcher}
+        myClassesOnly={liveMyClassesOnly || undefined}
       />
     )
   }
@@ -197,8 +217,9 @@ export default function AdminShell({ studioId: initialStudioId, studioName: init
       studioId={selectedStudioId}
       studioName={selectedName ?? initialStudioName}
       onBack={onBack}
+      role={role}
+      studios={studios.length > 1 ? studios : undefined}
       onStudioUpdate={data => {
-        // Keep studio name in sync when settings are saved
         setStudios(prev => prev.map(s => s.id === selectedStudioId ? { ...s, name: data.name } : s))
         onStudioUpdate?.(data)
       }}

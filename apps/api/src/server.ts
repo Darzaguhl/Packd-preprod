@@ -35,10 +35,13 @@ import { templateRoutes } from './routes/templates.js'
 import { productRoutes } from './routes/products.js'
 import { membershipRoutes } from './routes/memberships.js'
 import { availabilityRoutes } from './routes/availability.js'
+import { shiftsRoutes } from './routes/shifts.js'
+import { shiftPatternsRoutes } from './routes/shift-patterns.js'
 import { promoRoutes } from './routes/promos.js'
 import { icalRoutes } from './routes/ical.js'
 import { networkRoutes } from './routes/networks.js'
 import { brandRoutes } from './routes/brands.js'
+import { aiRoutes } from './routes/ai.js'
 import { setupJobs, stopJobs } from './jobs/index.js'
 
 const app = Fastify({
@@ -131,10 +134,13 @@ await app.register(templateRoutes, { prefix: '/templates' })
 await app.register(productRoutes, { prefix: '/products' })
 await app.register(membershipRoutes, { prefix: '/memberships' })
 await app.register(availabilityRoutes, { prefix: '/availability' })
+await app.register(shiftsRoutes, { prefix: '/admin/shifts' })
+await app.register(shiftPatternsRoutes, { prefix: '/admin/shift-patterns' })
 await app.register(promoRoutes, { prefix: '/promos' })
 await app.register(icalRoutes, { prefix: '/ical' })
 await app.register(networkRoutes, { prefix: '/networks' })
 await app.register(brandRoutes, { prefix: '/brands' })
+await app.register(aiRoutes, { prefix: '/ai' })
 
 app.get('/health', async () => ({ ok: true }))
 

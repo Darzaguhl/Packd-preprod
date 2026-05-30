@@ -6,6 +6,7 @@ vi.mock('@packd/db', () => ({
     member: { findUnique: vi.fn() },
     booking: { findUniqueOrThrow: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     studio: { findUnique: vi.fn().mockResolvedValue({ selfCheckInEnabled: true }) },
+    auditLog: { create: vi.fn().mockResolvedValue({}) },
   },
 }))
 

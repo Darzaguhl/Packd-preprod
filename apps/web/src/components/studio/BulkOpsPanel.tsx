@@ -9,6 +9,8 @@ interface Template { id: string; name: string }
 interface Props {
   studioId: string
   token: string
+  open: boolean
+  onClose: () => void
   instructors: Instructor[]
   templates: Template[]
 }
@@ -38,12 +40,11 @@ function isoDate(d: Date) {
   return d.toISOString().slice(0, 10)
 }
 
-export default function BulkOpsPanel({ studioId, token, instructors, templates }: Props) {
+export default function BulkOpsPanel({ studioId, token, open, onClose, instructors, templates }: Props) {
   const now = new Date()
   const monday = toMonday(now)
   const sunday = toSunday(monday)
 
-  const [open, setOpen] = useState(false)
   const [from, setFrom] = useState(isoDate(monday))
   const [to, setTo] = useState(isoDate(sunday))
   const [instructorId, setInstructorId] = useState('')
@@ -112,8 +113,10 @@ export default function BulkOpsPanel({ studioId, token, instructors, templates }
     }
   }
 
+  if (!open) return null
+
   return (
-    <div className="border-b border-gray-100 bg-white">
+    <div className="border-b border-gray-100 bg-gray-50">
       {/* Toast */}
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 bg-gray-900 text-white text-sm px-4 py-2.5 rounded-xl shadow-lg">
@@ -121,26 +124,7 @@ export default function BulkOpsPanel({ studioId, token, instructors, templates }
         </div>
       )}
 
-      {/* Toggle */}
-      <div className="px-4 py-2 flex items-center gap-2">
-        <button
-          onClick={() => { setOpen(!open); reset() }}
-          className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
-            open ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
-          }`}
-        >
-          <svg className="w-3.5 h-3.5" viewBox="0 0 14 14" fill="none">
-            <rect x="1" y="3" width="12" height="2" rx="1" fill="currentColor" />
-            <rect x="1" y="7" width="8" height="2" rx="1" fill="currentColor" />
-            <rect x="1" y="11" width="5" height="2" rx="1" fill="currentColor" />
-          </svg>
-          Bulk ops
-        </button>
-        {open && <span className="text-xs text-gray-400">Cancel or reassign multiple sessions at once</span>}
-      </div>
-
-      {open && (
-        <div className="px-4 pb-4 space-y-4">
+      <div className="px-4 py-3 pb-4 space-y-4">
           {/* Controls */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             <div>
@@ -290,7 +274,7 @@ export default function BulkOpsPanel({ studioId, token, instructors, templates }
             </div>
           )}
         </div>
-      )}
     </div>
   )
 }
+

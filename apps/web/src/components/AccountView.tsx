@@ -142,6 +142,11 @@ export default function AccountView() {
   const [memberStats, setMemberStats] = useState<import('@/lib/api').MemberStats | null>(null)
   const [icalUrl, setIcalUrl] = useState<string | null>(null)
   const [icalCopied, setIcalCopied] = useState(false)
+  const [instructorIcalUrl, setInstructorIcalUrl] = useState<string | null>(null)
+  const [instructorIcalCopied, setInstructorIcalCopied] = useState(false)
+  const [fronthostIcalUrl, setFronthostIcalUrl] = useState<string | null>(null)
+  const [fronthostIcalCopied, setFronthostIcalCopied] = useState(false)
+  const [upcomingShifts, setUpcomingShifts] = useState<import('@/lib/api').StaffShift[]>([])
   const [profileExtended, setProfileExtended] = useState<{ birthday: string | null; emergencyContactName: string | null; emergencyContactPhone: string | null } | null>(null)
   const [guestPassBalance, setGuestPassBalance] = useState(0)
   const [guestPasses, setGuestPasses] = useState<import('@/lib/api').GuestPassEntry[]>([])
@@ -203,7 +208,15 @@ export default function AccountView() {
             setCreditPurchaseEnabled(s.creditPurchaseEnabled ?? false)
           }).catch(() => {})
           api.members.stats(studioId, t).then(setMemberStats).catch(() => {})
-          api.ical.getToken(t).then(d => setIcalUrl(d.urls.member)).catch(() => {})
+          api.ical.getToken(t).then(d => {
+            setIcalUrl(d.urls.member)
+            if (d.urls.instructor) setInstructorIcalUrl(d.urls.instructor)
+            if (d.urls.fronthost) {
+              setFronthostIcalUrl(d.urls.fronthost)
+              const today = new Date().toISOString()
+              api.shifts.mine(t, studioId, today).then(setUpcomingShifts).catch(() => {})
+            }
+          }).catch(() => {})
           api.admin.guestPassLog(profileData.id ?? '', t).then(setGuestPasses).catch(() => {})
           api.members.purchases(t, studioId).then(setPurchases).catch(() => {})
         }
@@ -457,7 +470,7 @@ export default function AccountView() {
 
           {/* ── Calendar subscribe ── */}
           {icalUrl && (
-            <div className="bg-white border border-gray-100 rounded-2xl px-5 py-4 space-y-2">
+            <div data-testid="ical-member-card" className="bg-white border border-gray-100 rounded-2xl px-5 py-4 space-y-2">
               <h3 className="text-sm font-semibold text-gray-900">Subscribe to my schedule</h3>
               <p className="text-xs text-gray-500">Add your upcoming classes to Google Calendar or Apple Calendar.</p>
               <div className="flex gap-2 flex-wrap">
@@ -474,6 +487,84 @@ export default function AccountView() {
                 </button>
                 <a
                   href={`webcal://${icalUrl.replace(/^https?:\/\//, '')}`}
+                  className="text-xs font-medium px-3 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Open in Calendar
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* ── Instructor calendar subscribe ── */}
+          {instructorIcalUrl && (
+            <div className="bg-white border border-gray-100 rounded-2xl px-5 py-4 space-y-2">
+              <h3 className="text-sm font-semibold text-gray-900">Subscribe to my teaching schedule</h3>
+              <p className="text-xs text-gray-500">Add all classes you&apos;re teaching to Google Calendar or Apple Calendar.</p>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(instructorIcalUrl).then(() => {
+                      setInstructorIcalCopied(true)
+                      setTimeout(() => setInstructorIcalCopied(false), 2000)
+                    })
+                  }}
+                  className="text-xs font-medium px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  {instructorIcalCopied ? '✓ Copied!' : 'Copy iCal URL'}
+                </button>
+                <a
+                  href={`webcal://${instructorIcalUrl.replace(/^https?:\/\//, '')}`}
+                  className="text-xs font-medium px-3 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Open in Calendar
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* ── Fronthost: upcoming shifts ── */}
+          {upcomingShifts.length > 0 && (
+            <div className="bg-white border border-gray-100 rounded-2xl px-5 py-4 space-y-3">
+              <h3 className="text-sm font-semibold text-gray-900">Upcoming shifts</h3>
+              <div className="space-y-2">
+                {upcomingShifts.slice(0, 5).map(shift => {
+                  const start = new Date(shift.startsAt)
+                  const end = new Date(shift.endsAt)
+                  const dateLabel = start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                  const timeLabel = `${start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} – ${end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`
+                  return (
+                    <div key={shift.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                      <div>
+                        <p className="text-xs font-medium text-gray-900">{dateLabel}</p>
+                        <p className="text-xs text-gray-500">{timeLabel}</p>
+                      </div>
+                      {shift.note && <p className="text-xs text-gray-400 max-w-[120px] text-right truncate">{shift.note}</p>}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Fronthost calendar subscribe ── */}
+          {fronthostIcalUrl && (
+            <div className="bg-white border border-gray-100 rounded-2xl px-5 py-4 space-y-2">
+              <h3 className="text-sm font-semibold text-gray-900">Subscribe to my shifts</h3>
+              <p className="text-xs text-gray-500">Add your upcoming front desk shifts to Google Calendar or Apple Calendar.</p>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(fronthostIcalUrl).then(() => {
+                      setFronthostIcalCopied(true)
+                      setTimeout(() => setFronthostIcalCopied(false), 2000)
+                    })
+                  }}
+                  className="text-xs font-medium px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  {fronthostIcalCopied ? '✓ Copied!' : 'Copy iCal URL'}
+                </button>
+                <a
+                  href={`webcal://${fronthostIcalUrl.replace(/^https?:\/\//, '')}`}
                   className="text-xs font-medium px-3 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors"
                 >
                   Open in Calendar

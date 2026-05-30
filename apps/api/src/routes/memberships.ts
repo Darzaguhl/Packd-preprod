@@ -90,8 +90,8 @@ export async function membershipRoutes(app: FastifyInstance) {
 
       const start = new Date()
       start.setHours(0, 0, 0, 0)
-      const end = new Date(start)
-      end.setMonth(end.getMonth() + plan.intervalMonths)
+      const end = plan.intervalMonths > 0 ? new Date(start) : null
+      if (end) end.setMonth(end.getMonth() + plan.intervalMonths)
 
       // Cancel existing active subscription for this member at this studio
       await prisma.membershipSubscription.updateMany({
@@ -210,7 +210,7 @@ export async function membershipRoutes(app: FastifyInstance) {
             description,
             priceInCents,
             currency: studio?.currency ?? 'usd',
-            recurring: { interval: 'month', interval_count: intervalMonths },
+            ...(intervalMonths > 0 && { recurring: { interval: 'month', interval_count: intervalMonths } }),
           })
           stripeProductId = synced.stripeProductId
           stripePriceId = synced.stripePriceId
@@ -261,7 +261,7 @@ export async function membershipRoutes(app: FastifyInstance) {
             description: description ?? existing.description,
             priceInCents: newPrice,
             currency: studio?.currency ?? 'usd',
-            recurring: { interval: 'month', interval_count: intervalMonths ?? existing.intervalMonths },
+            ...((intervalMonths ?? existing.intervalMonths) > 0 && { recurring: { interval: 'month', interval_count: intervalMonths ?? existing.intervalMonths } }),
           })
           stripeProductId = synced.stripeProductId
           stripePriceId = synced.stripePriceId
@@ -443,8 +443,8 @@ export async function membershipRoutes(app: FastifyInstance) {
 
       const start = startDate ? new Date(startDate) : new Date()
       start.setHours(0, 0, 0, 0)
-      const end = new Date(start)
-      end.setMonth(end.getMonth() + plan.intervalMonths)
+      const end = plan.intervalMonths > 0 ? new Date(start) : null
+      if (end) end.setMonth(end.getMonth() + plan.intervalMonths)
 
       // Cancel any existing active subscription for this member at this studio
       await prisma.membershipSubscription.updateMany({

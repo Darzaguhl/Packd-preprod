@@ -231,4 +231,89 @@ export async function adminExportsRoutes(app: FastifyInstance) {
       return reply.send(toCsv(headers, rows))
     },
   )
+
+  // GET /admin/export/staff-pay?studioId=&from=&to=
+  // Combined payroll for all staff: instructor per-head + fronthost hourly shifts.
+  app.get<{ Querystring: { studioId: string; from?: string; to?: string } }>(
+    '/export/staff-pay',
+    { preHandler: requireStudioAdmin },
+    async (request, reply) => {
+      const { studioId, from, to } = request.query
+      if (!studioId) return reply.badRequest('studioId is required')
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
+
+      const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+      const toDate   = to   ? new Date(to)   : new Date()
+
+      const studio = await prisma.studio.findUnique({ where: { id: studioId }, select: { currency: true } })
+      const currency = studio?.currency ?? 'USD'
+      const sym = new Intl.NumberFormat('en', { style: 'currency', currency, maximumFractionDigits: 0 })
+        .format(0).replace(/[\d,.\s]/g, '').trim() || currency
+
+      // ── Instructors: per-head pay ──────────────────────────────────────────
+      const sessions = await prisma.classSession.findMany({
+        where: { studioId, status: { not: 'CANCELLED' }, startsAt: { gte: fromDate, lte: toDate } },
+        include: {
+          instructor: { include: { user: { select: { firstName: true, lastName: true, email: true } } } },
+          bookings: { select: { status: true, checkedIn: true } },
+        },
+      })
+
+      type StaffRow = { name: string; email: string; role: string; sessions: number; attendees: number; shiftHours: number; rateCents: number | null; totalCents: number }
+      const byStaff = new Map<string, StaffRow>()
+
+      for (const s of sessions) {
+        const instr = s.instructor
+        if (!instr) continue
+        const key = instr.id
+        if (!byStaff.has(key)) {
+          byStaff.set(key, { name: `${instr.user.firstName} ${instr.user.lastName}`, email: instr.user.email, role: 'Instructor', sessions: 0, attendees: 0, shiftHours: 0, rateCents: instr.payRatePerHeadCents ?? null, totalCents: 0 })
+        }
+        const row = byStaff.get(key)!
+        const checkedIn = s.bookings.filter(b => b.checkedIn).length
+        row.sessions++
+        row.attendees += checkedIn
+        if (row.rateCents != null) row.totalCents += row.rateCents * checkedIn
+      }
+
+      // ── Fronthosts: hourly shift pay ───────────────────────────────────────
+      const shifts = await prisma.staffShift.findMany({
+        where: { studioId, startsAt: { gte: fromDate, lte: toDate } },
+        include: {
+          member: {
+            select: {
+              id: true, payRateHourlyCents: true,
+              user: { select: { firstName: true, lastName: true, email: true } },
+            },
+          },
+        },
+      })
+
+      for (const sh of shifts) {
+        const m = sh.member
+        const key = `fh-${m.id}`
+        if (!byStaff.has(key)) {
+          byStaff.set(key, { name: `${m.user.firstName} ${m.user.lastName}`, email: m.user.email, role: 'Front Desk', sessions: 0, attendees: 0, shiftHours: 0, rateCents: m.payRateHourlyCents ?? null, totalCents: 0 })
+        }
+        const row = byStaff.get(key)!
+        const hrs = (sh.endsAt.getTime() - sh.startsAt.getTime()) / 3600000
+        row.shiftHours += hrs
+        if (row.rateCents != null) row.totalCents += row.rateCents * hrs
+      }
+
+      const headers = ['Name', 'Email', 'Role', 'Sessions', 'Attendees (checked in)', `Shift Hours`, `Rate`, `Est. Pay (${currency})`]
+      const rows = [...byStaff.values()].sort((a, b) => a.name.localeCompare(b.name)).map(r => {
+        const rateLabel = r.rateCents != null
+          ? r.role === 'Instructor' ? `${sym}${(r.rateCents / 100).toFixed(2)}/head` : `${sym}${(r.rateCents / 100).toFixed(2)}/hr`
+          : 'Not set'
+        const pay = r.rateCents != null ? `${sym}${(r.totalCents / 100).toFixed(2)}` : 'N/A'
+        return [r.name, r.email, r.role, r.sessions || '', r.attendees || '', r.shiftHours > 0 ? r.shiftHours.toFixed(2) : '', rateLabel, pay]
+      })
+
+      reply.header('Content-Type', 'text/csv; charset=utf-8')
+      reply.header('Content-Disposition', 'attachment; filename="staff-pay.csv"')
+      return reply.send(toCsv(headers, rows))
+    },
+  )
 }

@@ -16,13 +16,14 @@ import ProductsTab from './ProductsTab'
 import MembersTab from './MembersTab'
 import MembershipsTab from './MembershipsTab'
 import AnalyticsTab from './AnalyticsTab'
+import AuditLogTab from './AuditLogTab'
 import NavBar from '@/components/NavBar'
 import RoomMapView from '@/components/room/RoomMapView'
 import CalendarView from '@/components/calendar/CalendarView'
 import { TimeFormatProvider } from '@/lib/time-format-context'
 import { fmtTime, type TimeFormat } from '@/lib/fmt-time'
 
-type Tab = 'today' | 'calendar' | 'analytics' | 'rooms' | 'room' | 'permissions' | 'staff' | 'members' | 'memberships' | 'settings' | 'photos' | 'social' | 'products'
+type Tab = 'today' | 'calendar' | 'analytics' | 'rooms' | 'room' | 'permissions' | 'staff' | 'members' | 'memberships' | 'settings' | 'photos' | 'social' | 'products' | 'audit'
 
 function toIsoDate(d: Date) {
   const y = d.getFullYear()
@@ -40,14 +41,16 @@ interface Stats {
 
 const INSTRUCTOR_TABS: Tab[] = ['today', 'calendar', 'room', 'photos']
 
-export default function StudioManagerDashboard({ studioId, studioName: initialStudioName, onBack, onStudioUpdate, role, modeSwitch }: { studioId: string; studioName?: string; onBack?: () => void; onStudioUpdate?: (data: { name: string; timezone: string; currency: string; timeFormat: string }) => void; role?: string; modeSwitch?: React.ReactNode }) {
+type TaggedSession = AdminSession & { studioId: string; studioName: string }
+
+export default function StudioManagerDashboard({ studioId, studioName: initialStudioName, onBack, onStudioUpdate, role, modeSwitch, studios: studioList }: { studioId: string; studioName?: string; onBack?: () => void; onStudioUpdate?: (data: { name: string; timezone: string; currency: string; timeFormat: string }) => void; role?: string; modeSwitch?: React.ReactNode; studios?: { id: string; name: string }[] }) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
   const [studioName, setStudioName] = useState(initialStudioName)
   const [timeFormat, setTimeFormat] = useState<TimeFormat>('24h')
   const [currency, setCurrency] = useState('USD')
-  const VALID_TABS: Tab[] = ['today', 'calendar', 'analytics', 'rooms', 'room', 'permissions', 'staff', 'members', 'memberships', 'settings', 'photos', 'social', 'products']
+  const VALID_TABS: Tab[] = ['today', 'calendar', 'analytics', 'rooms', 'room', 'permissions', 'staff', 'members', 'memberships', 'settings', 'photos', 'social', 'products', 'audit']
   const [tab, setTab] = useState<Tab>(() => {
     const t = searchParams.get('tab') as Tab
     return VALID_TABS.includes(t) ? t : 'today'
@@ -63,9 +66,10 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [sessionRole, setSessionRole] = useState<string | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
-  const [sessions, setSessions] = useState<AdminSession[]>([])
+  const [sessions, setSessions] = useState<TaggedSession[]>([])
+  const [studioFilter, setStudioFilter] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState(toIsoDate(new Date()))
-  const [selectedSession, setSelectedSession] = useState<AdminSession | null>(null)
+  const [selectedSession, setSelectedSession] = useState<TaggedSession | null>(null)
   const [loading, setLoading] = useState(true)
   // Instructors default to seeing only their own classes; persisted in URL so tab switches don't reset it
   const [myClassesOnly, setMyClassesOnly] = useState<boolean>(() => {
@@ -81,6 +85,8 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
   }
   // For instructors: own Instructor record ID + resolved permissions
   const [myInstructorId, setMyInstructorId] = useState<string | null>(null)
+  const [myMemberId, setMyMemberId] = useState<string | null>(null)
+  const [myAvatarUrl, setMyAvatarUrl] = useState<string | null>(null)
   const [myPermissions, setMyPermissions] = useState<import('@/lib/api').InstructorPermissions | null>(null)
 
   useEffect(() => {
@@ -104,32 +110,47 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
         try {
           const mine = await api.franchise.myInstructor(studioId, t)
           setMyInstructorId(mine.id)
+          setMyMemberId(mine.memberId)
+          setMyAvatarUrl(mine.avatarUrl)
           setMyPermissions(mine.permissions)
         } catch { /* non-fatal */ }
       }
     })
   }, [role, studioId])
 
+  const isMultiStudioInstructor = role === 'instructor' && !!studioList && studioList.length > 1
+
   const refresh = useCallback(async () => {
     if (!token) return
     setLoading(true)
     try {
-      const [s, st] = await Promise.all([
-        api.admin.sessions(studioId, selectedDate, token),
-        api.admin.stats(studioId, token),
-      ])
-      setSessions(s)
-      setStats(st)
-      // Populate studio name and timeFormat from stats if not already set
-      if (!studioName && st.studioName) setStudioName(st.studioName)
-      setTimeFormat((st.timeFormat ?? '24h') as TimeFormat)
-      setCurrency(st.currency ?? 'USD')
+      if (isMultiStudioInstructor && studioList) {
+        // Fetch all studios in parallel and tag each session with its studio
+        const results = await Promise.all(
+          studioList.map(s =>
+            api.admin.sessions(s.id, selectedDate, token)
+              .then(rows => rows.map(r => ({ ...r, studioId: s.id, studioName: s.name })))
+          )
+        )
+        setSessions(results.flat())
+        setStats(null)
+      } else {
+        const [s, st] = await Promise.all([
+          api.admin.sessions(studioId, selectedDate, token),
+          api.admin.stats(studioId, token),
+        ])
+        setSessions(s.map(r => ({ ...r, studioId, studioName: studioName ?? st.studioName ?? '' })))
+        setStats(st)
+        if (!studioName && st.studioName) setStudioName(st.studioName)
+        setTimeFormat((st.timeFormat ?? '24h') as TimeFormat)
+        setCurrency(st.currency ?? 'USD')
+      }
     } catch {
       // network/auth failure — leave existing data
     } finally {
       setLoading(false)
     }
-  }, [token, studioId, selectedDate, studioName])
+  }, [token, studioId, selectedDate, studioName, isMultiStudioInstructor, studioList])
 
   useEffect(() => { if (tab === 'today') refresh() }, [refresh, tab])
 
@@ -153,6 +174,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
     { id: 'memberships', label: 'Memberships' },
     { id: 'social', label: 'Social Photos' },
     { id: 'products', label: 'Products' },
+    { id: 'audit', label: 'Audit Log' },
     { id: 'settings', label: 'Settings' },
     // 'photos' is instructor-only — not in the admin tab bar
     { id: 'photos', label: 'My Photos' },
@@ -168,10 +190,10 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
 
   return (
     <TimeFormatProvider value={timeFormat}>
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="h-screen overflow-hidden bg-gray-50 flex flex-col">
       <NavBar
-        title={studioName ?? 'Studio Dashboard'}
-        subtitle="Studio management"
+        title={effectiveRole === 'instructor' ? 'Management' : (studioName ?? 'Studio Dashboard')}
+        subtitle={effectiveRole === 'instructor' ? undefined : 'Studio management'}
         action={modeSwitch}
         leading={onBack ? (
           <button
@@ -206,13 +228,42 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
       {tab === 'today' && (
         <div className="flex flex-1 min-h-0">
           <div className="flex-1 flex flex-col min-w-0 overflow-y-auto p-6 space-y-6">
-            {/* Stat cards */}
-            {stats && (
+            {/* Stat cards — hidden for multi-studio instructor (stats are per-studio) */}
+            {stats && !isMultiStudioInstructor && (
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard label="Today's classes" value={stats.todaySessions} />
                 <StatCard label="Bookings today" value={stats.totalBookingsToday} />
                 <StatCard label="On waitlist" value={stats.waitlistToday} accent />
                 <StatCard label="Total members" value={stats.totalMembers} />
+              </div>
+            )}
+
+            {/* Studio filter pills — instructor with multiple studios */}
+            {isMultiStudioInstructor && studioList && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => setStudioFilter(null)}
+                  className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
+                    studioFilter === null
+                      ? 'bg-gray-900 text-white border-gray-900'
+                      : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+                  }`}
+                >
+                  All studios
+                </button>
+                {studioList.map(s => (
+                  <button
+                    key={s.id}
+                    onClick={() => setStudioFilter(s.id)}
+                    className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
+                      studioFilter === s.id
+                        ? 'bg-gray-900 text-white border-gray-900'
+                        : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+                    }`}
+                  >
+                    {s.name}
+                  </button>
+                ))}
               </div>
             )}
 
@@ -263,9 +314,17 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
 
             {/* Session list */}
             {(() => {
-              const visible = myClassesOnly && currentUserId
-                ? sessions.filter(s => s.instructorUserId === currentUserId)
+              // Filter by instructor record ID (most reliable) with userId as fallback.
+              // Also includes sessions where the instructor is the substitute.
+              let visible = myClassesOnly && (myInstructorId || currentUserId)
+                ? sessions.filter(s =>
+                    (myInstructorId
+                      ? s.instructorId === myInstructorId || s.substituteInstructorId === myInstructorId
+                      : s.instructorUserId === currentUserId || s.substituteInstructorUserId === currentUserId
+                    )
+                  )
                 : sessions
+              if (studioFilter) visible = visible.filter(s => s.studioId === studioFilter)
 
               return loading ? (
                 <div className="space-y-2">
@@ -319,7 +378,14 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
                                 <span className="text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-medium">Cancelled</span>
                               )}
                             </div>
-                            <p className="text-xs text-gray-500 truncate">{s.instructorName} · {s.roomName}</p>
+                            <p className="text-xs text-gray-500 truncate">
+                              {s.instructorName} · {s.roomName}
+                              {isMultiStudioInstructor && (
+                                <span className="ml-1.5 inline-flex items-center text-[10px] font-medium bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">
+                                  {s.studioName}
+                                </span>
+                              )}
+                            </p>
                           </div>
                           <div className="shrink-0 text-right w-28">
                             <p className={`text-sm font-semibold tabular-nums ${isFull ? 'text-red-500' : 'text-gray-900'}`}>
@@ -353,8 +419,8 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
                 canCancel={role !== 'instructor'}
                 onClose={() => setSelectedSession(null)}
                 onSessionUpdate={(updated) => {
-                  setSessions(prev => prev.map(s => s.id === updated.id ? updated : s))
-                  setSelectedSession(updated)
+                  setSessions(prev => prev.map(s => s.id === updated.id ? { ...updated, studioId: s.studioId, studioName: s.studioName } : s))
+                  setSelectedSession(prev => prev ? { ...updated, studioId: prev.studioId, studioName: prev.studioName } : null)
                 }}
               />
             )}
@@ -364,8 +430,25 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
 
       {tab === 'calendar' && token && (
         <div className="flex-1 flex flex-col min-h-0">
+          {isMultiStudioInstructor && studioList && (
+            <div className="flex items-center gap-2 px-6 pt-4 flex-wrap">
+              {studioList.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => setStudioFilter(s.id)}
+                  className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
+                    (studioFilter ?? studioList[0]?.id) === s.id
+                      ? 'bg-gray-900 text-white border-gray-900'
+                      : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+                  }`}
+                >
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          )}
           <CalendarView
-            studioId={studioId}
+            studioId={isMultiStudioInstructor ? (studioFilter ?? studioList?.[0]?.id ?? studioId) : studioId}
             token={token}
             canCreateSchedules={role === 'instructor' ? (myPermissions?.canCreateSchedules ?? false) : true}
             canSetSubstitute={role === 'instructor' ? (myPermissions?.canSetSubstitute ?? false) : true}
@@ -376,16 +459,21 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
       )}
 
       {tab === 'analytics' && token && (
-        <AnalyticsTab studioId={studioId} token={token} canQuery={isAdminRole} />
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <AnalyticsTab studioId={studioId} token={token} canQuery={isAdminRole} />
+        </div>
       )}
 
       {tab === 'rooms' && token && (
-        <div className="max-w-4xl mx-auto w-full px-6 py-6">
-          <RoomsTab studioId={studioId} token={token} />
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="max-w-4xl mx-auto w-full px-6 py-6">
+            <RoomsTab studioId={studioId} token={token} canEdit={isAdminRole} />
+          </div>
         </div>
       )}
 
       {tab === 'room' && token && (
+        <div className="flex-1 overflow-y-auto min-h-0">
         <div className="max-w-5xl mx-auto w-full px-6 py-6 space-y-4">
           <button
             onClick={() => { changeTab('today'); setSelectedSession(null) }}
@@ -421,71 +509,103 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
             variant="checkin"
           />
         </div>
+        </div>
       )}
 
       {tab === 'permissions' && token && (
-        <div className="max-w-3xl mx-auto w-full px-6 py-6">
-          <p className="text-sm text-gray-500 mb-4">
-            Configure what each staff member is allowed to do within this studio.
-          </p>
-          <PermissionsTab studioId={studioId} token={token} />
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="max-w-3xl mx-auto w-full px-6 py-6">
+            <p className="text-sm text-gray-500 mb-4">
+              Configure what each staff member is allowed to do within this studio.
+            </p>
+            <PermissionsTab studioId={studioId} token={token} />
+          </div>
         </div>
       )}
 
       {tab === 'staff' && token && (
-        <div className="max-w-3xl mx-auto w-full px-6 py-6">
-          <p className="text-sm text-gray-500 mb-4">
-            Manage staff for this studio. Assign instructor and front-desk roles — staff can hold both.
-          </p>
-          <StaffTab studioId={studioId} token={token} currency={currency} onOpenPermissions={() => changeTab('permissions')} />
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="max-w-3xl mx-auto w-full px-6 py-6">
+            <p className="text-sm text-gray-500 mb-4">
+              Manage staff for this studio. Assign instructor and front-desk roles — staff can hold both.
+            </p>
+            <StaffTab studioId={studioId} token={token} currency={currency} onOpenPermissions={() => changeTab('permissions')} />
+          </div>
         </div>
       )}
 
       {tab === 'members' && token && (
-        <div className="max-w-3xl mx-auto w-full px-6 py-6">
-          <MembersTab studioId={studioId} token={token} />
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="max-w-3xl mx-auto w-full px-6 py-6">
+            <MembersTab studioId={studioId} token={token} />
+          </div>
         </div>
       )}
 
       {tab === 'photos' && token && myInstructorId && (
-        <div className="max-w-5xl mx-auto w-full px-6 py-6">
-          <p className="text-sm text-gray-500 mb-4">
-            Your photo repository. Mark photos as approved for social media so the studio can use them for promotions.
-          </p>
-          <PhotosTab instructorId={myInstructorId} token={token} isManager={false} />
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="max-w-5xl mx-auto w-full px-6 py-6">
+            <p className="text-sm text-gray-500 mb-4">
+              Your photo repository. Mark photos as approved for social media so the studio can use them for promotions.
+            </p>
+            <PhotosTab
+            instructorId={myInstructorId}
+            token={token}
+            isManager={false}
+            memberId={myMemberId ?? undefined}
+            avatarUrl={myAvatarUrl}
+            onAvatarChange={url => setMyAvatarUrl(url)}
+          />
+          </div>
         </div>
       )}
 
       {tab === 'social' && token && (
-        <div className="max-w-5xl mx-auto w-full px-6 py-6">
-          <SocialPhotosTab studioId={studioId} token={token} />
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="max-w-5xl mx-auto w-full px-6 py-6">
+            <SocialPhotosTab studioId={studioId} token={token} />
+          </div>
         </div>
       )}
 
       {tab === 'products' && token && (
-        <div className="max-w-3xl mx-auto w-full px-6 py-6">
-          <ProductsTab studioId={studioId} token={token} currency={currency} />
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="max-w-3xl mx-auto w-full px-6 py-6">
+            <ProductsTab studioId={studioId} token={token} currency={currency} />
+          </div>
         </div>
       )}
 
       {tab === 'memberships' && token && (
-        <div className="max-w-3xl mx-auto w-full px-6 py-6">
-          <MembershipsTab studioId={studioId} token={token} currency={currency} />
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="max-w-3xl mx-auto w-full px-6 py-6">
+            <MembershipsTab studioId={studioId} token={token} currency={currency} />
+          </div>
+        </div>
+      )}
+
+      {tab === 'audit' && token && (
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="max-w-3xl mx-auto w-full px-6 py-6">
+            <AuditLogTab studioId={studioId} token={token} />
+          </div>
         </div>
       )}
 
       {tab === 'settings' && token && (
-        <div className="max-w-3xl mx-auto w-full px-6 py-6">
-          <SettingsTab
-            studioId={studioId}
-            token={token}
-            onNameChange={setStudioName}
-            onStudioUpdate={data => {
-              setTimeFormat((data.timeFormat ?? '24h') as TimeFormat)
-              setCurrency(data.currency ?? 'USD')
-              onStudioUpdate?.(data)
-            }}
-          />
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="max-w-3xl mx-auto w-full px-6 py-6">
+            <SettingsTab
+              studioId={studioId}
+              token={token}
+              onNameChange={setStudioName}
+              onStudioUpdate={data => {
+                setTimeFormat((data.timeFormat ?? '24h') as TimeFormat)
+                setCurrency(data.currency ?? 'USD')
+                onStudioUpdate?.(data)
+              }}
+            />
+          </div>
         </div>
       )}
     </div>

@@ -8,30 +8,37 @@ test.describe('Auth flow', () => {
 
   test('login page renders sign-in form', async ({ page }) => {
     await page.goto('/login')
-    await expect(page.getByRole('heading', { name: 'Packd' })).toBeVisible()
-    await expect(page.getByPlaceholder(/email/i)).toBeVisible()
-    await expect(page.getByPlaceholder(/password/i)).toBeVisible()
+    // Brand name is a styled span, not a heading role
+    await expect(page.locator('text=PACKD')).toBeVisible()
+    await expect(page.getByLabel(/email/i)).toBeVisible()
+    await expect(page.getByLabel(/password/i)).toBeVisible()
     await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible()
   })
 
   test('toggle between sign-in and sign-up modes', async ({ page }) => {
     await page.goto('/login')
-    await page.getByRole('button', { name: /create account/i }).click()
-    await expect(page.getByRole('button', { name: /sign up/i })).toBeVisible()
-    await page.getByRole('button', { name: /sign in instead/i }).click()
-    await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible()
+    // Toggle link says "Don't have an account? Sign up"
+    await page.getByRole('button', { name: /sign up/i }).click()
+    await expect(page.getByRole('button', { name: /create account/i })).toBeVisible()
+    await page.getByRole('button', { name: /sign in/i }).click()
+    await expect(page.getByRole('button', { name: /^sign in$/i })).toBeVisible()
   })
 
   test('shows error on invalid credentials', async ({ page }) => {
     await page.goto('/login')
-    await page.getByPlaceholder(/email/i).fill('invalid@example.com')
-    await page.getByPlaceholder(/password/i).fill('wrongpassword')
+    await page.getByLabel(/email/i).fill('invalid@example.com')
+    await page.getByLabel(/password/i).fill('wrongpassword')
     await page.getByRole('button', { name: /sign in/i }).click()
     await expect(page.locator('text=/invalid|credentials|wrong/i')).toBeVisible({ timeout: 5000 })
   })
 
-  test('unauthenticated /schedule redirects to /login', async ({ page }) => {
+  test('unauthenticated /schedule is publicly accessible', async ({ page }) => {
     await page.goto('/schedule')
-    await expect(page).toHaveURL(/\/login/)
+    // Schedule is now public — stays on schedule, shows class cards or day tabs
+    await expect(page).not.toHaveURL(/\/login/)
+    await expect(page.locator('[data-testid="class-card"]').first()
+      .or(page.getByText(/no classes/i))
+      .or(page.locator('[data-testid="day-tab"]').first())
+    ).toBeVisible({ timeout: 8000 })
   })
 })

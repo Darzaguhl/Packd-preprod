@@ -3,8 +3,6 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import FranchiseDashboard from '@/components/franchise/FranchiseDashboard'
 import BrandDashboard from '@/components/brand/BrandDashboard'
-import StudioManagerDashboard from '@/components/studio/StudioManagerDashboard'
-import DualRoleDashboard from '@/components/dual/DualRoleDashboard'
 import AdminShell from '@/components/admin/AdminShell'
 
 const STUDIO_ID = process.env.NEXT_PUBLIC_STUDIO_ID!
@@ -45,20 +43,17 @@ export default async function DashboardPage() {
     )
   }
 
-  // Dual role: has both fronthost and instructor
-  if (roles.includes('fronthost') && roles.includes('instructor')) {
-    return <DualRoleDashboard studioId={STUDIO_ID} />
-  }
-
-  if (role === 'fronthost') redirect('/fronthost')
-
-  if (role === 'instructor') {
+  // Instructors (including dual fronthost+instructor) get the unified AdminShell with
+  // permission-filtered management tabs. Dual-role users keep full Live access (no myClassesOnly).
+  if (roles.includes('instructor') || role === 'instructor') {
     return (
       <Suspense>
-        <StudioManagerDashboard studioId={STUDIO_ID} role="instructor" />
+        <AdminShell studioId={primaryStudioId} studioIds={studioIds} role="instructor" roles={roles} />
       </Suspense>
     )
   }
+
+  if (role === 'fronthost') redirect('/fronthost')
 
   // members land on schedule
   redirect('/schedule')

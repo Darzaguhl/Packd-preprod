@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { api, type CalendarWeek, type CalendarSession, type ClassSchedule, type OrphanedPattern } from '@/lib/api'
+import { api, type CalendarWeek, type CalendarSession, type ClassSchedule, type OrphanedPattern, type StaffShift, type StaffMember } from '@/lib/api'
 import { SPORT_CONFIG } from '@/components/schedule/constants'
 import ScheduleModal from './ScheduleModal'
 import SubstituteModal from './SubstituteModal'
@@ -33,6 +33,24 @@ function isoDate(d: Date) {
 function minutesSinceMidnight(iso: string) {
   const d = new Date(iso)
   return d.getHours() * 60 + d.getMinutes()
+}
+
+// ─── Shift colors ─────────────────────────────────────────────────────────────
+
+const SHIFT_PALETTE = [
+  { bg: 'bg-violet-100', text: 'text-violet-700', border: 'border-violet-300' },
+  { bg: 'bg-sky-100',    text: 'text-sky-700',    border: 'border-sky-300' },
+  { bg: 'bg-emerald-100',text: 'text-emerald-700',border: 'border-emerald-300' },
+  { bg: 'bg-amber-100',  text: 'text-amber-700',  border: 'border-amber-300' },
+  { bg: 'bg-rose-100',   text: 'text-rose-700',   border: 'border-rose-300' },
+  { bg: 'bg-teal-100',   text: 'text-teal-700',   border: 'border-teal-300' },
+  { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-300' },
+  { bg: 'bg-pink-100',   text: 'text-pink-700',   border: 'border-pink-300' },
+]
+
+function shiftColor(memberId: string, allIds: string[]) {
+  const idx = allIds.indexOf(memberId)
+  return SHIFT_PALETTE[(idx >= 0 ? idx : 0) % SHIFT_PALETTE.length]
 }
 
 /** Lay out overlapping sessions side-by-side within a column. */
@@ -107,6 +125,7 @@ type Modal =
   | { type: 'new-schedule'; prefill?: Partial<OrphanedPattern> }
   | { type: 'edit-schedule'; schedule: ClassSchedule }
   | { type: 'substitute'; session: CalendarSession }
+  | { type: 'edit-shift'; shift: StaffShift }
 
 export default function CalendarView({ studioId, token, canCreateSchedules = true, canSetSubstitute = true, filterInstructorId, canReschedule = false }: Props) {
   const timeFormat = useTimeFormat()
@@ -132,6 +151,13 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
   const [schedDay, setSchedDay] = useState<number | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [bulkOpsOpen, setBulkOpsOpen] = useState(false)
+
+  // Staff shift layer
+  const [showShifts, setShowShifts] = useState(false)
+  const [shifts, setShifts] = useState<StaffShift[]>([])
+  const [fronthosts, setFronthosts] = useState<StaffMember[]>([])
+  const [filteredFronthostIds, setFilteredFronthostIds] = useState<Set<string>>(new Set())
 
   // DnD sensors — require 5px movement before drag activates (prevents accidental drags on click)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
@@ -192,6 +218,24 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
   }, [studioId, token, weekStart, monthYear, myClassesOnly, filterInstructorId])
 
   useEffect(() => { load() }, [load])
+
+  // Load shifts whenever the week changes or shifts are toggled on
+  const loadShifts = useCallback(async () => {
+    if (!token || !showShifts) return
+    const from = weekStart.toISOString()
+    const to = new Date(weekStart.getTime() + 7 * 86400000).toISOString()
+    api.shifts.list(studioId, from, to, token).then(setShifts).catch(() => {})
+  }, [studioId, token, weekStart, showShifts])
+
+  useEffect(() => { loadShifts() }, [loadShifts])
+
+  // Load fronthost staff list once when shifts are first enabled
+  useEffect(() => {
+    if (!showShifts || !token || fronthosts.length > 0) return
+    api.staff.list(studioId, token)
+      .then(all => setFronthosts(all.filter(s => s.staffRoles.includes('fronthost'))))
+      .catch(() => {})
+  }, [showShifts, token, studioId, fronthosts.length])
 
   function prevWeek() { setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n }) }
   function nextWeek() { setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n }) }
@@ -286,6 +330,38 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
     } catch { /* silent */ }
     finally { setBulkDeleting(false) }
   }
+
+  // ── Shift helpers ───────────────────────────────────────────────────────────
+
+  // Sorted unique member IDs for stable color assignment
+  const fronthostIds = [...new Set(shifts.map(s => s.memberId))].sort()
+
+  const visibleShifts = shifts.filter(s =>
+    filteredFronthostIds.size === 0 || filteredFronthostIds.has(s.memberId),
+  )
+
+  const shiftsByDay: Record<number, StaffShift[]> = {}
+  for (let i = 0; i < 7; i++) shiftsByDay[i] = []
+  visibleShifts.forEach(s => {
+    const d = new Date(s.startsAt); d.setHours(0, 0, 0, 0)
+    for (let i = 0; i < 7; i++) {
+      if (d.getTime() === days[i].getTime()) { shiftsByDay[i].push(s); break }
+    }
+  })
+
+  async function handleUpdateShift(id: string, startsAt: string, endsAt: string, note: string) {
+    await api.shifts.update(id, { startsAt, endsAt, note: note || null }, token)
+    setModal(null)
+    loadShifts()
+  }
+
+  async function handleDeleteShift(id: string) {
+    await api.shifts.remove(id, token)
+    setModal(null)
+    loadShifts()
+  }
+
+  // ── Session grouping ─────────────────────────────────────────────────────────
 
   const sessionsByDay: Record<number, CalendarSession[]> = {}
   for (let i = 0; i < 7; i++) sessionsByDay[i] = []
@@ -397,6 +473,42 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
             </button>
           )}
 
+          {/* Bulk ops toggle — admin only */}
+          {canReschedule && data && (
+            <button
+              onClick={() => setBulkOpsOpen(v => !v)}
+              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                bulkOpsOpen ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 14 14" fill="none">
+                <rect x="1" y="3" width="12" height="2" rx="1" fill="currentColor" />
+                <rect x="1" y="7" width="8" height="2" rx="1" fill="currentColor" />
+                <rect x="1" y="11" width="5" height="2" rx="1" fill="currentColor" />
+              </svg>
+              Bulk ops
+            </button>
+          )}
+
+          {/* Staff shifts toggle — only in week view for admins */}
+          {canReschedule && view === 'week' && (
+            <button
+              onClick={() => setShowShifts(v => !v)}
+              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
+                showShifts
+                  ? 'bg-violet-600 text-white border-violet-600'
+                  : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+              }`}
+            >
+              {showShifts && (
+                <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              )}
+              Staff shifts
+            </button>
+          )}
+
           {canCreateSchedules && (
             <button
               onClick={() => setModal({ type: 'new-schedule' })}
@@ -408,11 +520,55 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
         </div>
       </div>
 
-      {/* ── BULK OPS PANEL ── (admin+ only, sits between toolbar and calendar body) */}
+      {/* ── FRONTHOST FILTER STRIP ── shown when shift layer is active */}
+      {showShifts && view === 'week' && fronthosts.length > 0 && (
+        <div className="flex items-center gap-2 px-6 py-2 border-b border-gray-100 bg-violet-50 flex-wrap">
+          <span className="text-[10px] font-semibold text-violet-500 uppercase tracking-wide mr-1">Filter shifts</span>
+          {fronthosts.map((fh, idx) => {
+            const color = SHIFT_PALETTE[idx % SHIFT_PALETTE.length]
+            const active = filteredFronthostIds.size === 0 || filteredFronthostIds.has(fh.id)
+            return (
+              <button
+                key={fh.id}
+                onClick={() => setFilteredFronthostIds(prev => {
+                  const next = new Set(prev)
+                  if (prev.size === 0) {
+                    // first click: show only this person
+                    fronthosts.forEach(f => f.id !== fh.id && next.add(f.id))
+                  } else if (next.has(fh.id)) {
+                    next.delete(fh.id)
+                    if (next.size === fronthosts.length - 1) next.clear()  // all hidden → all visible
+                  } else {
+                    next.add(fh.id)
+                    if (next.size === fronthosts.length) next.clear()  // all back → reset
+                  }
+                  return next
+                })}
+                className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                  active ? `${color.bg} ${color.text} ${color.border}` : 'bg-white text-gray-400 border-gray-200'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${active ? color.bg.replace('100', '400') : 'bg-gray-300'}`} />
+                {fh.name}
+              </button>
+            )
+          })}
+          {filteredFronthostIds.size > 0 && (
+            <button
+              onClick={() => setFilteredFronthostIds(new Set())}
+              className="text-[10px] text-violet-400 hover:text-violet-700 underline underline-offset-2 ml-1"
+            >Clear filter</button>
+          )}
+        </div>
+      )}
+
+      {/* ── BULK OPS PANEL ── expands below toolbar when open */}
       {canReschedule && data && (
         <BulkOpsPanel
           studioId={studioId}
           token={token}
+          open={bulkOpsOpen}
+          onClose={() => setBulkOpsOpen(false)}
           instructors={data.instructors.map(i => ({ id: i.id, name: i.name }))}
           templates={data.templates.map(t => ({ id: t.id, name: t.name }))}
         />
@@ -442,7 +598,10 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
 
               {/* Time grid */}
               <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-              <div className="relative grid grid-cols-[48px_repeat(7,1fr)]" style={{ height: TOTAL_HOURS * HOUR_PX }}>
+              <div
+                className="relative grid grid-cols-[48px_repeat(7,1fr)]"
+                style={{ height: TOTAL_HOURS * HOUR_PX }}
+              >
                 {Array.from({ length: TOTAL_HOURS }, (_, h) => (
                   <div key={h} className="absolute left-0 right-0 border-t border-gray-200" style={{ top: h * HOUR_PX }}>
                     <span className={`absolute left-0 w-10 text-right pr-2 text-xs font-semibold text-gray-500 ${h === 0 ? 'translate-y-0.5' : '-translate-y-2.5'}`}>
@@ -455,8 +614,37 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
 
                 {days.map((_, colIdx) => {
                   const laid = layoutSessions(sessionsByDay[colIdx])
+                  const dayShifts = showShifts ? shiftsByDay[colIdx] : []
                   return (
-                    <div key={colIdx} className={`relative border-l border-gray-200 ${colIdx === 0 ? 'col-start-2' : ''}`}>
+                    <div
+                      key={colIdx}
+                      className={`relative border-l border-gray-200 ${colIdx === 0 ? 'col-start-2' : ''}`}
+                    >
+                      {/* Shift blocks — rendered behind sessions */}
+                      {dayShifts.map(shift => {
+                        const startMin = minutesSinceMidnight(shift.startsAt)
+                        const endMin = minutesSinceMidnight(shift.endsAt)
+                        const top = (startMin - HOUR_START * 60) * (HOUR_PX / 60)
+                        const height = Math.max((endMin - startMin) * (HOUR_PX / 60), 18)
+                        const color = shiftColor(shift.memberId, fronthostIds)
+                        const initials = shift.memberName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+                        return (
+                          <div
+                            key={shift.id}
+                            data-shift="1"
+                            className={`absolute left-0.5 right-0.5 rounded ${color.bg} ${color.border} border opacity-80 overflow-hidden cursor-pointer hover:opacity-100 transition-opacity z-10`}
+                            style={{ top, height }}
+                            onClick={() => setModal({ type: 'edit-shift', shift })}
+                          >
+                            <div className={`px-1.5 pt-0.5 flex items-center gap-1 ${color.text}`}>
+                              <span className={`text-[9px] font-bold leading-none w-4 h-4 rounded-full flex items-center justify-center ${color.bg.replace('100', '400')} text-white shrink-0`}>{initials}</span>
+                              {height > 30 && <span className="text-[9px] font-medium truncate leading-tight">{shift.memberName.split(' ')[0]}</span>}
+                            </div>
+                          </div>
+                        )
+                      })}
+
+                      {/* Session cards — on top of shifts */}
                       {laid.map(({ session: s, leftFrac, widthFrac }) => {
                         const startMin = minutesSinceMidnight(s.startsAt)
                         const endMin = minutesSinceMidnight(s.endsAt)
@@ -811,6 +999,16 @@ export default function CalendarView({ studioId, token, canCreateSchedules = tru
           onClose={() => setModal(null)}
         />
       )}
+
+      {modal?.type === 'edit-shift' && (
+        <ShiftModal
+          shift={modal.shift}
+          fronthosts={fronthosts}
+          onUpdate={handleUpdateShift}
+          onDelete={handleDeleteShift}
+          onClose={() => setModal(null)}
+        />
+      )}
     </div>
   )
 }
@@ -870,7 +1068,10 @@ function DraggableCalendarSession({
     >
       <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${cfg.accent}`} />
       <div className="pl-2 pr-1 py-0.5 h-full flex flex-col justify-start overflow-hidden gap-px">
-        <p className={`text-[10px] font-semibold truncate leading-tight ${cfg.color}`}>{s.templateName}</p>
+        <p className={`text-[10px] font-semibold truncate leading-tight flex items-center gap-1 ${cfg.color}`}>
+          {s.isPrivate && <span className="shrink-0 inline-block w-1.5 h-1.5 rounded-full bg-purple-400" title="Private event" />}
+          {s.templateName}
+        </p>
         {height > 22 && (
           <p className="text-[9px] text-gray-500 leading-tight tabular-nums">
             {startLabel} · {durationMin}m
@@ -1075,6 +1276,99 @@ function MonthGrid({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Shift edit modal (for clicking an existing shift block in CalendarView) ───
+
+function ShiftModal({ shift, fronthosts, onUpdate, onDelete, onClose }: {
+  shift: StaffShift
+  fronthosts: StaffMember[]
+  onUpdate: (id: string, startsAt: string, endsAt: string, note: string) => Promise<void>
+  onDelete: (id: string) => Promise<void>
+  onClose: () => void
+}) {
+  const toHHMM = (iso: string) => new Date(iso).toTimeString().slice(0, 5)
+  const [startTime, setStartTime] = useState(toHHMM(shift.startsAt))
+  const [endTime, setEndTime] = useState(toHHMM(shift.endsAt))
+  const [note, setNote] = useState(shift.note ?? '')
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState('')
+
+  const date = new Date(shift.startsAt)
+  const dateLabel = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+  const memberName = fronthosts.find(f => f.id === shift.memberId)?.name ?? shift.memberName
+
+  async function handleSave() {
+    const base = new Date(date); base.setHours(0, 0, 0, 0)
+    const [sh, sm] = startTime.split(':').map(Number)
+    const [eh, em] = endTime.split(':').map(Number)
+    const startsAt = new Date(base.getTime() + (sh * 60 + sm) * 60000)
+    const endsAt = new Date(base.getTime() + (eh * 60 + em) * 60000)
+    if (endsAt <= startsAt) { setError('End must be after start'); return }
+    setSaving(true); setError('')
+    try { await onUpdate(shift.id, startsAt.toISOString(), endsAt.toISOString(), note) }
+    catch { setError('Failed to save'); setSaving(false) }
+  }
+
+  async function handleDelete() {
+    setDeleting(true)
+    try { await onDelete(shift.id) }
+    catch { setError('Failed to delete'); setDeleting(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 space-y-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Edit shift</h2>
+            <p className="text-xs text-gray-500">{memberName} · {dateLabel}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 16 16"><path d="M12 4L4 12M4 4l8 8" strokeLinecap="round"/></svg>
+          </button>
+        </div>
+
+        <div className="flex gap-3">
+          <div className="flex-1 space-y-1">
+            <label className="text-xs font-medium text-gray-600">Start</label>
+            <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)}
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300" />
+          </div>
+          <div className="flex-1 space-y-1">
+            <label className="text-xs font-medium text-gray-600">End</label>
+            <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)}
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300" />
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-600">Note (optional)</label>
+          <input type="text" value={note} onChange={e => setNote(e.target.value)}
+            placeholder="e.g. Opening shift"
+            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300" />
+        </div>
+
+        {error && <p className="text-xs text-red-500">{error}</p>}
+
+        <div className="flex gap-2 pt-1">
+          <button onClick={handleDelete} disabled={deleting}
+            className="text-sm font-medium px-3 py-2 text-red-500 hover:text-red-700 border border-red-100 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50">
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
+          <button onClick={onClose}
+            className="ml-auto text-sm font-medium px-4 py-2 text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+            Cancel
+          </button>
+          <button onClick={handleSave} disabled={saving}
+            className="text-sm font-medium px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50">
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

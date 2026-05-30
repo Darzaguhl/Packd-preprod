@@ -37,6 +37,12 @@ interface Props {
   token: string
   // If true the caller is a manager (no delete, can upload on behalf)
   isManager?: boolean
+  // Member id — when provided (self-view only) the headshot section is shown
+  memberId?: string
+  // Current headshot URL
+  avatarUrl?: string | null
+  // Called after a new headshot is uploaded so the parent can update its avatar display
+  onAvatarChange?: (url: string) => void
 }
 
 // ─── Photo card ───────────────────────────────────────────────────────────────
@@ -124,12 +130,38 @@ function PhotoCard({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function PhotosTab({ instructorId, token, isManager = false }: Props) {
+export default function PhotosTab({ instructorId, token, isManager = false, memberId, avatarUrl: initialAvatarUrl, onAvatarChange }: Props) {
   const [photos, setPhotos]     = useState<InstructorPhoto[]>([])
   const [loading, setLoading]   = useState(true)
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null)
   const [toast, setToast]       = useState<{ msg: string; ok: boolean } | null>(null)
+  const [avatarUrl, setAvatarUrl] = useState<string | null | undefined>(initialAvatarUrl)
+  const [uploadingHeadshot, setUploadingHeadshot] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const headshotInputRef = useRef<HTMLInputElement>(null)
+
+  async function handleHeadshotSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !memberId) return
+    e.target.value = ''
+    setUploadingHeadshot(true)
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve((reader.result as string).split(',')[1])
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+      const { avatarUrl: url } = await api.staff.uploadAvatar(memberId, { base64, fileName: file.name, contentType: file.type }, token)
+      setAvatarUrl(url)
+      onAvatarChange?.(url)
+      showToast('Headshot updated')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Upload failed', false)
+    } finally {
+      setUploadingHeadshot(false)
+    }
+  }
 
   function showToast(msg: string, ok = true) {
     setToast({ msg, ok })
@@ -225,6 +257,52 @@ export default function PhotosTab({ instructorId, token, isManager = false }: Pr
 
   return (
     <div className="space-y-6">
+
+      {/* ── Headshot — only shown in self-view when memberId is available ── */}
+      {!isManager && memberId && (
+        <div className="flex items-center gap-5 p-4 bg-gray-50 rounded-2xl border border-gray-100">
+          {/* Avatar preview */}
+          <div className="w-20 h-20 rounded-full relative overflow-hidden shrink-0 bg-gray-200">
+            {avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={avatarUrl} alt="Headshot" className="absolute inset-0 w-full h-full object-cover" />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                  <path d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-900 mb-0.5">Profile headshot</p>
+            <p className="text-xs text-gray-400 mb-3">Shown in your avatar across the platform.</p>
+            <label className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
+              uploadingHeadshot
+                ? 'bg-gray-100 text-gray-400 pointer-events-none'
+                : 'bg-gray-900 text-white hover:bg-gray-700'
+            }`}>
+              {uploadingHeadshot ? (
+                <>
+                  <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  Uploading…
+                </>
+              ) : (
+                <>{avatarUrl ? 'Change headshot' : 'Upload headshot'}</>
+              )}
+              <input
+                ref={headshotInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="sr-only"
+                onChange={handleHeadshotSelect}
+                disabled={uploadingHeadshot}
+              />
+            </label>
+          </div>
+        </div>
+      )}
+
       {/* Upload button */}
       <div className="flex items-center justify-between">
         <div>

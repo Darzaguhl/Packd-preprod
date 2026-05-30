@@ -359,6 +359,10 @@ export async function stopJobs() {
   await boss?.stop()
 }
 
+export async function enqueueWaitlistExpiry(waitlistEntryId: string, expiresAt: Date) {
+  await boss.sendAfter('waitlist.expire', { waitlistEntryId }, {}, expiresAt)
+}
+
 export async function enqueueLateCancelCheck(bookingId: string, sessionStartsAt: Date) {
   // Schedule fee check 5 minutes after class starts
   const runAt = new Date(sessionStartsAt.getTime() + 5 * 60 * 1000)

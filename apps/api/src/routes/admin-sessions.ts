@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
+import { audit, AUDIT } from '../lib/audit.js'
 import { logger } from '../lib/logger.js'
 import { enqueueNoShowCheck } from '../jobs/index.js'
+import { sendSessionAnnouncement } from '../lib/email.js'
 import { assertStudioAccess } from './admin-shared.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
@@ -32,6 +34,7 @@ export async function adminSessionRoutes(app: FastifyInstance) {
         include: {
           template: true,
           instructor: { include: { user: true } },
+          substitute: { include: { user: true } },
           room: true,
           _count: { select: { bookings: { where: { status: 'CONFIRMED' } } } },
         },
@@ -42,8 +45,11 @@ export async function adminSessionRoutes(app: FastifyInstance) {
         id: s.id,
         templateName: s.template.name,
         sport: s.template.sport,
+        instructorId: s.instructorId,
         instructorName: `${s.instructor.user.firstName} ${s.instructor.user.lastName}`,
         instructorUserId: s.instructor.userId,
+        substituteInstructorId: s.substituteInstructorId ?? null,
+        substituteInstructorUserId: s.substitute?.user.id ?? null,
         roomId: s.roomId,
         roomName: s.room.name,
         capacity: s.capacity,
@@ -52,6 +58,7 @@ export async function adminSessionRoutes(app: FastifyInstance) {
         endsAt: s.endsAt.toISOString(),
         status: s.status,
         creditsRequired: s.creditsRequired,
+        isPrivate: s.isPrivate,
       }))
     },
   )
@@ -151,16 +158,19 @@ export async function adminSessionRoutes(app: FastifyInstance) {
           checkedInAt: !booking.checkedIn ? new Date() : null,
         },
       })
+      if (updated.checkedIn) {
+        audit({ actorId: user.id, actorRole: user.role, action: AUDIT.SESSION_CHECKIN, targetId: booking.memberId, studioId: session.studioId, meta: { sessionId: session.id, bookingId: booking.id } })
+      }
       return { success: true, checkedIn: updated.checkedIn }
     },
   )
 
   // PATCH /admin/sessions/:id
-  app.patch<{ Params: { id: string }; Body: { status?: string; startsAt?: string; endsAt?: string } }>(
+  app.patch<{ Params: { id: string }; Body: { status?: string; startsAt?: string; endsAt?: string; isPrivate?: boolean } }>(
     '/sessions/:id',
     { preHandler: requireStudioAdmin },
     async (request, reply) => {
-      const { status, startsAt, endsAt } = request.body
+      const { status, startsAt, endsAt, isPrivate } = request.body
       const user = getUser(request)
       const existing = await prisma.classSession.findUniqueOrThrow({ where: { id: request.params.id } })
       if (!await assertStudioAccess(user.id, user.role, existing.studioId, reply, user.studioIds)) return
@@ -176,10 +186,16 @@ export async function adminSessionRoutes(app: FastifyInstance) {
           where: { id: request.params.id },
           data: { startsAt: newStart, endsAt: newEnd },
         })
+        audit({ actorId: user.id, actorRole: user.role, action: AUDIT.SESSION_RESCHEDULE, targetId: request.params.id, studioId: existing.studioId, meta: { from: existing.startsAt, to: newStart } })
         return reply.send({ success: true, startsAt: session.startsAt.toISOString(), endsAt: session.endsAt.toISOString() })
       }
 
-      if (!status) return reply.badRequest('status is required')
+      if (isPrivate !== undefined) {
+        await prisma.classSession.update({ where: { id: request.params.id }, data: { isPrivate } })
+        return reply.send({ success: true, isPrivate })
+      }
+
+      if (!status) return reply.badRequest('status or isPrivate is required')
       if (!VALID_SESSION_STATUSES.includes(status as SessionStatus)) {
         return reply.badRequest(`Invalid status. Must be one of: ${VALID_SESSION_STATUSES.join(', ')}`)
       }
@@ -193,6 +209,9 @@ export async function adminSessionRoutes(app: FastifyInstance) {
         await enqueueNoShowCheck(session.id, session.startsAt).catch(err =>
           logger.error({ err }, '[jobs] failed to enqueue no-show check'),
         )
+      }
+      if (status === 'CANCELLED') {
+        audit({ actorId: user.id, actorRole: user.role, action: AUDIT.SESSION_CANCEL, targetId: request.params.id, studioId: existing.studioId, meta: { startsAt: existing.startsAt } })
       }
 
       return reply.send({ success: true, status: session.status })
@@ -283,7 +302,58 @@ export async function adminSessionRoutes(app: FastifyInstance) {
         }
       })
 
+      audit({ actorId: user.id, actorRole: user.role, action: AUDIT.SCHEDULE_BULK, targetId: studioId, studioId, meta: { action, affected: sessionIds.length, from, to, instructorId, templateId } })
       return reply.send({ affected: sessionIds.length, sessionIds })
+    },
+  )
+
+  // POST /admin/sessions/:id/announce — email all confirmed attendees of a session (studio_admin+)
+  // Rate-limited to 5/min — prevents accidental spam blasts.
+  app.post<{ Params: { id: string }; Body: { subject: string; message: string } }>(
+    '/sessions/:id/announce',
+    { preHandler: requireStudioAdmin, config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const user = getUser(request)
+      const { subject, message } = request.body
+      if (!subject?.trim() || !message?.trim()) return reply.badRequest('subject and message are required')
+
+      const session = await prisma.classSession.findUnique({
+        where: { id: request.params.id },
+        include: {
+          template: { select: { name: true } },
+          studio: { select: { id: true, name: true } },
+        },
+      })
+      if (!session) return reply.notFound()
+      if (!await assertStudioAccess(user.id, user.role, session.studio.id, reply, user.studioIds)) return
+
+      const bookings = await prisma.booking.findMany({
+        where: { sessionId: session.id, status: 'CONFIRMED' },
+        include: { member: { include: { user: { select: { email: true, firstName: true } } } } },
+      })
+
+      if (bookings.length === 0) return reply.send({ sent: 0 })
+
+      const webUrl = process.env.WEB_URL ?? 'http://localhost:3001'
+      const results = await Promise.allSettled(
+        bookings.map(b =>
+          sendSessionAnnouncement({
+            to: b.member.user.email,
+            firstName: b.member.user.firstName,
+            studioName: session.studio.name,
+            className: session.template.name,
+            startsAt: session.startsAt.toISOString(),
+            subject: subject.trim(),
+            message: message.trim(),
+            webUrl,
+          }),
+        ),
+      )
+
+      const sent = results.filter(r => r.status === 'fulfilled' && r.value).length
+      audit({ actorId: user.id, actorRole: user.role, action: 'session.announce', targetId: session.id, studioId: session.studio.id, meta: { subject, sent, total: bookings.length } })
+
+      return reply.send({ sent, total: bookings.length })
     },
   )
 }

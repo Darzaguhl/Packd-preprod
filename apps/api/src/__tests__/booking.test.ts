@@ -18,7 +18,7 @@ vi.mock('@packd/db', () => {
   const creditBalance = { findUnique: vi.fn(), update: vi.fn(), upsert: vi.fn() }
   const creditTransaction = { create: vi.fn() }
   const cancellationPolicy = { findUnique: vi.fn() }
-  const waitlistEntry = { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn() }
+  const waitlistEntry = { findFirst: vi.fn().mockResolvedValue(null), findUnique: vi.fn().mockResolvedValue(null), update: vi.fn() }
   // Network check: null = studio not in any network (same-studio bookings bypass this)
   const studioNetworkMembership = { findFirst: vi.fn().mockResolvedValue(null) }
 
@@ -32,6 +32,7 @@ vi.mock('@packd/db', () => {
       cancellationPolicy,
       waitlistEntry,
       studioNetworkMembership,
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
       $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({ classSession, member, booking, creditBalance, creditTransaction, waitlistEntry }),
       ),
@@ -39,7 +40,8 @@ vi.mock('@packd/db', () => {
   }
 })
 
-vi.mock('../jobs/index.js', () => ({ enqueueLateCancelCheck: vi.fn() }))
+vi.mock('../jobs/index.js', () => ({ enqueueLateCancelCheck: vi.fn().mockResolvedValue(undefined), enqueueWaitlistExpiry: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('../lib/email.js', () => ({ sendBookingConfirmation: vi.fn().mockResolvedValue(undefined), sendBookingCancellation: vi.fn().mockResolvedValue(undefined), sendWaitlistPromotion: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('../routes/members.js', () => ({ ensureMemberForAdmin: vi.fn() }))
 vi.mock('../lib/auth.js', () => ({
   requireAuth: vi.fn().mockResolvedValue(undefined),
@@ -273,6 +275,42 @@ describe('DELETE /bookings/:id', () => {
         data: expect.objectContaining({ stationId: null }),
       }),
     )
+  })
+
+  it('sends waitlist promotion email and schedules expiry when next member is promoted', async () => {
+    const { sendWaitlistPromotion } = await import('../lib/email.js')
+    const { enqueueWaitlistExpiry } = await import('../jobs/index.js')
+
+    vi.mocked(prisma.booking.findUniqueOrThrow).mockResolvedValue(mockBooking(25) as never)
+    vi.mocked(prisma.cancellationPolicy.findUnique).mockResolvedValue({
+      lateCancelWindowHours: 12,
+      waitlistWindowMinutes: 15,
+    } as never)
+    // Next waitlist member found during transaction
+    vi.mocked(prisma.waitlistEntry.findFirst).mockResolvedValue({ id: 'wl-1' } as never)
+    // Post-transaction fetch with full includes
+    vi.mocked(prisma.waitlistEntry.findUnique).mockResolvedValue({
+      id: 'wl-1',
+      member: { user: { email: 'waiter@example.com', firstName: 'Jane' } },
+      session: {
+        startsAt: new Date('2026-06-01T09:00:00Z'),
+        template: { name: 'Morning Ride' },
+        studio: { name: 'Packd Demo' },
+      },
+    } as never)
+
+    const app = await buildApp()
+    const res = await app.inject({ method: 'DELETE', url: '/bookings/booking-1' })
+    expect(res.statusCode).toBe(200)
+    expect(vi.mocked(sendWaitlistPromotion)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'waiter@example.com',
+        firstName: 'Jane',
+        className: 'Morning Ride',
+        studioName: 'Packd Demo',
+      }),
+    )
+    expect(vi.mocked(enqueueWaitlistExpiry)).toHaveBeenCalledWith('wl-1', expect.any(Date))
   })
 })
 

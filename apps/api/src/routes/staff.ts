@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@packd/db'
 import { requireRole, requireAuth, getUser } from '../lib/auth.js'
+import { audit, AUDIT } from '../lib/audit.js'
 import { ROLE_RANK } from '@packd/types'
 import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole } from '../lib/supabase-admin.js'
 import { sendStaffInvite } from '../lib/email.js'
@@ -8,6 +9,8 @@ import { sendStaffInvite } from '../lib/email.js'
 const requireStudioAdmin = requireRole('studio_admin')
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const SUPABASE_URL = process.env.SUPABASE_URL!
+const STAFF_PHOTO_BUCKET = 'instructor-photos' // Supabase bucket — also stores staff avatars
 
 const VALID_STAFF_ROLES = ['fronthost', 'instructor'] as const
 type StaffRole = typeof VALID_STAFF_ROLES[number]
@@ -59,7 +62,7 @@ export async function staffRoutes(app: FastifyInstance) {
         include: {
           user: {
             select: {
-              firstName: true, lastName: true, email: true,
+              firstName: true, lastName: true, email: true, avatarUrl: true,
               instructors: { where: { studioId }, select: { id: true, payRatePerHeadCents: true } },
             },
           },
@@ -76,6 +79,8 @@ export async function staffRoutes(app: FastifyInstance) {
         joinedAt: s.joinedAt.toISOString(),
         instructorId: s.user.instructors[0]?.id ?? null,
         payRatePerHeadCents: s.user.instructors[0]?.payRatePerHeadCents ?? null,
+        payRateHourlyCents: s.payRateHourlyCents ?? null,
+        avatarUrl: s.user.avatarUrl ?? null,
       }))
     },
   )
@@ -141,6 +146,7 @@ export async function staffRoutes(app: FastifyInstance) {
         })
       }
 
+      audit({ actorId: user.id, actorRole: user.role, action: AUDIT.STAFF_ROLE_ADD, targetId: targetUser.id, studioId, meta: { email, staffRole, roles: newRoles } })
       return reply.send({ success: true, staffRoles: newRoles, studioIds: newIds })
     },
   )
@@ -216,6 +222,7 @@ export async function staffRoutes(app: FastifyInstance) {
         // If instructor role is kept, the per-studio Instructor record stays as-is
       }
 
+      audit({ actorId: user.id, actorRole: user.role, action: AUDIT.STAFF_ROLE_REMOVE, targetId: memberId, studioId: studioToRemove, meta: { roleRemoved: roleToRemove ?? 'all', remainingRoles } })
       return reply.send({ success: true, remainingRoles, remainingStudios: remainingStudios.length })
     },
   )
@@ -288,6 +295,91 @@ export async function staffRoutes(app: FastifyInstance) {
       })
 
       return reply.send({ success: true, instructor: updated })
+    },
+  )
+
+  // PATCH /staff/:memberId/hourly-pay — set hourly pay rate for any staff member (studio_admin+)
+  app.patch<{
+    Params: { memberId: string }
+    Body: { payRateHourlyCents: number | null }
+  }>(
+    '/:memberId/hourly-pay',
+    { preHandler: requireStudioAdmin },
+    async (request, reply) => {
+      const { memberId } = request.params
+      const { payRateHourlyCents } = request.body
+      const user = getUser(request)
+
+      const member = await prisma.member.findUnique({
+        where: { id: memberId },
+        select: { studioId: true },
+      })
+      if (!member) return reply.notFound()
+
+      const hasAccess = await assertStudioAccess(user.id, user.role, member.studioId, user.studioIds)
+      if (!hasAccess) return reply.forbidden()
+
+      await prisma.member.update({
+        where: { id: memberId },
+        data: { payRateHourlyCents: payRateHourlyCents ?? null },
+      })
+
+      audit({ actorId: user.id, actorRole: user.role, action: AUDIT.STAFF_PAY_UPDATE, targetId: memberId, studioId: member.studioId, meta: { payRateHourlyCents } })
+      return reply.send({ success: true })
+    },
+  )
+
+  // POST /staff/:memberId/avatar — upload headshot for any staff member, sets User.avatarUrl
+  app.post<{
+    Params: { memberId: string }
+    Body: { base64: string; fileName: string; contentType: string }
+  }>(
+    '/:memberId/avatar',
+    { preHandler: requireStudioAdmin, bodyLimit: 15 * 1024 * 1024 },
+    async (request, reply) => {
+      const { memberId } = request.params
+      const { base64, fileName, contentType } = request.body
+      const user = getUser(request)
+
+      if (!base64 || !fileName || !contentType) return reply.badRequest('base64, fileName and contentType are required')
+
+      const member = await prisma.member.findUnique({
+        where: { id: memberId },
+        select: { userId: true, studioId: true },
+      })
+      if (!member) return reply.notFound()
+
+      const hasAccess = await assertStudioAccess(user.id, user.role, member.studioId, user.studioIds)
+      if (!hasAccess) return reply.forbidden()
+
+      const ext = fileName.split('.').pop()?.toLowerCase() ?? 'jpg'
+      const storageKey = `avatars/${member.userId}.${ext}`
+      const fileBuffer = Buffer.from(base64, 'base64')
+
+      const storageRes = await fetch(`${SUPABASE_URL}/storage/v1/object/${STAFF_PHOTO_BUCKET}/${storageKey}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+          apikey: SERVICE_ROLE_KEY,
+          'Content-Type': contentType,
+          'x-upsert': 'true',
+        },
+        body: fileBuffer,
+      })
+
+      if (!storageRes.ok) {
+        const err = await storageRes.json().catch(() => ({})) as { message?: string }
+        return reply.internalServerError(err.message ?? 'Storage upload failed')
+      }
+
+      const avatarUrl = `${SUPABASE_URL}/storage/v1/object/public/${STAFF_PHOTO_BUCKET}/${storageKey}?t=${Date.now()}`
+
+      await prisma.user.update({
+        where: { id: member.userId },
+        data: { avatarUrl },
+      })
+
+      return reply.send({ avatarUrl })
     },
   )
 }

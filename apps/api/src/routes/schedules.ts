@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import { prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
+import { audit, AUDIT } from '../lib/audit.js'
 import { ROLE_RANK } from '@packd/types'
 
 const requireStudioAdmin = requireRole('studio_admin')
@@ -47,6 +48,7 @@ async function generateSessions(
   intervalWeeks: number,
   from: Date,
   until: Date,
+  isPrivate = false,
 ): Promise<void> {
   const [hh, mm] = startTime.split(':').map(Number)
   const sessions: {
@@ -59,6 +61,7 @@ async function generateSessions(
     endsAt: Date
     capacity: number
     creditsRequired: number
+    isPrivate: boolean
   }[] = []
 
   // Walk week-by-week, jumping intervalWeeks at a time
@@ -73,7 +76,7 @@ async function generateSessions(
         const startsAt = new Date(day)
         startsAt.setHours(hh, mm, 0, 0)
         const endsAt = new Date(startsAt.getTime() + durationMin * 60_000)
-        sessions.push({ studioId, templateId, instructorId, roomId, scheduleId, startsAt, endsAt, capacity, creditsRequired })
+        sessions.push({ studioId, templateId, instructorId, roomId, scheduleId, startsAt, endsAt, capacity, creditsRequired, isPrivate })
       }
     }
     weekCursor.setDate(weekCursor.getDate() + step)
@@ -118,7 +121,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
         }),
         prisma.classTemplate.findMany({
           where: { studioId },
-          select: { id: true, name: true, sport: true, durationMin: true, defaultInstructorId: true, defaultRoomId: true, defaultCapacity: true, defaultCreditsRequired: true, defaultStartTime: true, defaultStartTime2: true, defaultDaysOfWeek: true, defaultIntervalWeeks: true },
+          select: { id: true, name: true, sport: true, durationMin: true, isPrivate: true, defaultInstructorId: true, defaultRoomId: true, defaultCapacity: true, defaultCreditsRequired: true, defaultStartTime: true, defaultStartTime2: true, defaultDaysOfWeek: true, defaultIntervalWeeks: true },
           orderBy: { name: 'asc' },
         }),
         prisma.instructor.findMany({
@@ -154,12 +157,22 @@ export async function classScheduleRoutes(app: FastifyInstance) {
           capacity: s.capacity,
           creditsRequired: s.creditsRequired,
           status: s.status,
+          isPrivate: s.isPrivate,
         })),
         templates: templates.map(t => ({
           id: t.id,
           name: t.name,
           sport: t.sport,
           durationMin: t.durationMin,
+          isPrivate: t.isPrivate,
+          defaultInstructorId: t.defaultInstructorId,
+          defaultRoomId: t.defaultRoomId,
+          defaultCapacity: t.defaultCapacity,
+          defaultCreditsRequired: t.defaultCreditsRequired,
+          defaultStartTime: t.defaultStartTime,
+          defaultStartTime2: t.defaultStartTime2,
+          defaultDaysOfWeek: t.defaultDaysOfWeek,
+          defaultIntervalWeeks: t.defaultIntervalWeeks,
         })),
         instructors: instructors.map(i => ({
           id: i.id,
@@ -225,6 +238,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       roomId: string
       capacity: number
       creditsRequired?: number
+      isPrivate?: boolean
       daysOfWeek: number[]
       startTime: string
       durationMin: number
@@ -239,7 +253,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const {
         studioId, templateId, instructorId, roomId, capacity,
-        creditsRequired = 1, daysOfWeek, startTime, durationMin,
+        creditsRequired = 1, isPrivate: isPrivateOverride, daysOfWeek, startTime, durationMin,
         intervalWeeks = 1, validFrom, validUntil, generateWeeks = 8,
       } = request.body
 
@@ -255,6 +269,10 @@ export async function classScheduleRoutes(app: FastifyInstance) {
         ? new Date(validUntil)
         : new Date(from.getTime() + generateWeeks * 7 * 24 * 60 * 60 * 1000)
 
+      const template = await prisma.classTemplate.findUnique({ where: { id: templateId }, select: { isPrivate: true } })
+      // Body override takes precedence over template default
+      const resolvedIsPrivate = isPrivateOverride ?? template?.isPrivate ?? false
+
       const sched = await prisma.classSchedule.create({
         data: {
           studioId, templateId, instructorId, roomId,
@@ -266,9 +284,10 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       await generateSessions(
         sched.id, studioId, templateId, instructorId, roomId,
         capacity, creditsRequired, daysOfWeek, startTime, durationMin, intervalWeeks,
-        from, until,
+        from, until, resolvedIsPrivate,
       )
 
+      audit({ actorId: user.id, actorRole: user.role, action: AUDIT.SCHEDULE_CREATE, targetId: sched.id, studioId, meta: { templateId, instructorId, startTime, daysOfWeek } })
       return reply.code(201).send({ success: true, id: sched.id })
     },
   )
@@ -374,6 +393,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
         }),
       ])
 
+      audit({ actorId: user.id, actorRole: user.role, action: AUDIT.SCHEDULE_DELETE, targetId: id, studioId, meta: { templateId: existing.templateId, instructorId: existing.instructorId } })
       return reply.send({ success: true })
     },
   )

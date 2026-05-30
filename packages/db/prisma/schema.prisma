@@ -34,6 +34,9 @@ model Studio {
   // Membership pause rules
   maxPauseDays             Int     @default(30)
   maxPausesPerYear         Int     @default(2)
+  // AI assistant
+  aiEnabled                Boolean @default(true)
+  anthropicApiKey          String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -48,6 +51,8 @@ model Studio {
   cancellationPolicy CancellationPolicy?
   integration   StudioIntegration?
   availabilityBlocks InstructorAvailabilityBlock[]
+  staffShifts        StaffShift[]
+  staffShiftPatterns StaffShiftPattern[]
   promoCodes    PromoCode[]
   networkMemberships   StudioNetworkMembership[]
   brandMemberships     BrandStudio[]
@@ -293,6 +298,8 @@ model ClassTemplate {
   color       String   @default("#6366f1")
   imageUrl    String?
 
+  isPrivate   Boolean  @default(false)  // private templates generate private sessions by default
+
   // Optional schedule defaults — pre-fill values when creating a schedule
   defaultInstructorId    String?
   defaultRoomId          String?
@@ -361,6 +368,7 @@ model ClassSession {
   capacity               Int
   status                 SessionStatus @default(SCHEDULED)
   creditsRequired        Int           @default(1)
+  isPrivate              Boolean       @default(false)
   externalId             String?       // e.g. Mariana Tek class occurrence ID
   source                 String        @default("packd") // "packd" | "mariana_tek"
   createdAt              DateTime      @default(now())
@@ -408,6 +416,9 @@ model Member {
   emergencyContactPhone String?
   guestPassBalance     Int      @default(0)
 
+  // Pay
+  payRateHourlyCents   Int?     // hourly rate for shift-based staff (fronthosts)
+
   // Stripe
   stripeCustomerId     String?
 
@@ -422,6 +433,8 @@ model Member {
   promoRedemptions PromoCodeRedemption[]
   guestPasses     GuestPass[]
   productSales    ProductSale[]
+  staffShifts        StaffShift[]
+  staffShiftPatterns StaffShiftPattern[]
 
   @@unique([studioId, externalId])
   @@index([studioId])              // member list / export queries
@@ -723,6 +736,48 @@ model PromoCodeRedemption {
 
   @@unique([promoCodeId, memberId])
   @@index([memberId])
+}
+
+// ─── Staff shifts ─────────────────────────────────────────────────────────────
+
+model StaffShiftPattern {
+  id            String    @id @default(cuid())
+  memberId      String
+  studioId      String
+  daysOfWeek    Int[]     // 0=Sun … 6=Sat, same convention as ClassSchedule
+  startTime     String    // "HH:MM" 24h
+  endTime       String    // "HH:MM" 24h
+  intervalWeeks Int       @default(1)  // 1=every week, 2=every other week, etc.
+  validFrom     DateTime
+  validUntil    DateTime?
+  note          String?
+  createdAt     DateTime  @default(now())
+
+  member Member      @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  studio Studio      @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  shifts StaffShift[]
+
+  @@index([studioId, memberId])
+  @@index([memberId])
+}
+
+model StaffShift {
+  id        String   @id @default(cuid())
+  memberId  String
+  studioId  String
+  startsAt  DateTime
+  endsAt    DateTime
+  note      String?
+  patternId String?  // set when generated from a StaffShiftPattern
+  createdAt DateTime @default(now())
+
+  member  Member             @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  studio  Studio             @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  pattern StaffShiftPattern? @relation(fields: [patternId], references: [id], onDelete: SetNull)
+
+  @@index([studioId, startsAt])
+  @@index([memberId, startsAt])
+  @@index([patternId])
 }
 
 // ─── Guest passes ─────────────────────────────────────────────────────────────
