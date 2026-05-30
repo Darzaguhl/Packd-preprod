@@ -8,8 +8,14 @@ vi.mock('@packd/db', () => {
     update: vi.fn(),
     delete: vi.fn(),
   }
-  return { prisma: { product } }
+  const studio = { findUnique: vi.fn().mockResolvedValue({ currency: 'usd' }) }
+  return { prisma: { product, studio } }
 })
+
+vi.mock('../lib/stripe-sync.js', () => ({
+  syncStripePrice: vi.fn().mockResolvedValue({ stripeProductId: 'prod_test', stripePriceId: 'price_test' }),
+  archiveStripeProduct: vi.fn().mockResolvedValue(undefined),
+}))
 
 vi.mock('../lib/auth.js', () => ({
   requireAuth: vi.fn().mockResolvedValue(undefined),
