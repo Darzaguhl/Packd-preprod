@@ -7,11 +7,15 @@ import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole, createSupabaseU
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
-// Brand query result types (using any because Prisma.BrandGetPayload was removed in Prisma 6)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type BrandWithStudios = any
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type BrandStudioMembership = any
+// Brand query result types — inferred from the actual query shape (Prisma 6 removed GetPayload helpers)
+type BrandWithStudios = Awaited<ReturnType<typeof prisma.brand.findFirst<{
+  include: {
+    studios: {
+      include: { studio: { select: { id: true; name: true; slug: true; timezone: true; currency: true; primaryColor: true; logoUrl: true } } }
+    }
+  }
+}>>>
+type BrandStudioMembership = NonNullable<BrandWithStudios>['studios'][number]
 
 const CreateBrandBody = z.object({
   name: z.string().min(1),

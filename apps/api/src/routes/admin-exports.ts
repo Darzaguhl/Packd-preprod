@@ -20,9 +20,10 @@ function toCsv(headers: string[], rows: unknown[][]): string {
 
 export async function adminExportsRoutes(app: FastifyInstance) {
   // POST /admin/query — run a SELECT query against the database (studio_admin+)
+  // Rate-limited to 10/min per IP — queries can be expensive and block the DB.
   app.post<{ Body: { sql: string; studioId: string } }>(
     '/query',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireStudioAdmin, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (request, reply) => {
       const { sql, studioId } = request.body
       if (!studioId) return reply.badRequest('studioId is required')

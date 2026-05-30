@@ -52,7 +52,8 @@ vi.mock('@packd/db', () => {
 // ── Email mock ────────────────────────────────────────────────────────────────
 
 vi.mock('../lib/email.js', () => ({
-  sendWelcome: vi.fn().mockResolvedValue(true),
+  sendWelcome:       vi.fn().mockResolvedValue(true),
+  sendPaymentFailed: vi.fn().mockResolvedValue(true),
 }))
 
 // ── Auth mock (checkout + refund routes use requireAuth) ─────────────────────
@@ -66,6 +67,7 @@ import Fastify from 'fastify'
 import sensible from '@fastify/sensible'
 import { stripeRoutes } from '../routes/stripe.js'
 import { prisma } from '@packd/db'
+import { sendPaymentFailed } from '../lib/email.js'
 
 // ── App builder ───────────────────────────────────────────────────────────────
 
@@ -263,5 +265,151 @@ describe('POST /stripe/webhook', () => {
     await postWebhook(app, event)
 
     expect(vi.mocked(prisma.productSale.update)).not.toHaveBeenCalled()
+  })
+
+  // ─── invoice.paid → restores subscription to ACTIVE ────────────────────────
+
+  it('restores subscription to ACTIVE and grants credits on invoice.paid renewal', async () => {
+    const event = makeEvent('invoice.paid', {
+      subscription: 'sub_paid_1',
+      customer: 'cus_paid',
+      billing_reason: 'subscription_cycle', // renewal only — first payment goes via checkout.session.completed
+    }, 'evt_paid_1')
+
+    const app = await buildApp()
+    mockStripe.webhooks.constructEvent.mockReturnValue(event)
+
+    // stripe().subscriptions.retrieve returns a sub with a price
+    mockStripe.subscriptions.retrieve.mockResolvedValue({
+      customer: 'cus_paid',
+      items: { data: [{ price: { id: 'price_monthly' } }] },
+    })
+
+    vi.mocked(prisma.membershipPlan.findFirst).mockResolvedValue({
+      id: 'plan-1', creditsPerCycle: 8, creditExpiryDays: null,
+    } as never)
+    vi.mocked(prisma.member.findFirst).mockResolvedValue({ id: 'member-1', user: { firstName: 'A', email: 'a@b.com' } } as never)
+    vi.mocked(prisma.membershipSubscription.updateMany).mockResolvedValue({ count: 1 } as never)
+    vi.mocked(prisma.creditBalance.upsert).mockResolvedValue({ balance: 8 } as never)
+    vi.mocked(prisma.creditTransaction.create).mockResolvedValue({} as never)
+
+    const res = await postWebhook(app, event)
+
+    expect(res.statusCode).toBe(200)
+    // PAST_DUE → ACTIVE
+    expect(vi.mocked(prisma.membershipSubscription.updateMany)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ stripeSubId: 'sub_paid_1', status: 'PAST_DUE' }),
+        data: expect.objectContaining({ status: 'ACTIVE' }),
+      }),
+    )
+    // Credits granted
+    expect(vi.mocked(prisma.creditBalance.upsert)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { memberId: 'member-1' },
+        update: { balance: { increment: 8 } },
+      }),
+    )
+  })
+
+  // ─── invoice.payment_failed → sends alert email ─────────────────────────────
+
+  it('sends alert email to studio supportEmail on invoice.payment_failed', async () => {
+    const event = makeEvent('invoice.payment_failed', {
+      subscription: 'sub_alert_1',
+      customer: 'cus_alert',
+      amount_due: 2000,
+      currency: 'usd',
+    }, 'evt_alert_1')
+
+    const app = await buildApp()
+    mockStripe.webhooks.constructEvent.mockReturnValue(event)
+
+    vi.mocked(prisma.member.findFirst).mockResolvedValue({
+      id: 'member-1',
+      user: { firstName: 'Jane', lastName: 'Doe', email: 'jane@example.com' },
+      studio: { id: 'studio-1', name: 'Packd Demo', supportEmail: 'support@studio.com' },
+    } as never)
+    vi.mocked(prisma.membershipSubscription.updateMany).mockResolvedValue({ count: 1 } as never)
+
+    await postWebhook(app, event)
+
+    expect(vi.mocked(sendPaymentFailed)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'support@studio.com',
+        studioName: 'Packd Demo',
+        memberFirstName: 'Jane',
+        memberEmail: 'jane@example.com',
+        amountFormatted: 'USD 20.00',
+      }),
+    )
+  })
+
+  it('does not send alert email when studio has no supportEmail and OPS_EMAIL not set', async () => {
+    const event = makeEvent('invoice.payment_failed', {
+      subscription: 'sub_noalert',
+      customer: 'cus_noalert',
+      amount_due: 1000,
+      currency: 'usd',
+    }, 'evt_noalert_1')
+
+    const app = await buildApp()
+    mockStripe.webhooks.constructEvent.mockReturnValue(event)
+
+    vi.mocked(prisma.member.findFirst).mockResolvedValue({
+      id: 'member-2',
+      user: { firstName: 'Bob', lastName: 'Smith', email: 'bob@example.com' },
+      studio: { id: 'studio-1', name: 'Packd Demo', supportEmail: null }, // no email configured
+    } as never)
+    vi.mocked(prisma.membershipSubscription.updateMany).mockResolvedValue({ count: 1 } as never)
+
+    delete process.env.OPS_EMAIL
+
+    await postWebhook(app, event)
+
+    expect(vi.mocked(sendPaymentFailed)).not.toHaveBeenCalled()
+  })
+
+  // ─── checkout.session.completed → credits granted ───────────────────────────
+
+  it('grants credits on checkout.session.completed for a credit-bearing plan', async () => {
+    const event = makeEvent('checkout.session.completed', {
+      payment_status: 'paid',
+      mode: 'payment',
+      metadata: { userId: 'user-1', planId: 'plan-1', studioId: 'studio-1', memberId: 'member-1' },
+    }, 'evt_checkout_1')
+
+    const app = await buildApp()
+    mockStripe.webhooks.constructEvent.mockReturnValue(event)
+
+    vi.mocked(prisma.membershipPlan.findUniqueOrThrow).mockResolvedValue({
+      id: 'plan-1',
+      name: 'Drop-in 10 pack',
+      creditsPerCycle: 10,
+      intervalMonths: 0,
+      stripePriceId: 'price_1',
+      studioId: 'studio-1',
+    } as never)
+    vi.mocked(prisma.member.findUniqueOrThrow).mockResolvedValue({
+      id: 'member-1',
+      userId: 'user-1',
+      studioId: 'studio-1',
+      user: { firstName: 'Jane', email: 'jane@example.com' },
+    } as never)
+    vi.mocked(prisma.membershipSubscription.create).mockResolvedValue({} as never)
+    vi.mocked(prisma.creditBalance.upsert).mockResolvedValue({ balance: 10 } as never)
+    vi.mocked(prisma.creditTransaction.create).mockResolvedValue({} as never)
+    vi.mocked(prisma.promoCodeRedemption.findUnique).mockResolvedValue(null)
+
+    const res = await postWebhook(app, event)
+
+    expect(res.statusCode).toBe(200)
+    // Credits should be granted
+    expect(vi.mocked(prisma.creditBalance.upsert)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { memberId: 'member-1' },
+        update: { balance: { increment: 10 } },
+      }),
+    )
   })
 })

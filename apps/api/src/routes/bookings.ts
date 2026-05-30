@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
-import { prisma, Prisma } from '@packd/db'
+import { prisma } from '@packd/db'
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library.js'
 import { requireAuth, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { enqueueLateCancelCheck } from '../jobs/index.js'
@@ -176,7 +177,7 @@ export async function bookingRoutes(app: FastifyInstance) {
               data: { sessionId, memberId: member.id, status: 'CONFIRMED' },
             })
           } catch (e: unknown) {
-            if (e instanceof Error && (e as { code?: string }).code === 'P2002') {
+            if (e instanceof PrismaClientKnownRequestError && e.code === 'P2002') {
               throw Object.assign(new Error('Already booked'), { statusCode: 409 })
             }
             throw e

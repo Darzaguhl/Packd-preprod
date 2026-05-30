@@ -575,4 +575,43 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       return reply.send(sales)
     },
   )
+
+  // GET /admin/audit-log?studioId=&limit=&cursor= — paginated audit log (studio_admin+)
+  app.get<{ Querystring: { studioId: string; limit?: string; cursor?: string; targetId?: string } }>(
+    '/audit-log',
+    { preHandler: requireStudioAdmin },
+    async (request, reply) => {
+      const { studioId, limit: limitStr, cursor, targetId } = request.query
+      if (!studioId) return reply.badRequest('studioId is required')
+
+      const limit = Math.min(parseInt(limitStr ?? '50', 10) || 50, 200)
+
+      const entries = await prisma.auditLog.findMany({
+        where: {
+          studioId,
+          ...(targetId ? { targetId } : {}),
+          ...(cursor ? { createdAt: { lt: new Date(cursor) } } : {}),
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit + 1, // fetch one extra to determine if there's a next page
+      })
+
+      const hasMore = entries.length > limit
+      const page = entries.slice(0, limit)
+
+      return reply.send({
+        entries: page.map(e => ({
+          id: e.id,
+          actorId: e.actorId,
+          actorRole: e.actorRole,
+          action: e.action,
+          targetId: e.targetId,
+          meta: e.meta,
+          studioId: e.studioId,
+          createdAt: e.createdAt.toISOString(),
+        })),
+        nextCursor: hasMore ? page[page.length - 1].createdAt.toISOString() : null,
+      })
+    },
+  )
 }

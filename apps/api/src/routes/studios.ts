@@ -1,27 +1,11 @@
-import type { FastifyInstance, FastifyReply } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import { prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
+import { assertStudioAccess } from './admin-shared.js'
 
 const requireFranchiseAdmin = requireRole('franchise_admin')
 const requireStudioAdmin = requireRole('studio_admin')
-
-async function assertStudioAccess(
-  userId: string,
-  userRole: string,
-  studioId: string,
-  reply: FastifyReply,
-  studioIds?: string[],
-): Promise<boolean> {
-  if (ROLE_RANK[userRole as keyof typeof ROLE_RANK] >= ROLE_RANK['franchise_admin']) return true
-  if (studioIds && studioIds.includes(studioId)) return true
-  const member = await prisma.member.findUnique({ where: { userId }, select: { studioId: true, studioIds: true } })
-  if (!member || (!member.studioIds.includes(studioId) && member.studioId !== studioId)) {
-    reply.code(403).send({ error: 'Access denied' })
-    return false
-  }
-  return true
-}
 
 export async function studioRoutes(app: FastifyInstance) {
   // GET /studios — list all studios (franchise_admin+)

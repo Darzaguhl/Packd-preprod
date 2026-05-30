@@ -205,7 +205,27 @@ export default async function globalSetup() {
   // 3. Give the member 20 credits so booking tests pass
   await seedMemberCredits(adminToken, E2E_MEMBER_EMAIL, 20)
 
-  // 4. Save browser auth states
+  // 4. Verify the studio has at least one bookable future session.
+  //    If the seed sessions are all in the past (happens after a few weeks),
+  //    the booking test would silently skip — fail loudly here instead.
+  const scheduleRes = await fetch(
+    `${API_URL}/schedule?studioId=${STUDIO_ID}&date=${new Date(Date.now() + 86400000).toISOString().slice(0, 10)}`,
+    { headers: { Authorization: `Bearer ${memberToken}` } },
+  )
+  if (scheduleRes.ok) {
+    const schedule = await scheduleRes.json().catch(() => ({ sessions: [] }))
+    const sessions = schedule?.sessions ?? schedule ?? []
+    if (!Array.isArray(sessions) || sessions.length === 0) {
+      console.warn(
+        '[setup] ⚠ No sessions found for tomorrow. Booking tests may skip.\n' +
+        '        Re-run the seed script: npm run db:seed',
+      )
+    } else {
+      console.log(`[setup] Found ${sessions.length} session(s) for tomorrow — booking tests will run.`)
+    }
+  }
+
+  // 5. Save browser auth states
   console.log('[setup] Saving auth states…')
   await saveAuthState(E2E_MEMBER_EMAIL, E2E_MEMBER_PASSWORD, '.auth/member.json', /schedule/)
   await saveAuthState(E2E_ADMIN_EMAIL,  E2E_ADMIN_PASSWORD,  '.auth/admin.json',  /dashboard/)

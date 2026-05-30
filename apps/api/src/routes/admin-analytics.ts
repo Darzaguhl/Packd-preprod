@@ -147,6 +147,9 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
       const dayOfWeek = windowStart.getDay() || 7
       windowStart.setDate(windowStart.getDate() - (dayOfWeek - 1) - (weeks - 1) * 7)
 
+      // Cap at 2000 sessions to prevent OOM on very large studios.
+      // At ~50 classes/week × 12 weeks = 600 sessions, this cap is rarely hit.
+      // A proper DB-side aggregation refactor would remove this limit entirely.
       const sessions = await prisma.classSession.findMany({
         where: {
           ...(allStudios ? {} : { studioId }),
@@ -160,6 +163,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
           bookings: { select: { status: true, checkedIn: true, memberId: true } },
         },
         orderBy: { startsAt: 'asc' },
+        take: 2000,
       })
 
       function isoWeekMonday(d: Date): string {

@@ -443,16 +443,18 @@ export async function stripeRoutes(app: FastifyInstance) {
             data: { status: 'PAST_DUE' },
           })
 
-          // Alert the studio if a support email is configured
+          // Alert the studio — prefer the studio's support email, fall back to
+          // the OPS_EMAIL env var so failures are never silently swallowed.
           const studio = member.studio
-          if (studio?.supportEmail) {
+          const alertTo = studio?.supportEmail ?? process.env.OPS_EMAIL
+          if (alertTo) {
             const amountCents = invoice.amount_due ?? 0
             const currency = (invoice.currency ?? 'usd').toUpperCase()
             const amountFormatted = `${currency} ${(amountCents / 100).toFixed(2)}`
             const manageUrl = `${process.env.WEB_URL}/dashboard?tab=members&member=${member.id}`
             sendPaymentFailed({
-              to: studio.supportEmail,
-              studioName: studio.name,
+              to: alertTo,
+              studioName: studio?.name ?? 'Packd',
               memberFirstName: member.user.firstName,
               memberEmail: member.user.email,
               amountFormatted,

@@ -4,6 +4,9 @@ import { prisma } from '@packd/db'
 import { ROLE_RANK } from '@packd/types'
 import { requireRole, getUser } from '../lib/auth.js'
 import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole } from '../lib/supabase-admin.js'
+import { assertStudioAccess } from './admin-shared.js'
+
+export { assertStudioAccess }
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
@@ -82,35 +85,6 @@ const DEFAULT_FRONTHOST_PERMISSIONS: FronthostPermissions = {
   canViewPurchaseHistory: true,
   canExportData: false,
   canOverrideBookingRestrictions: true,
-}
-
-export async function assertStudioAccess(
-  userId: string,
-  userRole: string,
-  studioId: string,
-  reply: FastifyReply,
-  studioIds?: string[],
-): Promise<boolean> {
-  if (ROLE_RANK[userRole as keyof typeof ROLE_RANK] >= ROLE_RANK['franchise_admin']) {
-    return true
-  }
-
-  // Check JWT studioIds first (no DB round-trip needed)
-  if (studioIds && studioIds.includes(studioId)) {
-    return true
-  }
-
-  const member = await prisma.member.findUnique({
-    where: { userId },
-    select: { studioId: true, studioIds: true },
-  })
-
-  if (!member || (!member.studioIds.includes(studioId) && member.studioId !== studioId)) {
-    reply.code(403).send({ error: 'Access denied to this studio' })
-    return false
-  }
-
-  return true
 }
 
 export async function franchiseRoutes(app: FastifyInstance) {
@@ -313,7 +287,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
       const updated = await prisma.instructor.update({
         where: { id: instructorId },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        data: { permissions: merged as any },
+        data: { permissions: merged as unknown as object },
       })
 
       return reply.send({ success: true, permissions: updated.permissions })
@@ -604,7 +578,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
       await prisma.member.update({
         where: { id: memberId },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        data: { staffPermissions: merged as any },
+        data: { staffPermissions: merged as unknown as object },
       })
 
       return reply.send({ success: true, permissions: merged })

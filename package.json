@@ -8,7 +8,7 @@
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
-    "postinstall": "node -e \"if(process.platform==='darwin'&&process.arch==='arm64'){require('child_process').execSync('npm_config_cpu=arm64 npm install @esbuild/darwin-arm64 --no-save --ignore-scripts 2>/dev/null || true')}\"",
+    "postinstall": "npm run db:generate",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "db:generate": "turbo db:generate",
