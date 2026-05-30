@@ -405,6 +405,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
       {/* Toast */}
       {toast && (
         <div
+          data-testid="toast"
           className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg transition-all ${
             toast.ok ? 'bg-gray-900 text-white' : 'bg-red-500 text-white'
           }`}

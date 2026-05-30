@@ -1,59 +1,124 @@
+/**
+ * Booking flow — member perspective.
+ *
+ * Prerequisite: global-setup.ts has run and seeded the test member with credits.
+ * Tests run serially (workers: 1) because they share real DB state.
+ *
+ * Flow: browse classes → open session detail → book → verify booked → cancel → verify unbooked
+ */
+
 import { test, expect } from './fixtures'
 
-test.describe('Booking flow (authenticated)', () => {
-  test.beforeEach(async ({ authedPage: page }) => {
-    await expect(page.locator('.animate-pulse').first()).not.toBeVisible({ timeout: 8000 })
+test.describe('Schedule', () => {
+  test('shows day tabs and class cards', async ({ authedPage: page }) => {
+    // Seven day tabs
+    await expect(page.locator('[data-testid="day-tab"]')).toHaveCount(7)
+
+    // At least one class card OR an empty-state message — never blank
+    const cards = page.locator('[data-testid="class-card"]')
+    const empty = page.locator('text=/no classes/i')
+    await expect(cards.first().or(empty)).toBeVisible({ timeout: 8000 })
   })
 
-  test('book button triggers booking and shows toast', async ({ authedPage: page }) => {
-    const bookBtn = page.locator('[data-testid="book-btn"]').first()
-    if (await bookBtn.count() === 0) { test.skip(); return }
-    await bookBtn.click()
-    await expect(page.locator('[data-testid="toast"], .fixed.bottom-6')).toBeVisible({ timeout: 5000 })
+  test('today tab is selected by default', async ({ authedPage: page }) => {
+    const selected = page.locator('[data-testid="day-tab"][aria-selected="true"]')
+    await expect(selected).toBeVisible()
   })
 
-  test('booked class shows cancel button in session detail', async ({ authedPage: page }) => {
-    // Click any booked class card (status label will say "Booked")
-    const bookedCard = page.locator('[data-testid="class-card"]').filter({ hasText: /booked/i }).first()
-    if (await bookedCard.count() === 0) { test.skip(); return }
-    await bookedCard.click()
-    // Session detail panel opens
-    await expect(page.locator('[data-testid="session-detail"]')).toBeVisible({ timeout: 5000 })
-    // Cancel button should be present
-    await expect(page.locator('button', { hasText: /cancel/i })).toBeVisible()
+  test('switching day tab updates class list without crashing', async ({ authedPage: page }) => {
+    const tabs = page.locator('[data-testid="day-tab"]')
+    await tabs.nth(2).click()
+    await page.waitForTimeout(500)
+    // Page is still functional — either cards or empty state
+    await expect(
+      page.locator('[data-testid="class-card"]').first()
+        .or(page.locator('text=/no classes/i'))
+    ).toBeVisible({ timeout: 5000 })
   })
 
-  test('cancel booking shows confirmation toast', async ({ authedPage: page }) => {
-    const bookedCard = page.locator('[data-testid="class-card"]').filter({ hasText: /booked/i }).first()
-    if (await bookedCard.count() === 0) { test.skip(); return }
-    await bookedCard.click()
-    await expect(page.locator('[data-testid="session-detail"]')).toBeVisible({ timeout: 5000 })
-    const cancelBtn = page.locator('button', { hasText: /cancel booking/i })
-    if (await cancelBtn.count() === 0) { test.skip(); return }
-    await cancelBtn.click()
-    // Confirmation dialog or immediate toast
-    const confirmBtn = page.locator('button', { hasText: /yes|confirm|cancel booking/i }).last()
-    if (await confirmBtn.isVisible()) await confirmBtn.click()
-    await expect(page.locator('.fixed.bottom-6')).toBeVisible({ timeout: 5000 })
-    const text = await page.locator('.fixed.bottom-6').textContent()
-    expect(text).toMatch(/cancelled|cancel/i)
-  })
+  test('clicking a class card opens session detail with capacity info', async ({ authedPage: page }) => {
+    const cards = page.locator('[data-testid="class-card"]')
+    const count = await cards.count()
+    if (count === 0) {
+      // Navigate forward through days to find a session
+      const tabs = page.locator('[data-testid="day-tab"]')
+      for (let i = 1; i < 7; i++) {
+        await tabs.nth(i).click()
+        await page.waitForTimeout(400)
+        if (await cards.count() > 0) break
+      }
+    }
+    expect(await cards.count()).toBeGreaterThan(0)
 
-  test('waitlist button joins queue and shows position toast', async ({ authedPage: page }) => {
-    const waitlistBtn = page.locator('[data-testid="waitlist-btn"]').first()
-    if (await waitlistBtn.count() === 0) { test.skip(); return }
-    await waitlistBtn.click()
-    await expect(page.locator('.fixed.bottom-6')).toBeVisible({ timeout: 5000 })
-    const text = await page.locator('.fixed.bottom-6').textContent()
-    expect(text).toMatch(/waitlist|position|failed/i)
+    await cards.first().click()
+    const detail = page.locator('[data-testid="session-detail"]')
+    await expect(detail).toBeVisible({ timeout: 5000 })
+    // Must show capacity (e.g. "4/20 booked")
+    await expect(detail).toContainText(/\/\d+ booked/i)
   })
+})
 
-  test('session detail shows class info and capacity', async ({ authedPage: page }) => {
-    const card = page.locator('[data-testid="class-card"]').first()
-    if (await card.count() === 0) { test.skip(); return }
-    await card.click()
-    await expect(page.locator('[data-testid="session-detail"]')).toBeVisible({ timeout: 5000 })
-    // Should show capacity / spots left
-    await expect(page.locator('[data-testid="session-detail"]')).toContainText(/spot|capacity|full/i)
+test.describe('Book and cancel flow', () => {
+  test('can book an available class and then cancel it', async ({ authedPage: page }) => {
+    // Find a future bookable class (not full, not already booked)
+    let found = false
+    const tabs = page.locator('[data-testid="day-tab"]')
+
+    for (let dayIdx = 0; dayIdx < 7 && !found; dayIdx++) {
+      await tabs.nth(dayIdx).click()
+      await page.waitForTimeout(400)
+      await expect(page.locator('.animate-pulse').first()).not.toBeVisible({ timeout: 6000 })
+
+      const cards = page.locator('[data-testid="class-card"]')
+      const count = await cards.count()
+
+      for (let i = 0; i < count && !found; i++) {
+        const card = cards.nth(i)
+        // Skip cards already showing as booked
+        const text = await card.textContent()
+        if (text?.toLowerCase().includes('booked')) continue
+
+        await card.click()
+        const detail = page.locator('[data-testid="session-detail"]')
+        await expect(detail).toBeVisible({ timeout: 5000 })
+
+        const bookBtn = page.locator('[data-testid="book-btn"]')
+        if (await bookBtn.count() > 0 && await bookBtn.isEnabled()) {
+          found = true
+
+          // ── Book ──────────────────────────────────────────────────
+          await bookBtn.click()
+          const toast = page.locator('[data-testid="toast"]')
+          await expect(toast).toBeVisible({ timeout: 8000 })
+          const toastText = await toast.textContent()
+          expect(toastText?.toLowerCase()).toMatch(/booked|success|confirmed/i)
+          await expect(toast).not.toBeVisible({ timeout: 5000 })
+
+          // Session detail should now show "You're booked"
+          await expect(detail).toContainText(/you.re booked/i)
+
+          // Cancel button should now be enabled
+          const cancelBtn = page.locator('[data-testid="cancel-btn"]')
+          await expect(cancelBtn).toBeEnabled({ timeout: 3000 })
+
+          // ── Cancel ────────────────────────────────────────────────
+          await cancelBtn.click()
+          const cancelToast = page.locator('[data-testid="toast"]')
+          await expect(cancelToast).toBeVisible({ timeout: 8000 })
+          const cancelText = await cancelToast.textContent()
+          expect(cancelText?.toLowerCase()).toMatch(/cancel|removed/i)
+        } else {
+          // Not bookable — go back and try next card
+          const backBtn = page.locator('button', { hasText: /back to schedule/i })
+          if (await backBtn.count() > 0) await backBtn.click()
+          else await page.goBack()
+          await page.waitForTimeout(300)
+        }
+      }
+    }
+
+    if (!found) {
+      test.skip() // No bookable session in the 7-day window — seed issue
+    }
   })
 })

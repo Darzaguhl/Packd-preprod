@@ -453,7 +453,7 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
       <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
 
       {/* Drawer */}
-      <div className="fixed right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl z-50 flex flex-col">
+      <div data-testid="member-drawer" className="fixed right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl z-50 flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
           <div>
@@ -495,6 +495,7 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                 {results.map(r => (
                   <button
                     key={r.id}
+                    data-testid="member-row"
                     onClick={() => targetStation ? handleAddToStation(r) : selectMember(r)}
                     disabled={actionLoading}
                     className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 transition-colors text-left border-b border-gray-50 last:border-0 disabled:opacity-40"
@@ -595,6 +596,7 @@ export default function MemberDrawer({ studioId, currency, selectedSession, onCl
                         {booking.checkedIn ? '✓ Checked in' : 'Booked — not yet checked in'}
                       </span>
                       <button
+                        data-testid="checkin-btn"
                         onClick={handleCheckin}
                         disabled={actionLoading}
                         className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40 ${

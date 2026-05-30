@@ -10,3 +10,4 @@ prisma/migrations/
 build
 .expo
 *.tsbuildinfo
+.auth/

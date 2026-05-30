@@ -202,6 +202,7 @@ export default function FronthostDashboard({ defaultStudioId, modeSwitch }: { de
                   return (
                     <button
                       key={s.id}
+                      data-testid="session-row"
                       onClick={() => setSelectedSession(s)}
                       className={`w-full text-left px-3 py-3 rounded-xl transition-colors ${
                         isSelected

@@ -159,7 +159,7 @@ const timeFormat = useTimeFormat()
       : 'Tap a spot to book and reserve your place'
 
   return (
-    <div className="animate-[fadeIn_180ms_ease-out]">
+    <div className="animate-[fadeIn_180ms_ease-out]" data-testid="session-detail">
       {/* Back link */}
       <button
         onClick={onBack}
@@ -230,6 +230,7 @@ const timeFormat = useTimeFormat()
               {/* No layout: show full book/cancel/waitlist controls */}
               {!spotsLoading && !hasLayout && !isBooked && !isWaitlisted && (
                 <button
+                  data-testid={isFull ? 'waitlist-btn' : 'book-btn'}
                   onClick={isFull ? handleWaitlist : async () => {
                     setActionLoading(true)
                     try {
@@ -270,6 +271,7 @@ const timeFormat = useTimeFormat()
                     : 'Cancel your booking'
                 return (
                   <button
+                    data-testid="cancel-btn"
                     onClick={inactive ? undefined : handleCancel}
                     disabled={actionLoading || inactive}
                     title={title}

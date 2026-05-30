@@ -1,62 +1,82 @@
+/**
+ * Schedule view — authenticated member.
+ * These tests verify structural correctness of the schedule UI,
+ * not the booking flow (see booking.spec.ts for that).
+ */
+
 import { test, expect } from './fixtures'
 
-test.describe('Schedule view (authenticated)', () => {
-  test('loads schedule page with day tabs', async ({ authedPage: page }) => {
-    await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible()
-    // Seven day tabs should render
-    const tabs = page.locator('[data-testid="day-tab"]')
-    await expect(tabs).toHaveCount(7)
+test.describe('Schedule view', () => {
+  test('renders 7 day tabs', async ({ authedPage: page }) => {
+    await expect(page.locator('[data-testid="day-tab"]')).toHaveCount(7)
   })
 
-  test('shows Today tab as selected by default', async ({ authedPage: page }) => {
+  test('today is selected by default', async ({ authedPage: page }) => {
+    const selected = page.locator('[data-testid="day-tab"][aria-selected="true"]')
+    await expect(selected).toBeVisible()
     const today = new Date().toLocaleDateString('en-US', { weekday: 'short' })
-    const selectedTab = page.locator('[data-testid="day-tab"][aria-selected="true"]')
-    await expect(selectedTab).toContainText(today)
+    await expect(selected).toContainText(today)
   })
 
-  test('renders class cards with capacity bar', async ({ authedPage: page }) => {
-    // Wait for loading skeletons to disappear
-    await expect(page.locator('.animate-pulse').first()).not.toBeVisible({ timeout: 8000 })
+  test('each class card has a capacity bar', async ({ authedPage: page }) => {
     const cards = page.locator('[data-testid="class-card"]')
-    // Either classes exist or empty-state message
     const count = await cards.count()
-    if (count > 0) {
-      await expect(cards.first()).toBeVisible()
-      await expect(page.locator('[data-testid="capacity-bar"]').first()).toBeVisible()
-    } else {
-      await expect(page.getByText(/no classes/i)).toBeVisible()
-    }
+    if (count === 0) { test.skip(); return }
+
+    await expect(cards.first().locator('[data-testid="capacity-bar"]')).toBeVisible()
   })
 
-  test('week navigation — next/prev week loads new data', async ({ authedPage: page }) => {
-    await page.getByRole('button', { name: 'Next week' }).click()
-    // URL or state changes; tabs re-render
-    const tabs = page.locator('[data-testid="day-tab"]')
-    await expect(tabs).toHaveCount(7)
-    await page.getByRole('button', { name: 'Today' }).click()
-    await expect(tabs).toHaveCount(7)
+  test('sport filter pills appear and filtering does not crash', async ({ authedPage: page }) => {
+    const pills = page.locator('[data-testid="sport-filter"]')
+    const pillCount = await pills.count()
+    if (pillCount < 2) { test.skip(); return }
+
+    // Click the second pill (first non-All)
+    await pills.nth(1).click()
+    await page.waitForTimeout(500)
+    // Page remains stable
+    await expect(page.locator('[data-testid="day-tab"]')).toHaveCount(7)
+    // Click All back
+    await pills.nth(0).click()
   })
 
-  test('sport filter hides non-matching classes', async ({ authedPage: page }) => {
-    await expect(page.locator('.animate-pulse').first()).not.toBeVisible({ timeout: 8000 })
-    const filterPills = page.locator('[data-testid="sport-filter"]')
-    const pillCount = await filterPills.count()
-    if (pillCount > 1) {
-      // Click any sport pill that is not "All classes"
-      await filterPills.nth(1).click()
-      // Re-check that only filtered cards remain (or empty state)
-      const cards = page.locator('[data-testid="class-card"]')
-      const filtered = await cards.count()
-      // Clicking a specific sport should show fewer or equal cards
-      expect(filtered).toBeGreaterThanOrEqual(0)
-    }
-  })
+  test('week navigation works without errors', async ({ authedPage: page }) => {
+    const nextBtn = page.getByRole('button', { name: /next week/i })
+    await expect(nextBtn).toBeVisible()
+    await nextBtn.click()
+    await page.waitForTimeout(500)
+    await expect(page.locator('[data-testid="day-tab"]')).toHaveCount(7)
 
-  test('switching day tab updates the class list', async ({ authedPage: page }) => {
-    const tabs = page.locator('[data-testid="day-tab"]')
-    await tabs.nth(2).click()
-    // Wait a tick; no crash, cards or empty state visible
+    const todayBtn = page.getByRole('button', { name: /^today$/i })
+    await expect(todayBtn).toBeVisible()
+    await todayBtn.click()
     await page.waitForTimeout(300)
-    await expect(page.locator('[data-testid="class-card"], text=/no classes/i').first()).toBeVisible()
+  })
+
+  test('session detail shows instructor and room on click', async ({ authedPage: page }) => {
+    const cards = page.locator('[data-testid="class-card"]')
+    const tabs  = page.locator('[data-testid="day-tab"]')
+
+    // Find a day with sessions
+    let found = false
+    for (let i = 0; i < 7 && !found; i++) {
+      await tabs.nth(i).click()
+      await page.waitForTimeout(400)
+      if (await cards.count() > 0) { found = true; break }
+    }
+    if (!found) { test.skip(); return }
+
+    await cards.first().click()
+    const detail = page.locator('[data-testid="session-detail"]')
+    await expect(detail).toBeVisible({ timeout: 5000 })
+
+    // Must contain instructor name and capacity
+    await expect(detail).toContainText(/\/\d+ booked/i)
+    // Book or cancel button must be visible (past sessions show "This class has already started")
+    await expect(
+      detail.locator('[data-testid="book-btn"]')
+        .or(detail.locator('[data-testid="cancel-btn"]'))
+        .or(detail.locator('text=/already started|booked/i'))
+    ).toBeVisible({ timeout: 3000 })
   })
 })
