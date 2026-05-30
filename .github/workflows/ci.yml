@@ -11,6 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── Unit tests (every push) ───────────────────────────────────────────────────
   test:
     name: Unit tests
     runs-on: ubuntu-latest
@@ -60,6 +61,7 @@ jobs:
       - name: Run unit tests
         run: npm test -- --reporter=verbose
 
+  # ── TypeScript (every push) ───────────────────────────────────────────────────
   typecheck:
     name: TypeScript
     runs-on: ubuntu-latest
@@ -83,3 +85,88 @@ jobs:
 
       - name: Type-check Web
         run: cd apps/web && npx tsc --noEmit
+
+  # ── E2E tests (PRs only — hits real Supabase, slower) ─────────────────────────
+  #
+  # Required GitHub secrets (Settings → Secrets → Actions):
+  #   SUPABASE_URL              e.g. https://xxxx.supabase.co
+  #   SUPABASE_ANON_KEY         publishable key (sb_publishable_...)
+  #   SUPABASE_SERVICE_ROLE_KEY service role key (never expose client-side)
+  #   DATABASE_URL              postgres://... (Supabase direct connection string)
+  #   STUDIO_ID                 cuid of the seeded Packd Demo studio
+  #
+  e2e:
+    name: E2E tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    env:
+      CI: true
+      BASE_URL: http://localhost:3000
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      PORT: 4000
+      ICAL_SECRET: ci-e2e-secret
+      # Stripe + Resend can be placeholders — E2E tests don't trigger payments
+      STRIPE_SECRET_KEY: sk_test_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_placeholder
+      RESEND_API_KEY: re_placeholder
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      # Write env files from secrets so both servers can start
+      - name: Create API env file
+        run: |
+          cat > apps/api/.env << 'EOF'
+          DATABASE_URL=${{ secrets.DATABASE_URL }}
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CORS_ORIGIN=http://localhost:3000
+          WEB_URL=http://localhost:3000
+          PORT=4000
+          STRIPE_SECRET_KEY=sk_test_placeholder
+          STRIPE_WEBHOOK_SECRET=whsec_placeholder
+          RESEND_API_KEY=re_placeholder
+          ICAL_SECRET=ci-e2e-secret
+          EOF
+
+      - name: Create web env file
+        run: |
+          cat > apps/web/.env.local << 'EOF'
+          NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_API_URL=http://localhost:4000
+          NEXT_PUBLIC_STUDIO_ID=${{ secrets.STUDIO_ID }}
+          EOF
+
+      - name: Run E2E tests
+        env:
+          # Make secrets available to global-setup.ts (dotenv reads these files,
+          # but explicit env vars take precedence for the Playwright process itself)
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_STUDIO_ID: ${{ secrets.STUDIO_ID }}
+        run: npm run test:e2e
+
+      - name: Upload Playwright report on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

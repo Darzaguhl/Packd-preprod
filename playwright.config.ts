@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e',
-  fullyParallel: false,           // serial by default — tests share real DB state
+  fullyParallel: false,           // serial — tests share real DB state
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: 1,                     // one worker to avoid booking race conditions
@@ -14,24 +14,26 @@ export default defineConfig({
     video: 'on-first-retry',
   },
   projects: [
-    // Setup project that runs global-setup.ts
-    {
-      name: 'setup',
-      testMatch: /global-setup\.ts/,
-    },
-    // Main test suite — depends on setup having run
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-      dependencies: ['setup'],
-    },
+    { name: 'setup',    testMatch: /global-setup\.ts/ },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, dependencies: ['setup'] },
   ],
-  webServer: process.env.CI
-    ? {
-        command: 'npm run dev',
-        url: 'http://localhost:3000',
-        reuseExistingServer: false,
-        timeout: 120_000,
-      }
-    : undefined,
+  // In CI, Playwright starts both servers. Locally, start them manually.
+  webServer: process.env.CI ? [
+    {
+      command: 'cd apps/api && npm run dev',
+      url: 'http://localhost:4000/health',
+      reuseExistingServer: false,
+      timeout: 60_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+    {
+      command: 'cd apps/web && npm run dev',
+      url: 'http://localhost:3000',
+      reuseExistingServer: false,
+      timeout: 120_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+  ] : undefined,
 })
