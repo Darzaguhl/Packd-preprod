@@ -13,6 +13,7 @@
     "typecheck": "turbo typecheck",
     "db:generate": "turbo db:generate",
     "db:migrate": "turbo db:migrate",
+    "db:migrate:deploy": "turbo db:migrate:deploy",
     "db:studio": "cd packages/db && npx prisma studio",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { prisma } from '@packd/db'
+import { prisma, Prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { assertStudioAccess } from './admin-shared.js'
@@ -125,6 +125,9 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
   )
 
   // GET /admin/analytics?studioId=&weeks=12
+  // All heavy aggregations run as SQL GROUP BY queries — no session data loaded into memory.
+  // Only instructor loyalty rate (requires time-ordered sequential processing) runs in JS
+  // on a minimal dataset (session IDs + confirmed member ID arrays only).
   app.get<{ Querystring: { studioId: string; weeks?: string } }>(
     '/analytics',
     { preHandler: requireStudioAdmin },
@@ -133,7 +136,6 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
       if (!studioId) return reply.badRequest('studioId is required')
 
       const user = getUser(request)
-
       const allStudios = studioId === 'all'
       if (allStudios && ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['franchise_admin']) {
         return reply.forbidden('franchise_admin role required to view all-studios analytics')
@@ -141,65 +143,74 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
 
       const weeks = Math.min(Math.max(parseInt(request.query.weeks ?? '12', 10) || 12, 4), 52)
       const now = new Date()
-
       const windowStart = new Date(now)
       windowStart.setHours(0, 0, 0, 0)
       const dayOfWeek = windowStart.getDay() || 7
       windowStart.setDate(windowStart.getDate() - (dayOfWeek - 1) - (weeks - 1) * 7)
 
-      // Cap at 2000 sessions to prevent OOM on very large studios.
-      // At ~50 classes/week × 12 weeks = 600 sessions, this cap is rarely hit.
-      // A proper DB-side aggregation refactor would remove this limit entirely.
-      const sessions = await prisma.classSession.findMany({
-        where: {
-          ...(allStudios ? {} : { studioId }),
-          status: { not: 'CANCELLED' },
-          startsAt: { gte: windowStart, lt: now },
-        },
-        include: {
-          template: { select: { id: true, name: true, sport: true } },
-          instructor: { include: { user: { select: { firstName: true, lastName: true } } } },
-          substitute: { include: { user: { select: { firstName: true, lastName: true } } } },
-          bookings: { select: { status: true, checkedIn: true, memberId: true } },
-        },
-        orderBy: { startsAt: 'asc' },
-        take: 2000,
-      })
+      // Shared SQL fragment for the studio filter
+      const sf = allStudios ? Prisma.sql`1=1` : Prisma.sql`cs."studioId" = ${studioId}`
 
-      function isoWeekMonday(d: Date): string {
-        const copy = new Date(d); copy.setHours(0, 0, 0, 0)
-        const dow = copy.getDay() || 7
-        copy.setDate(copy.getDate() - (dow - 1))
-        return copy.toISOString().slice(0, 10)
-      }
+      // ── Heatmap: fill rate by day-of-week × hour ────────────────────────────
+      // ISODOW: 1=Mon…7=Sun → subtract 1 for 0-indexed Mon-first
+      const heatmapRows = await prisma.$queryRaw<Array<{
+        dow: number; hour: number; fill_rate: number; count: bigint
+      }>>`
+        SELECT
+          (EXTRACT(ISODOW FROM cs."startsAt")::int - 1)  AS dow,
+          EXTRACT(HOUR   FROM cs."startsAt")::int         AS hour,
+          AVG(CASE WHEN cs.capacity > 0
+              THEN COALESCE(b.confirmed_count, 0)::float / cs.capacity
+              ELSE 0 END)                                 AS fill_rate,
+          COUNT(cs.id)                                    AS count
+        FROM "ClassSession" cs
+        LEFT JOIN (
+          SELECT "sessionId", COUNT(*) AS confirmed_count
+          FROM "Booking" WHERE status = 'CONFIRMED' GROUP BY "sessionId"
+        ) b ON b."sessionId" = cs.id
+        WHERE ${sf}
+          AND cs.status != 'CANCELLED'
+          AND cs."startsAt" >= ${windowStart} AND cs."startsAt" < ${now}
+        GROUP BY dow, hour
+        ORDER BY dow, hour
+      `
+      const heatmap = heatmapRows.map(r => ({
+        dow: r.dow, hour: r.hour, fillRate: r.fill_rate, count: Number(r.count),
+      }))
 
-      function monFirstDow(d: Date): number { return (d.getDay() + 6) % 7 }
-
-      const heatmapMap = new Map<string, { total: number; sum: number }>()
-      for (const s of sessions) {
-        const key = `${monFirstDow(s.startsAt)}_${s.startsAt.getHours()}`
-        const confirmed = s.bookings.filter(b => b.status === 'CONFIRMED').length
-        const fill = s.capacity > 0 ? confirmed / s.capacity : 0
-        const existing = heatmapMap.get(key) ?? { total: 0, sum: 0 }
-        heatmapMap.set(key, { total: existing.total + 1, sum: existing.sum + fill })
-      }
-      const heatmap = Array.from(heatmapMap.entries()).map(([key, v]) => {
-        const [dow, hour] = key.split('_').map(Number)
-        return { dow, hour, fillRate: v.sum / v.total, count: v.total }
-      })
-
+      // ── Weekly trend ─────────────────────────────────────────────────────────
+      const weeklyRows = await prisma.$queryRaw<Array<{
+        week_start: Date; sessions: bigint; capacity_sum: bigint;
+        confirmed_sum: bigint; checked_in_sum: bigint; cancelled_sum: bigint
+      }>>`
+        SELECT
+          DATE_TRUNC('week', cs."startsAt")                                     AS week_start,
+          COUNT(DISTINCT cs.id)                                                  AS sessions,
+          SUM(cs.capacity)                                                       AS capacity_sum,
+          COUNT(CASE WHEN b.status = 'CONFIRMED' THEN 1 END)                    AS confirmed_sum,
+          COUNT(CASE WHEN b."checkedIn" = true THEN 1 END)                      AS checked_in_sum,
+          COUNT(CASE WHEN b.status IN ('CANCELLED','LATE_CANCELLED') THEN 1 END) AS cancelled_sum
+        FROM "ClassSession" cs
+        LEFT JOIN "Booking" b ON b."sessionId" = cs.id
+        WHERE ${sf}
+          AND cs.status != 'CANCELLED'
+          AND cs."startsAt" >= ${windowStart} AND cs."startsAt" < ${now}
+        GROUP BY week_start
+        ORDER BY week_start
+      `
+      // Pre-populate all weeks (SQL only returns weeks with sessions)
       const weekMap = new Map<string, { sessions: number; capacitySum: number; confirmedSum: number; checkedInSum: number; cancelledSum: number }>()
       for (let w = 0; w < weeks; w++) {
         const d = new Date(windowStart.getTime() + w * 7 * 86400000)
         weekMap.set(d.toISOString().slice(0, 10), { sessions: 0, capacitySum: 0, confirmedSum: 0, checkedInSum: 0, cancelledSum: 0 })
       }
-      for (const s of sessions) {
-        const wk = isoWeekMonday(s.startsAt)
-        const entry = weekMap.get(wk) ?? { sessions: 0, capacitySum: 0, confirmedSum: 0, checkedInSum: 0, cancelledSum: 0 }
-        const confirmed = s.bookings.filter(b => b.status === 'CONFIRMED').length
-        const checkedIn = s.bookings.filter(b => b.checkedIn).length
-        const cancelled = s.bookings.filter(b => b.status === 'CANCELLED' || b.status === 'LATE_CANCELLED').length
-        weekMap.set(wk, { sessions: entry.sessions + 1, capacitySum: entry.capacitySum + s.capacity, confirmedSum: entry.confirmedSum + confirmed, checkedInSum: entry.checkedInSum + checkedIn, cancelledSum: entry.cancelledSum + cancelled })
+      for (const r of weeklyRows) {
+        const key = r.week_start.toISOString().slice(0, 10)
+        weekMap.set(key, {
+          sessions: Number(r.sessions), capacitySum: Number(r.capacity_sum),
+          confirmedSum: Number(r.confirmed_sum), checkedInSum: Number(r.checked_in_sum),
+          cancelledSum: Number(r.cancelled_sum),
+        })
       }
       const weeklyTrend = Array.from(weekMap.entries())
         .sort(([a], [b]) => a.localeCompare(b))
@@ -211,67 +222,141 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
           cancelRate: (v.confirmedSum + v.cancelledSum) > 0 ? v.cancelledSum / (v.confirmedSum + v.cancelledSum) : 0,
         }))
 
-      const classMap = new Map<string, { name: string; sport: string; sessions: number; capacitySum: number; confirmedSum: number; checkedInSum: number }>()
-      for (const s of sessions) {
-        const tid = s.template.id
-        const confirmed = s.bookings.filter(b => b.status === 'CONFIRMED').length
-        const checkedIn = s.bookings.filter(b => b.checkedIn).length
-        const existing = classMap.get(tid) ?? { name: s.template.name, sport: s.template.sport, sessions: 0, capacitySum: 0, confirmedSum: 0, checkedInSum: 0 }
-        classMap.set(tid, { ...existing, sessions: existing.sessions + 1, capacitySum: existing.capacitySum + s.capacity, confirmedSum: existing.confirmedSum + confirmed, checkedInSum: existing.checkedInSum + checkedIn })
-      }
-      const classStats = Array.from(classMap.entries()).map(([templateId, v]) => ({
-        templateId, name: v.name, sport: v.sport, sessions: v.sessions,
-        avgFillRate: v.capacitySum > 0 ? v.confirmedSum / v.capacitySum : 0,
-        checkInRate: v.confirmedSum > 0 ? v.checkedInSum / v.confirmedSum : 0,
-        totalBookings: v.confirmedSum,
-      })).sort((a, b) => b.avgFillRate - a.avgFillRate)
+      // ── Class stats by template ───────────────────────────────────────────────
+      const classRows = await prisma.$queryRaw<Array<{
+        template_id: string; name: string; sport: string;
+        sessions: bigint; capacity_sum: bigint; confirmed_sum: bigint; checked_in_sum: bigint
+      }>>`
+        SELECT
+          ct.id   AS template_id,
+          ct.name,
+          ct.sport,
+          COUNT(DISTINCT cs.id)                               AS sessions,
+          SUM(cs.capacity)                                    AS capacity_sum,
+          COUNT(CASE WHEN b.status = 'CONFIRMED' THEN 1 END)  AS confirmed_sum,
+          COUNT(CASE WHEN b."checkedIn" = true THEN 1 END)    AS checked_in_sum
+        FROM "ClassSession" cs
+        JOIN "ClassTemplate" ct ON ct.id = cs."templateId"
+        LEFT JOIN "Booking" b ON b."sessionId" = cs.id
+        WHERE ${sf}
+          AND cs.status != 'CANCELLED'
+          AND cs."startsAt" >= ${windowStart} AND cs."startsAt" < ${now}
+        GROUP BY ct.id, ct.name, ct.sport
+        ORDER BY (COUNT(CASE WHEN b.status='CONFIRMED' THEN 1 END)::float
+                  / NULLIF(SUM(cs.capacity), 0)) DESC NULLS LAST
+      `
+      const classStats = classRows.map(r => ({
+        templateId: r.template_id, name: r.name, sport: r.sport,
+        sessions: Number(r.sessions),
+        avgFillRate: Number(r.capacity_sum) > 0 ? Number(r.confirmed_sum) / Number(r.capacity_sum) : 0,
+        checkInRate: Number(r.confirmed_sum) > 0 ? Number(r.checked_in_sum) / Number(r.confirmed_sum) : 0,
+        totalBookings: Number(r.confirmed_sum),
+      }))
 
-      const funnel = { confirmed: 0, checkedIn: 0, onTimeCancelled: 0, lateCancelled: 0, noShow: 0 }
-      for (const s of sessions) {
-        for (const b of s.bookings) {
-          if (b.status === 'CONFIRMED') { funnel.confirmed++; if (b.checkedIn) funnel.checkedIn++; else funnel.noShow++ }
-          else if (b.status === 'CANCELLED') funnel.onTimeCancelled++
-          else if (b.status === 'LATE_CANCELLED') funnel.lateCancelled++
+      // ── Funnel ────────────────────────────────────────────────────────────────
+      const funnelRows = await prisma.$queryRaw<Array<{
+        confirmed: bigint; checked_in: bigint; on_time_cancelled: bigint;
+        late_cancelled: bigint; no_show: bigint
+      }>>`
+        SELECT
+          COUNT(CASE WHEN b.status = 'CONFIRMED' THEN 1 END)                       AS confirmed,
+          COUNT(CASE WHEN b.status = 'CONFIRMED' AND b."checkedIn" = true THEN 1 END) AS checked_in,
+          COUNT(CASE WHEN b.status = 'CANCELLED' THEN 1 END)                       AS on_time_cancelled,
+          COUNT(CASE WHEN b.status = 'LATE_CANCELLED' THEN 1 END)                  AS late_cancelled,
+          COUNT(CASE WHEN b.status = 'NO_SHOW' THEN 1 END)                         AS no_show
+        FROM "ClassSession" cs
+        JOIN "Booking" b ON b."sessionId" = cs.id
+        WHERE ${sf}
+          AND cs.status != 'CANCELLED'
+          AND cs."startsAt" >= ${windowStart} AND cs."startsAt" < ${now}
+      `
+      const fr = funnelRows[0] ?? { confirmed: 0n, checked_in: 0n, on_time_cancelled: 0n, late_cancelled: 0n, no_show: 0n }
+      const funnel = {
+        confirmed: Number(fr.confirmed),
+        checkedIn: Number(fr.checked_in),
+        onTimeCancelled: Number(fr.on_time_cancelled),
+        lateCancelled: Number(fr.late_cancelled),
+        noShow: Number(fr.no_show),
+      }
+
+      // ── Instructor stats + loyalty rate ──────────────────────────────────────
+      // Stats aggregated in SQL; loyalty rate computed in JS (needs sequential ordering)
+      const instrStatsRows = await prisma.$queryRaw<Array<{
+        instructor_id: string; name: string; sessions: bigint;
+        capacity_sum: bigint; confirmed_sum: bigint; checked_in_sum: bigint
+      }>>`
+        SELECT
+          COALESCE(cs."substituteInstructorId", cs."instructorId") AS instructor_id,
+          CONCAT(u."firstName", ' ', u."lastName")                 AS name,
+          COUNT(DISTINCT cs.id)                                     AS sessions,
+          SUM(cs.capacity)                                          AS capacity_sum,
+          COUNT(CASE WHEN b.status = 'CONFIRMED' THEN 1 END)        AS confirmed_sum,
+          COUNT(CASE WHEN b."checkedIn" = true THEN 1 END)          AS checked_in_sum
+        FROM "ClassSession" cs
+        JOIN "Instructor" i  ON i.id  = COALESCE(cs."substituteInstructorId", cs."instructorId")
+        JOIN "User"       u  ON u.id  = i."userId"
+        LEFT JOIN "Booking" b ON b."sessionId" = cs.id
+        WHERE ${sf}
+          AND cs.status != 'CANCELLED'
+          AND cs."startsAt" >= ${windowStart} AND cs."startsAt" < ${now}
+        GROUP BY instructor_id, name
+      `
+
+      // Loyalty rate: minimal query — only IDs and member arrays needed
+      const loyaltyRows = await prisma.$queryRaw<Array<{
+        instructor_id: string; member_ids: string[] | null
+      }>>`
+        SELECT
+          COALESCE(cs."substituteInstructorId", cs."instructorId") AS instructor_id,
+          ARRAY_AGG(b."memberId") FILTER (WHERE b.status = 'CONFIRMED') AS member_ids
+        FROM "ClassSession" cs
+        LEFT JOIN "Booking" b ON b."sessionId" = cs.id
+        WHERE ${sf}
+          AND cs.status != 'CANCELLED'
+          AND cs."startsAt" >= ${windowStart} AND cs."startsAt" < ${now}
+        GROUP BY cs.id, cs."startsAt", cs."instructorId", cs."substituteInstructorId"
+        ORDER BY cs."startsAt"
+      `
+      const instrPrev = new Map<string, Set<string>>()
+      const instrLoyalties = new Map<string, number[]>()
+      for (const row of loyaltyRows) {
+        const id = row.instructor_id
+        const members = row.member_ids ?? []
+        if (members.length === 0) continue
+        if (!instrPrev.has(id)) { instrPrev.set(id, new Set()); instrLoyalties.set(id, []) }
+        const prev = instrPrev.get(id)!
+        instrLoyalties.get(id)!.push(members.filter(m => prev.has(m)).length / members.length)
+        for (const m of members) prev.add(m)
+      }
+
+      const instructors = instrStatsRows.map(r => {
+        const loyalties = instrLoyalties.get(r.instructor_id) ?? []
+        return {
+          id: r.instructor_id, name: r.name,
+          sessions: Number(r.sessions),
+          avgFillRate: Number(r.capacity_sum) > 0 ? Number(r.confirmed_sum) / Number(r.capacity_sum) : 0,
+          checkInRate: Number(r.confirmed_sum) > 0 ? Number(r.checked_in_sum) / Number(r.confirmed_sum) : 0,
+          loyaltyRate: loyalties.length > 0 ? loyalties.reduce((a, b) => a + b, 0) / loyalties.length : 0,
         }
-      }
-
-      const instrCumulativeMembers = new Map<string, Set<string>>()
-      const instrSessionLoyalties  = new Map<string, number[]>()
-      for (const s of sessions) {
-        const instr = s.substitute ?? s.instructor
-        if (!instr) continue
-        const id = instr.id
-        const confirmed = s.bookings.filter(b => b.status === 'CONFIRMED')
-        if (confirmed.length === 0) continue
-        if (!instrCumulativeMembers.has(id)) { instrCumulativeMembers.set(id, new Set()); instrSessionLoyalties.set(id, []) }
-        const prevMembers = instrCumulativeMembers.get(id)!
-        const returningCount = confirmed.filter(b => prevMembers.has(b.memberId)).length
-        instrSessionLoyalties.get(id)!.push(returningCount / confirmed.length)
-        for (const b of confirmed) prevMembers.add(b.memberId)
-      }
-
-      const instrMap2 = new Map<string, { name: string; sessions: number; capacitySum: number; confirmedSum: number; checkedInSum: number }>()
-      for (const s of sessions) {
-        const instr = s.substitute ?? s.instructor
-        if (!instr) continue
-        const id = instr.id
-        const name = `${instr.user.firstName} ${instr.user.lastName}`.trim()
-        const confirmed = s.bookings.filter(b => b.status === 'CONFIRMED').length
-        const checkedIn = s.bookings.filter(b => b.checkedIn).length
-        const existing = instrMap2.get(id) ?? { name, sessions: 0, capacitySum: 0, confirmedSum: 0, checkedInSum: 0 }
-        instrMap2.set(id, { name, sessions: existing.sessions + 1, capacitySum: existing.capacitySum + s.capacity, confirmedSum: existing.confirmedSum + confirmed, checkedInSum: existing.checkedInSum + checkedIn })
-      }
-      const instructors = Array.from(instrMap2.entries()).map(([id, v]) => {
-        const loyalties = instrSessionLoyalties.get(id) ?? []
-        const loyaltyRate = loyalties.length > 0 ? loyalties.reduce((a, b) => a + b, 0) / loyalties.length : 0
-        return { id, name: v.name, sessions: v.sessions, avgFillRate: v.capacitySum > 0 ? v.confirmedSum / v.capacitySum : 0, checkInRate: v.confirmedSum > 0 ? v.checkedInSum / v.confirmedSum : 0, loyaltyRate }
       }).sort((a, b) => b.avgFillRate - a.avgFillRate)
 
+      // ── Recurrence / retention ────────────────────────────────────────────────
+      const memberMonthRows = await prisma.$queryRaw<Array<{ month: string; member_id: string }>>`
+        SELECT
+          TO_CHAR(DATE_TRUNC('month', cs."startsAt"), 'YYYY-MM') AS month,
+          b."memberId"                                           AS member_id
+        FROM "ClassSession" cs
+        JOIN "Booking" b ON b."sessionId" = cs.id AND b.status = 'CONFIRMED'
+        WHERE ${sf}
+          AND cs.status != 'CANCELLED'
+          AND cs."startsAt" >= ${windowStart} AND cs."startsAt" < ${now}
+        GROUP BY month, b."memberId"
+        ORDER BY month
+      `
       const membersByMonth = new Map<string, Set<string>>()
-      for (const s of sessions) {
-        const monthKey = `${s.startsAt.getFullYear()}-${String(s.startsAt.getMonth() + 1).padStart(2, '0')}`
-        if (!membersByMonth.has(monthKey)) membersByMonth.set(monthKey, new Set())
-        for (const b of s.bookings) { if (b.status === 'CONFIRMED') membersByMonth.get(monthKey)!.add(b.memberId) }
+      for (const r of memberMonthRows) {
+        if (!membersByMonth.has(r.month)) membersByMonth.set(r.month, new Set())
+        membersByMonth.get(r.month)!.add(r.member_id)
       }
       const monthKeys = Array.from(membersByMonth.keys()).sort()
       const momRates: number[] = []
@@ -283,13 +368,16 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
       }
       const monthOverMonth = momRates.length > 0 ? momRates.reduce((a, b) => a + b, 0) / momRates.length : 0
 
-      const memberBookingCount = new Map<string, number>()
-      for (const s of sessions) {
-        for (const b of s.bookings) {
-          if (b.status === 'CONFIRMED') memberBookingCount.set(b.memberId, (memberBookingCount.get(b.memberId) ?? 0) + 1)
-        }
-      }
-      const counts = Array.from(memberBookingCount.values())
+      const freqRows = await prisma.$queryRaw<Array<{ booking_count: bigint }>>`
+        SELECT COUNT(*) AS booking_count
+        FROM "ClassSession" cs
+        JOIN "Booking" b ON b."sessionId" = cs.id AND b.status = 'CONFIRMED'
+        WHERE ${sf}
+          AND cs.status != 'CANCELLED'
+          AND cs."startsAt" >= ${windowStart} AND cs."startsAt" < ${now}
+        GROUP BY b."memberId"
+      `
+      const counts = freqRows.map(r => Number(r.booking_count))
       const avgBookingsPerMember = counts.length > 0 ? counts.reduce((a, b) => a + b, 0) / counts.length : 0
       const buckets: Record<string, number> = { '1': 0, '2–4': 0, '5–9': 0, '10–19': 0, '20+': 0 }
       for (const c of counts) {
@@ -301,34 +389,46 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
       }
       const frequencyBuckets = Object.entries(buckets).map(([label, count]) => ({ label, count }))
 
-      const transactions = await prisma.creditTransaction.findMany({
-        where: { ...(allStudios ? {} : { member: { studioId } }), createdAt: { gte: windowStart, lt: now } },
-        select: { type: true, amount: true, createdAt: true },
-      })
+      // ── Revenue (credit transactions) ─────────────────────────────────────────
+      const memberFilter = allStudios ? Prisma.sql`1=1` : Prisma.sql`m."studioId" = ${studioId}`
+      const txRows = await prisma.$queryRaw<Array<{ type: string; amount: number; created_at: Date }>>`
+        SELECT ct.type, ct.amount, ct."createdAt" AS created_at
+        FROM "CreditTransaction" ct
+        JOIN "Member" m ON m.id = ct."memberId"
+        WHERE ${memberFilter}
+          AND ct."createdAt" >= ${windowStart} AND ct."createdAt" < ${now}
+      `
       const revMap: Record<string, number> = {}
-      for (const tx of transactions) revMap[tx.type] = (revMap[tx.type] ?? 0) + tx.amount
+      for (const tx of txRows) revMap[tx.type] = (revMap[tx.type] ?? 0) + tx.amount
 
+      // Weekly credit flow
       const weekRevMap = new Map<string, { issued: number; consumed: number; fees: number }>()
       for (const wk of weeklyTrend) weekRevMap.set(wk.weekStart, { issued: 0, consumed: 0, fees: 0 })
-      for (const tx of transactions) {
-        const wk = isoWeekMonday(tx.createdAt)
+      for (const tx of txRows) {
+        // DATE_TRUNC('week') Monday ISO
+        const d = new Date(tx.created_at); d.setHours(0, 0, 0, 0)
+        const dow = d.getDay() || 7
+        d.setDate(d.getDate() - (dow - 1))
+        const wk = d.toISOString().slice(0, 10)
         if (!weekRevMap.has(wk)) continue
         const entry = weekRevMap.get(wk)!
         if (tx.amount > 0) entry.issued += tx.amount
         else if (tx.type === 'CLASS_DEBIT') entry.consumed += Math.abs(tx.amount)
         else entry.fees += Math.abs(tx.amount)
       }
-      const weeklyCredits = Array.from(weekRevMap.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([weekStart, v]) => ({ weekStart, ...v }))
+      const weeklyCredits = Array.from(weekRevMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([weekStart, v]) => ({ weekStart, ...v }))
 
       const activeMembers = await prisma.membershipSubscription.count({
         where: { ...(allStudios ? {} : { plan: { studioId } }), status: 'ACTIVE' },
       })
 
       const revenue = {
-        creditsIssued:      Math.max(0, revMap['MEMBERSHIP_RENEWAL'] ?? 0) + Math.max(0, revMap['PURCHASE'] ?? 0) + Math.max(0, revMap['MANUAL_ADJUSTMENT'] ?? 0),
-        creditsConsumed:    Math.abs(Math.min(0, revMap['CLASS_DEBIT'] ?? 0)),
-        lateCancelFees:     Math.abs(Math.min(0, revMap['LATE_CANCEL_FEE'] ?? 0)),
-        noShowFees:         Math.abs(Math.min(0, revMap['NO_SHOW_FEE'] ?? 0)),
+        creditsIssued:       Math.max(0, revMap['MEMBERSHIP_RENEWAL'] ?? 0) + Math.max(0, revMap['PURCHASE'] ?? 0) + Math.max(0, revMap['MANUAL_ADJUSTMENT'] ?? 0),
+        creditsConsumed:     Math.abs(Math.min(0, revMap['CLASS_DEBIT'] ?? 0)),
+        lateCancelFees:      Math.abs(Math.min(0, revMap['LATE_CANCEL_FEE'] ?? 0)),
+        noShowFees:          Math.abs(Math.min(0, revMap['NO_SHOW_FEE'] ?? 0)),
         activeSubscriptions: activeMembers,
         weeklyCredits,
       }

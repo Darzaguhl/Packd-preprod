@@ -34,6 +34,9 @@ cd apps/web && npm run dev           # Web on :3000
 
 npm test                             # Vitest unit tests (136 passing)
 npm run test:e2e                     # Playwright (needs both servers + .auth/ state files)
+
+npm run db:migrate                   # create + apply migration locally (interactive)
+npm run db:migrate:deploy            # apply pending migrations non-interactively (CI/prod)
 ```
 
 ## Key environment files
