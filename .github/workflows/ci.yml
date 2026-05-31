@@ -142,6 +142,7 @@ jobs:
           STRIPE_WEBHOOK_SECRET=whsec_placeholder
           RESEND_API_KEY=re_placeholder
           ICAL_SECRET=ci-e2e-secret
+          SENTRY_DSN=${{ secrets.SENTRY_DSN }}
           EOF
 
       - name: Create web env file
