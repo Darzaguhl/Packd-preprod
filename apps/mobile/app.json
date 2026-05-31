@@ -27,8 +27,12 @@
       "expo-secure-store",
       [
         "expo-notifications",
-        { "icon": "./assets/notification-icon.png", "color": "#000000" }
-      ]
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#000000"
+        }
+      ],
+      "expo-asset"
     ],
     "scheme": "packd"
   }

@@ -14,6 +14,7 @@ vi.mock('@packd/db', () => {
     findUnique: vi.fn().mockResolvedValue(null),
     findFirst: vi.fn().mockResolvedValue(null),
     findUniqueOrThrow: vi.fn(),
+    count: vi.fn().mockResolvedValue(2),
   }
   const creditBalance = { findUnique: vi.fn(), update: vi.fn(), upsert: vi.fn() }
   const creditTransaction = { create: vi.fn() }
@@ -33,6 +34,10 @@ vi.mock('@packd/db', () => {
       cancellationPolicy,
       waitlistEntry,
       studioNetworkMembership,
+      referral: { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn() },
+      membershipSubscription: { findFirst: vi.fn().mockResolvedValue(null) },
+      waiver: { findFirst: vi.fn().mockResolvedValue(null) },
+      waiverSignature: { findUnique: vi.fn().mockResolvedValue({ id: 'sig-1' }) },
       user,
       $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({

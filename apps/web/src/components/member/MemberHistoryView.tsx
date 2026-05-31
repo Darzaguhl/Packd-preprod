@@ -68,7 +68,7 @@ function PlanCard({
   onBuy?: (id: string) => void
   subscribing: boolean
 }) {
-  const intervalLabel = plan.intervalMonths === 1 ? 'month' : `${plan.intervalMonths} months`
+  const intervalLabel = plan.intervalMonths === 0 ? 'one-time' : plan.intervalMonths === 1 ? 'month' : `${plan.intervalMonths} months`
 
   return (
     <div className={`relative flex flex-col gap-3 rounded-2xl border p-5 transition-shadow ${
@@ -89,11 +89,13 @@ function PlanCard({
         <span className={`text-2xl font-bold tabular-nums ${isCurrent ? 'text-white' : 'text-gray-900'}`}>
           {fmtPrice(plan.priceInCents)}
         </span>
-        <span className={`text-xs pb-0.5 ${isCurrent ? 'text-gray-300' : 'text-gray-400'}`}>/ {intervalLabel}</span>
+        {plan.intervalMonths > 0 && (
+          <span className={`text-xs pb-0.5 ${isCurrent ? 'text-gray-300' : 'text-gray-400'}`}>/ {intervalLabel}</span>
+        )}
       </div>
       {plan.creditsPerCycle !== null && plan.creditsPerCycle > 0 && (
         <p className={`text-xs ${isCurrent ? 'text-gray-300' : 'text-gray-500'}`}>
-          {plan.creditsPerCycle} credits per {intervalLabel}
+          {plan.creditsPerCycle} credit{plan.creditsPerCycle !== 1 ? 's' : ''}{plan.intervalMonths > 0 ? ` per ${intervalLabel}` : ''}
         </p>
       )}
       {plan.isIntroOffer && (

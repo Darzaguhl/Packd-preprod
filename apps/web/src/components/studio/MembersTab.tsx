@@ -23,14 +23,31 @@ export default function MembersTab({ studioId, token }: { studioId: string; toke
   const [members, setMembers] = useState<Member[]>([])
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   function loadMembers(q?: string) {
     setLoading(true)
+    setNextCursor(null)
     api.admin.listMembers(studioId, token, q || undefined)
-      .then(setMembers)
+      .then(res => { setMembers(res.items); setNextCursor(res.nextCursor); setHasMore(res.hasMore) })
       .catch(() => setMembers([]))
       .finally(() => setLoading(false))
+  }
+
+  async function loadMore() {
+    if (!nextCursor || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const res = await api.admin.listMembers(studioId, token, query || undefined, nextCursor)
+      setMembers(prev => [...prev, ...res.items])
+      setNextCursor(res.nextCursor)
+      setHasMore(res.hasMore)
+    } finally {
+      setLoadingMore(false)
+    }
   }
 
   useEffect(() => {
@@ -124,6 +141,15 @@ export default function MembersTab({ studioId, token }: { studioId: string; toke
               </a>
             ))}
           </div>
+        )}
+        {hasMore && (
+          <button
+            onClick={loadMore}
+            disabled={loadingMore}
+            className="w-full py-2.5 text-sm text-gray-500 border border-gray-200 rounded-xl hover:bg-gray-50 disabled:opacity-50 transition-colors"
+          >
+            {loadingMore ? 'Loading…' : `Load more`}
+          </button>
         )}
       </div>
     </div>

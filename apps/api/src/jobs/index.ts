@@ -1,7 +1,7 @@
 import PgBoss from 'pg-boss'
 import { logger } from '../lib/logger.js'
 import { prisma } from '@packd/db'
-import { sendWaitlistPromotion, sendClassReminder } from '../lib/email.js'
+import { sendWaitlistPromotion, sendClassReminder, sendWinback, sendCreditExpiryWarning, sendFirstClassFollowup, sendFranchiseBroadcast } from '../lib/email.js'
 
 let boss: PgBoss
 
@@ -25,6 +25,8 @@ export async function setupJobs() {
     'nightly.maintenance',
     'membership.renewal-reminder',
     'credit.expiry-sweep',
+    'member.first-class-followup',
+    'franchise.broadcast',
   ]) {
     await boss.createQueue(name)
   }
@@ -261,6 +263,71 @@ export async function setupJobs() {
 
     // Enqueue credit expiry sweep
     await boss.send('credit.expiry-sweep', {})
+
+    // Win-back: members inactive 30+ days, no win-back email in 60 days
+    const webUrl = process.env.WEB_URL ?? 'http://localhost:3001'
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const sixtyDaysAgo  = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000)
+    const lapsed = await prisma.member.findMany({
+      where: {
+        staffRoles: { isEmpty: true },
+        OR: [{ lastWinbackAt: null }, { lastWinbackAt: { lt: sixtyDaysAgo } }],
+        bookings: { none: { bookedAt: { gte: thirtyDaysAgo }, status: 'CONFIRMED' } },
+      },
+      select: {
+        id: true,
+        emailPreferences: true,
+        user: { select: { firstName: true, email: true } },
+        studio: { select: { name: true } },
+      },
+      take: 200,
+    })
+    for (const m of lapsed) {
+      const prefs = (m.emailPreferences ?? {}) as Record<string, boolean>
+      if (prefs.marketing === false) continue
+      await sendWinback({ to: m.user.email, firstName: m.user.firstName, studioName: m.studio.name, webUrl })
+      await prisma.member.update({ where: { id: m.id }, data: { lastWinbackAt: new Date() } })
+    }
+
+    // Credit expiry warning: credits expiring within 7 days
+    // Only sent once per member per 7-day window (creditWarningSentAt guard prevents daily re-fires)
+    const sevenDaysOut = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    const expiringCredits = await prisma.creditTransaction.findMany({
+      where: { expiresAt: { gte: tomorrow, lte: sevenDaysOut }, amount: { gt: 0 } },
+      include: {
+        member: {
+          select: {
+            id: true,
+            emailPreferences: true,
+            creditWarningSentAt: true,
+            user: { select: { firstName: true, email: true } },
+            studio: { select: { name: true } },
+          },
+        },
+      },
+      distinct: ['memberId'],
+    })
+    for (const tx of expiringCredits) {
+      const prefs = (tx.member.emailPreferences ?? {}) as Record<string, boolean>
+      if (prefs.classReminder === false) continue
+      // Skip if a warning was already sent within the last 7 days
+      if (tx.member.creditWarningSentAt && tx.member.creditWarningSentAt >= sevenDaysAgo) continue
+      const totalExpiring = await prisma.creditTransaction.aggregate({
+        where: { memberId: tx.memberId, expiresAt: { gte: tomorrow, lte: sevenDaysOut }, amount: { gt: 0 } },
+        _sum: { amount: true },
+      })
+      await sendCreditExpiryWarning({
+        to: tx.member.user.email,
+        firstName: tx.member.user.firstName,
+        studioName: tx.member.studio.name,
+        credits: totalExpiring._sum.amount ?? 0,
+        expiresAt: tx.expiresAt!,
+        webUrl,
+      })
+      await prisma.member.update({ where: { id: tx.memberId }, data: { creditWarningSentAt: new Date() } })
+    }
   })
 
   // Credit expiry sweep — deduct expired credits from balances
@@ -328,7 +395,7 @@ export async function setupJobs() {
         bookings: {
           where: { status: 'CONFIRMED' },
           include: {
-            member: { include: { user: { select: { email: true, firstName: true } } } },
+            member: { select: { emailPreferences: true, user: { select: { email: true, firstName: true } } } },
             station: { select: { label: true } },
           },
         },
@@ -338,6 +405,8 @@ export async function setupJobs() {
 
     const webUrl = process.env.WEB_URL ?? 'http://localhost:3001'
     for (const booking of session.bookings) {
+      const memberPrefs = (booking.member.emailPreferences ?? {}) as Record<string, boolean>
+      if (memberPrefs.classReminder === false) continue
       sendClassReminder({
         to: booking.member.user.email,
         firstName: booking.member.user.firstName,
@@ -350,6 +419,62 @@ export async function setupJobs() {
         webUrl,
       }).catch(() => {})
     }
+  })
+
+  // Franchise broadcast — sends emails in batches of 25 concurrently
+  await boss.work('franchise.broadcast', async ([job]) => {
+    const { studioIds, subject, message, studioName } = job.data as {
+      studioIds: string[]; subject: string; message: string; studioName: string
+    }
+    const webUrl = process.env.WEB_URL ?? 'http://localhost:3001'
+
+    const members = await prisma.member.findMany({
+      where: { studioId: { in: studioIds }, staffRoles: { isEmpty: true } },
+      select: {
+        id: true,
+        emailPreferences: true,
+        user: { select: { firstName: true, email: true } },
+      },
+    })
+
+    const BATCH = 25
+    let sent = 0
+    for (let i = 0; i < members.length; i += BATCH) {
+      const batch = members.slice(i, i + BATCH)
+      const results = await Promise.allSettled(batch.map(async m => {
+        const prefs = (m.emailPreferences ?? {}) as Record<string, boolean>
+        if (prefs.marketing === false) return
+        await sendFranchiseBroadcast({
+          to: m.user.email,
+          firstName: m.user.firstName,
+          studioName,
+          subject,
+          message,
+          webUrl,
+        })
+        sent++
+      }))
+      results.forEach(r => { if (r.status === 'rejected') logger.error({ err: r.reason }, '[broadcast] email failed') })
+    }
+    logger.info({ sent, total: members.length }, '[broadcast] complete')
+  })
+
+  // First-class follow-up email — sent ~26h after a member's first booking
+  await boss.work('member.first-class-followup', async ([job]) => {
+    const { memberId } = job.data as { memberId: string }
+    const member = await prisma.member.findUnique({
+      where: { id: memberId },
+      include: { user: true, studio: true },
+    })
+    if (!member) return
+    const prefs = (member.emailPreferences ?? {}) as Record<string, boolean>
+    if (prefs.marketing === false) return
+    await sendFirstClassFollowup({
+      to: member.user.email,
+      firstName: member.user.firstName,
+      studioName: member.studio.name,
+      webUrl: process.env.WEB_URL ?? 'http://localhost:3001',
+    })
   })
 
   logger.info('pg-boss jobs registered')
@@ -374,6 +499,15 @@ export async function enqueueNoShowCheck(sessionId: string, sessionStartsAt: Dat
   // singletonKey ensures only one job per session, so nightly + on-completion calls are idempotent.
   const runAt = new Date(sessionStartsAt.getTime() + 30 * 60 * 1000)
   await boss.sendAfter('session.no-show', { sessionId }, { singletonKey: `session-${sessionId}` }, runAt)
+}
+
+export async function enqueueBroadcast(payload: { studioIds: string[]; subject: string; message: string; studioName: string }) {
+  await boss.send('franchise.broadcast', payload)
+}
+
+export async function enqueueFirstClassFollowup(memberId: string, sessionId: string) {
+  const runAt = new Date(Date.now() + 26 * 60 * 60 * 1000)
+  await boss.sendAfter('member.first-class-followup', { memberId, sessionId }, {}, runAt)
 }
 
 export async function enqueueClassReminder(sessionId: string, sessionStartsAt: Date, studioId?: string) {

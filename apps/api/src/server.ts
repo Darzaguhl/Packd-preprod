@@ -42,6 +42,7 @@ import { icalRoutes } from './routes/ical.js'
 import { networkRoutes } from './routes/networks.js'
 import { brandRoutes } from './routes/brands.js'
 import { aiRoutes } from './routes/ai.js'
+import { waiverRoutes } from './routes/waivers.js'
 import { setupJobs, stopJobs } from './jobs/index.js'
 
 const app = Fastify({
@@ -112,7 +113,9 @@ await app.register(rateLimit, {
 // (same parse result, zero overhead for non-webhook routes).
 app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req, body, done) => {
   ;(req as unknown as { rawBody: Buffer }).rawBody = body as Buffer
-  try { done(null, JSON.parse((body as Buffer).toString())) } catch (e) { done(e as Error) }
+  const str = (body as Buffer).toString()
+  if (!str) { done(null, undefined); return }
+  try { done(null, JSON.parse(str)) } catch (e) { done(e as Error) }
 })
 
 // Routes
@@ -141,6 +144,7 @@ await app.register(icalRoutes, { prefix: '/ical' })
 await app.register(networkRoutes, { prefix: '/networks' })
 await app.register(brandRoutes, { prefix: '/brands' })
 await app.register(aiRoutes, { prefix: '/ai' })
+await app.register(waiverRoutes, { prefix: '/waivers' })
 
 app.get('/health', async () => ({ ok: true }))
 

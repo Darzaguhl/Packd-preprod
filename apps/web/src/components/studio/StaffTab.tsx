@@ -424,7 +424,7 @@ function StaffDrawer({
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Instructor</p>
             <div className="space-y-2">
-              <PayRateRow member={member} token={token} currency={currency} onSaved={onRefresh} />
+              <PayRateRow member={member} currency={currency} />
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-700">Photos</span>
                 <button
@@ -460,7 +460,7 @@ function StaffDrawer({
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Front Desk</p>
             <div className="space-y-2">
-              <HourlyPayRateRow member={member} token={token} currency={currency} onSaved={onRefresh} />
+              <HourlyPayRateRow member={member} currency={currency} />
             </div>
           </div>
         )}
@@ -487,119 +487,33 @@ function StaffDrawer({
 
 // ── Pay rate row ──────────────────────────────────────────────────────────────
 
-function PayRateRow({ member, token, currency, onSaved }: {
-  member: StaffMember
-  token: string
-  currency: string
-  onSaved: () => void
-}) {
+// Pay rates are read-only for studio admins — set by franchise admin only
+function PayRateRow({ member, currency }: { member: StaffMember; currency: string }) {
   const symbol = new Intl.NumberFormat('en', { style: 'currency', currency, maximumFractionDigits: 0 })
     .format(0).replace(/[\d,.\s]/g, '').trim() || currency
-  const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState(
-    member.payRatePerHeadCents != null ? (member.payRatePerHeadCents / 100).toFixed(2) : ''
-  )
-  const [saving, setSaving] = useState(false)
-
-  async function handleSave() {
-    if (!member.instructorId) return
-    setSaving(true)
-    try {
-      const cents = value.trim() === '' ? null : Math.round(parseFloat(value) * 100)
-      await api.staff.updateInstructorPayRate(member.instructorId, cents, token)
-      onSaved()
-      setEditing(false)
-    } finally {
-      setSaving(false)
-    }
-  }
-
   return (
     <div className="flex items-center justify-between">
       <span className="text-sm text-gray-700">Pay rate / head</span>
-      {editing ? (
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-gray-400">{symbol}</span>
-          <input
-            type="number" min="0" step="0.01" value={value}
-            onChange={e => setValue(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setEditing(false) }}
-            className="w-16 text-xs border border-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-violet-400"
-            autoFocus
-          />
-          <button onClick={handleSave} disabled={saving}
-            className="text-xs text-violet-600 hover:text-violet-800 disabled:opacity-50">
-            {saving ? '…' : 'Save'}
-          </button>
-          <button onClick={() => setEditing(false)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
-        </div>
-      ) : (
-        <button onClick={() => setEditing(true)}
-          className="text-xs text-indigo-600 hover:text-indigo-800 transition-colors">
-          {member.payRatePerHeadCents != null
-            ? `${symbol}${(member.payRatePerHeadCents / 100).toFixed(2)}`
-            : 'Set rate'}
-        </button>
-      )}
+      <span className="text-xs text-gray-400">
+        {member.payRatePerHeadCents != null
+          ? `${symbol}${(member.payRatePerHeadCents / 100).toFixed(2)}`
+          : <span className="text-gray-300">not set</span>}
+      </span>
     </div>
   )
 }
 
-// ── Hourly pay rate row ───────────────────────────────────────────────────────
-
-function HourlyPayRateRow({ member, token, currency, onSaved }: {
-  member: StaffMember
-  token: string
-  currency: string
-  onSaved: () => void
-}) {
+function HourlyPayRateRow({ member, currency }: { member: StaffMember; currency: string }) {
   const symbol = new Intl.NumberFormat('en', { style: 'currency', currency, maximumFractionDigits: 0 })
     .format(0).replace(/[\d,.\s]/g, '').trim() || currency
-  const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState(
-    member.payRateHourlyCents != null ? (member.payRateHourlyCents / 100).toFixed(2) : ''
-  )
-  const [saving, setSaving] = useState(false)
-
-  async function handleSave() {
-    setSaving(true)
-    try {
-      const cents = value.trim() === '' ? null : Math.round(parseFloat(value) * 100)
-      await api.staff.updateHourlyPayRate(member.id, cents, token)
-      onSaved()
-      setEditing(false)
-    } finally {
-      setSaving(false)
-    }
-  }
-
   return (
     <div className="flex items-center justify-between">
       <span className="text-sm text-gray-700">Pay rate / hour</span>
-      {editing ? (
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-gray-400">{symbol}</span>
-          <input
-            type="number" min="0" step="0.01" value={value}
-            onChange={e => setValue(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setEditing(false) }}
-            className="w-16 text-xs border border-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-violet-400"
-            autoFocus
-          />
-          <button onClick={handleSave} disabled={saving}
-            className="text-xs text-violet-600 hover:text-violet-800 disabled:opacity-50">
-            {saving ? '…' : 'Save'}
-          </button>
-          <button onClick={() => setEditing(false)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
-        </div>
-      ) : (
-        <button onClick={() => setEditing(true)}
-          className="text-xs text-indigo-600 hover:text-indigo-800 transition-colors">
-          {member.payRateHourlyCents != null
-            ? `${symbol}${(member.payRateHourlyCents / 100).toFixed(2)}/hr`
-            : 'Set rate'}
-        </button>
-      )}
+      <span className="text-xs text-gray-400">
+        {member.payRateHourlyCents != null
+          ? `${symbol}${(member.payRateHourlyCents / 100).toFixed(2)}/hr`
+          : <span className="text-gray-300">not set</span>}
+      </span>
     </div>
   )
 }

@@ -219,6 +219,7 @@ export interface StudioSummary {
   todaySessionCount: number
   staffCount: number
   fillRateToday: number
+  revenueThisMonthCents: number
 }
 
 export interface StudioLocation {
@@ -366,6 +367,8 @@ export interface SpotAssignment {
 export interface SessionSpots {
   layout: RoomLayout | null
   assignments: SpotAssignment[]
+  myBookingId: string | null
+  myStationId: string | null
 }
 
 export interface CalendarSession {
@@ -778,8 +781,10 @@ async function apiFetch<T>(
   }
 
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(error.message ?? error.error ?? 'API error')
+    const body = await res.json().catch(() => ({ error: res.statusText }))
+    const err = new Error(body.message ?? body.error ?? 'API error') as Error & Record<string, unknown>
+    Object.assign(err, body)
+    throw err
   }
 
   return res.json() as Promise<T>
@@ -801,10 +806,10 @@ export const api = {
       }>(`/schedule/brand-studios?studioId=${studioId}`),
   },
   bookings: {
-    create: (sessionId: string, token: string, memberId?: string) =>
+    create: (sessionId: string, token: string, memberId?: string, memberNote?: string) =>
       apiFetch<ApiResponse<{ id: string }>>('/bookings', {
         method: 'POST',
-        body: JSON.stringify({ sessionId, ...(memberId ? { memberId } : {}) }),
+        body: JSON.stringify({ sessionId, ...(memberId ? { memberId } : {}), ...(memberNote ? { memberNote } : {}) }),
         token,
       }),
     cancel: (bookingId: string, token: string) =>
@@ -839,6 +844,20 @@ export const api = {
       apiFetch<MemberStats>(`/members/me/stats?studioId=${studioId}`, { token }),
     purchases: (token: string, studioId?: string) =>
       apiFetch<ProductSale[]>(`/members/me/purchases${studioId ? `?studioId=${studioId}` : ''}`, { token }),
+    referral: (token: string) =>
+      apiFetch<{ code: string; totalReferrals: number; pendingReward: number; creditsEarned: number }>('/members/me/referral', { token }),
+    applyReferral: (code: string, token: string) =>
+      apiFetch<{ success: boolean }>('/members/referral/apply', { method: 'POST', body: JSON.stringify({ code }), token }),
+    updateEmailPreferences: (prefs: { classReminder?: boolean; marketing?: boolean; waitlist?: boolean }, token: string) =>
+      apiFetch<{ success: boolean }>('/members/me/email-preferences', { method: 'PATCH', body: JSON.stringify(prefs), token }),
+    selfPause: (subscriptionId: string, pauseUntil: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/memberships/subscriptions/${subscriptionId}/self-pause`, { method: 'POST', body: JSON.stringify({ pauseUntil }), token }),
+    exportData: (token: string) =>
+      fetch(`${typeof window !== 'undefined' ? process.env.NEXT_PUBLIC_API_URL : ''}/members/me/export`, { headers: { Authorization: `Bearer ${token}` } }),
+    deleteAccount: (token: string) =>
+      apiFetch<{ success: boolean }>('/members/me', { method: 'DELETE', token }),
+    receipts: (token: string) =>
+      apiFetch<{ id: string; soldAt: string; totalCents: number; currency: string; stripeReceiptUrl: string | null; items: unknown[] }[]>('/members/me/receipts', { token }),
   },
   admin: {
     stats: (studioId: string, token: string) =>
@@ -876,9 +895,9 @@ export const api = {
       apiFetch<AdminMemberProfile>(`/admin/members/${memberId}/profile`, { token }),
     memberHistory: (memberId: string, token: string) =>
       apiFetch<AdminMemberHistory>(`/admin/members/${memberId}/history`, { token }),
-    listMembers: (studioId: string, token: string, q?: string) =>
-      apiFetch<{ id: string; name: string; email: string; creditBalance: number; membershipStatus: string | null }[]>(
-        `/admin/members?studioId=${studioId}${q ? `&q=${encodeURIComponent(q)}` : ''}`, { token },
+    listMembers: (studioId: string, token: string, q?: string, cursor?: string) =>
+      apiFetch<{ items: { id: string; name: string; email: string; creditBalance: number; membershipStatus: string | null }[]; nextCursor: string | null; hasMore: boolean }>(
+        `/admin/members?studioId=${studioId}${q ? `&q=${encodeURIComponent(q)}` : ''}${cursor ? `&cursor=${cursor}` : ''}`, { token },
       ),
     analytics: (studioId: string, token: string, weeks = 12) =>
       apiFetch<AnalyticsData>(`/admin/analytics?studioId=${studioId}&weeks=${weeks}`, { token }),
@@ -979,6 +998,30 @@ export const api = {
     removeAdmin: (studioId: string, userId: string, token: string) =>
       apiFetch<{ success: boolean }>(`/franchise/studios/${studioId}/admins/${userId}`, {
         method: 'DELETE', token,
+      }),
+    allStaff: (token: string, cursor?: string) =>
+      apiFetch<{ items: { id: string; userId: string; name: string; email: string; roles: string[]; studioIds: string[]; studios: { id: string; name: string }[]; payRateHourlyCents: number | null; instructorRates: { instructorId: string; studioId: string; studioName: string; payRatePerHeadCents: number | null }[] }[]; nextCursor: string | null; hasMore: boolean }>(
+        `/franchise/staff${cursor ? `?cursor=${cursor}` : ''}`, { token },
+      ),
+    allAdmins: (token: string) =>
+      apiFetch<{ userId: string; name: string; email: string; studioIds: string[]; studios: { id: string; name: string }[] }[]>(
+        '/franchise/all-admins', { token },
+      ),
+    listPromos: (token: string) =>
+      apiFetch<{ code: string; description: string | null; type: string; value: number; maxUses: number | null; usageCount: number; studios: string[]; isActive: boolean; validUntil: string | null }[]>(
+        '/franchise/promos', { token },
+      ),
+    createPromo: (body: { code: string; description?: string; type: string; value: number; maxUses?: number | null; validUntil?: string | null }, token: string) =>
+      apiFetch<{ success: boolean; studios: number }>('/franchise/promos', {
+        method: 'POST', body: JSON.stringify(body), token,
+      }),
+    deletePromo: (code: string, token: string) =>
+      apiFetch<{ success: boolean; deleted: number }>(`/franchise/promos/${encodeURIComponent(code)}`, {
+        method: 'DELETE', token,
+      }),
+    broadcast: (body: { studioIds: string[]; subject: string; message: string }, token: string) =>
+      apiFetch<{ success: boolean; queued: boolean; estimatedRecipients: number }>('/franchise/broadcast', {
+        method: 'POST', body: JSON.stringify(body), token,
       }),
   },
   photos: {
@@ -1146,6 +1189,12 @@ export const api = {
         body: JSON.stringify({ payRateHourlyCents }),
         token,
       }),
+    acceptInvite: (body: { studioId: string; role: string; invitedEmail: string }, token: string) =>
+      apiFetch<{ success: boolean; role: string; studioName: string }>('/staff/accept-invite', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        token,
+      }),
     uploadAvatar: (memberId: string, body: { base64: string; fileName: string; contentType: string }, token: string) =>
       apiFetch<{ avatarUrl: string }>(`/staff/${memberId}/avatar`, {
         method: 'POST',
@@ -1166,6 +1215,7 @@ export const api = {
         bookingWindowDays?: number; bookingCloseHours?: number
         waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean
         selfCheckInEnabled?: boolean; classReminderHours?: number | null; maxPauseDays?: number; maxPausesPerYear?: number
+        allowMemberPause?: boolean; taxRatePct?: number; referralRewardCredits?: number
         location?: { id: string; name?: string; address?: string; city?: string; country?: string }
       },
       token: string,
@@ -1226,6 +1276,17 @@ export const api = {
       apiFetch<ApiResponse<{ id: string }>>('/studios/onboard', {
         method: 'POST',
         body: JSON.stringify(body),
+        token,
+      }),
+    copyFrom: (
+      studioId: string,
+      sourceStudioId: string,
+      copy: ('plans' | 'products' | 'templates' | 'policy')[],
+      token: string,
+    ) =>
+      apiFetch<{ success: boolean; copied: string[] }>(`/studios/${studioId}/copy-from/${sourceStudioId}`, {
+        method: 'POST',
+        body: JSON.stringify({ copy }),
         token,
       }),
   },
@@ -1367,6 +1428,19 @@ export const api = {
       apiFetch<{ success: boolean }>(`/networks/${networkId}/studios/${studioId}`, { method: 'DELETE', token }),
     my: (token: string) =>
       apiFetch<MemberNetworkInfo>('/networks/my', { token }),
+  },
+
+  waivers: {
+    getActive: (studioId: string, token: string) =>
+      apiFetch<{ waiver: { id: string; title: string; body: string; version: number; updatedAt: string } | null }>(`/waivers/active?studioId=${studioId}`, { token }),
+    sign: (waiverId: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/waivers/${waiverId}/sign`, { method: 'POST', token }),
+    getAdmin: (studioId: string, token: string) =>
+      apiFetch<{ waiver: { id: string; title: string; body: string; version: number; updatedAt: string } | null }>(`/waivers/admin?studioId=${studioId}`, { token }),
+    upsert: (studioId: string, title: string, body: string, token: string) =>
+      apiFetch<{ success: boolean; version: number }>('/waivers/admin', { method: 'PUT', body: JSON.stringify({ studioId, title, body }), token }),
+    remove: (studioId: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/waivers/admin?studioId=${studioId}`, { method: 'DELETE', token }),
   },
 
   brands: {

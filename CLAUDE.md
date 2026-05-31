@@ -32,7 +32,7 @@ npm install              # also runs prisma generate via postinstall
 cd apps/api && npm run dev           # API on :4000
 cd apps/web && npm run dev           # Web on :3000
 
-npm test                             # Vitest unit tests (149 passing across 17 files)
+npm test                             # Vitest unit tests (149 passing across 17 files — kept green throughout)
 npm run test:e2e                     # Playwright (needs both servers + .auth/ state files)
 
 npm run db:migrate                   # create + apply migration locally (interactive)
@@ -93,13 +93,14 @@ See `apps/api/.env.example` for full documented list.
 ## Database schema
 
 ```
-Studio → Location → Room → RoomLayout → Station
-Studio → Instructor
-Studio → ClassTemplate → ClassSession → Booking → Member
-                      ↗ ClassSchedule (recurring)   ↘ WaitlistEntry
+Brand → Franchise → Studio → Location → Room → RoomLayout → Station
+                  → Instructor
+                  → ClassTemplate → ClassSession → Booking → Member
+                                 ↗ ClassSchedule (recurring)   ↘ WaitlistEntry
 Member → CreditBalance + CreditTransaction
 Member → MembershipSubscription → MembershipPlan
 Member → GuestPass
+Member → Referral (referrer/referee)
 Studio → CancellationPolicy
 Studio → Product → ProductSale
 Studio → StudioIntegration
@@ -117,21 +118,31 @@ Key fields:
 - `ClassSession`: `scheduleId` (nullable → SetNull), `substituteInstructorId`
 - `RoomLayout`: `widthM`, `lengthM`, `isActive`
 - `Station`: `type: StationType`, `xM`, `yM`, `rotation`, `label`
-- `Booking.stationId` — spot assignment
+- `Booking.stationId` — spot assignment; `Booking.memberNote String?` — optional note from member at booking time
 - `Member.staffRoles String[] @default([])` — all roles; `studioIds` in `app_metadata` for multi-studio
 - `Member.guestPassBalance` — current guest pass balance
 - `Member.payRateHourlyCents Int?` — hourly pay rate for shift-based staff (fronthosts)
+- `Member.emailPreferences Json @default("{}")` — `{ classReminder, marketing, waitlist }` all default true; checked before sending emails
+- `Member.lastWinbackAt DateTime?` — last win-back email; prevents re-sending within 60 days
+- `Member.referralCode String? @unique` — auto-generated 6-char code; get/generate via `GET /members/me/referral`
 - `StaffShift`: `memberId`, `studioId`, `startsAt`, `endsAt`, `note`, `patternId` (null = one-off)
 - `StaffShiftPattern`: `daysOfWeek Int[]`, `startTime`, `endTime`, `intervalWeeks @default(1)`, `validFrom`, `validUntil?`, `note` — generates StaffShift instances 12 weeks out on create/update
 - `Product`: `category @default("Other")`, `priceInCents`, `creditsRequired Int @default(0)`, `inStock`; free = both price and credits = 0
+- `ProductSale.stripeReceiptUrl String?` — captured from PaymentIntent in `checkout.session.completed` webhook
 - `AuditLog`: `actorId`, `actorRole`, `action`, `targetId`, `meta Json`, `studioId`, `createdAt`
 - `GuestPass`: signed `amount` (positive = grant, negative = use), `guestName` on use entries
+- `Studio.taxRatePct Float @default(0)` — VAT/tax %; `stripeTaxRateId String?` caches Stripe TaxRate ID
+- `Studio.allowMemberPause Boolean @default(false)` — controls whether members can self-pause subscriptions (opt-in)
+- `Studio.referralRewardCredits Int @default(0)` — credits awarded to referrer on referee's first booking; 0 = disabled
+- `Referral`: `referrerId`, `refereeId`, `studioId`, `rewardCredits`, `rewarded Boolean`
+- `Waiver`: `studioId`, `title`, `body Text`, `isActive Boolean @default(true)`, `version Int`. Replacing a waiver deactivates the old one and creates a new version. `WaiverSignature`: `waiverId`, `memberId`, `signedAt`, `ipAddress?` — `@@unique([waiverId, memberId])`.
+- `Member.creditWarningSentAt DateTime?` — tracks last credit expiry warning email; nightly job skips if sent within 7 days
 
 Seed (`packages/db/src/seed.ts`): 1 studio (Packd Demo), Stockholm City location, 2 rooms (Ride Room cap 20, The Floor cap 16), 3 templates, 1 instructor (Alex Rivera), 3 plans, ~26 sessions.
 
 ## Security model
 
-- **Roles**: `admin=5`, `franchise_admin=4`, `studio_admin=3`, `instructor=2`, `fronthost=2`, `member=1`
+- **Roles**: `admin=5`, `brand_admin=5`, `franchise_admin=4`, `studio_admin=3`, `instructor=2`, `fronthost=2`, `member=1`
 - `fronthost` and `instructor` share rank 2 — both pass `requireRole('instructor')` but not `requireRole('studio_admin')`
 - **Dual-role**: `app_metadata.roles[]` for all roles, `app_metadata.role` for primary. `DualRoleDashboard` renders for users with both `fronthost` + `instructor`.
 - **Multi-studio**: `app_metadata.studioIds[]` — `assertStudioAccess` (in `routes/admin-shared.ts`) checks JWT `studioIds` first (fast path), then DB `member.studioId` + `member.studioIds` (fallback). Single authoritative copy — imported by admin-sessions, admin-members, admin-analytics, admin-exports, admin-sales, studios, franchise, integrations.
@@ -150,61 +161,96 @@ apps/
       auth.ts              # requireAuth, JWKS, role helpers
       audit.ts             # AuditLog write helper (fire-and-forget)
       email.ts             # Resend senders: welcome, confirmation, cancellation,
-                           # reminder, waitlist promotion, staff invite, payment failed
+                           # reminder, waitlist promotion, staff invite, payment failed,
+                           # win-back, credit expiry warning, first-class followup,
+                           # referral reward, franchise broadcast, session announcement
       logger.ts            # pino logger instance
       stripe-sync.ts       # Stripe product/price create/update/archive
       studio-ctx.ts        # withStudioCtx() — RLS context helper
       supabase-admin.ts    # Supabase admin API helpers
-    jobs/index.ts          # pg-boss handlers (no-show fee, late cancel, reminders)
+    jobs/index.ts          # pg-boss handlers: no-show fee, late cancel, reminders,
+                           # membership renewal, credit expiry sweep + warning,
+                           # win-back emails, first-class followup
     routes/
       admin.ts             # thin barrel — registers 5 sub-plugins
       admin-shared.ts      # assertStudioAccess + validateSelectQuery (single source)
       admin-sessions.ts    # session list, bookings view, check-in, bulk cancel/sub
+                           # checkInstructorConflict() — blocks double-booking on reschedule
       admin-members.ts     # member CRUD, credits, notes, subscriptions, guest passes,
                            # purchases, audit-log read
       admin-analytics.ts   # stats, leaderboard, analytics (capped at 2000 sessions)
+                           # also returns allowMemberPause, referralRewardCredits
       admin-sales.ts       # product sales, guest check-in
       admin-exports.ts     # CSV exports + custom SELECT query (10/min rate limit)
+                           # GET /export/staff-pay supports studioId=all for franchise_admin
       availability.ts      # instructor availability blocks
       bookings.ts          # member booking create/cancel/checkin
-      brands.ts            # brand management (franchise_admin+)
+                           # accepts memberNote; triggers referral reward + first-class followup on first booking
+      brands.ts            # brand management; POST /brands/:id/franchises; POST /brands/:id/franchise-admins
       franchise.ts         # franchise/studio management, instructor/fronthost permissions
+                           # GET /franchise/staff — all staff with studioIds + instructor pay rates
+                           # GET /franchise/all-admins — all studio_admins aggregated
+                           # GET/POST/DELETE /franchise/promos — franchise-wide promo codes
+                           # POST /franchise/broadcast — bulk email to members (2/min rate limit)
       ical.ts              # iCal feeds: /member/:id/:token, /instructor/:id/:token, /fronthost/:id/:token
       integrations.ts      # Mariana Tek integration config + member/session sync
       memberships.ts       # membership plans + subscriptions
+                           # POST /subscriptions/:id/self-pause — member self-pause (checks allowMemberPause)
       members.ts           # member profile, me, stats, POST /ensure
+                           # GET /me/referral, POST /referral/apply
+                           # PATCH /me/email-preferences
+                           # GET /me/receipts, GET /me/export (GDPR), DELETE /me (GDPR)
       networks.ts          # studio networks (cross-location booking)
       products.ts          # product CRUD + Stripe sync
-      promos.ts            # promo codes
+      promos.ts            # per-studio promo codes
       rooms.ts             # room + layout + station management
-      schedule.ts          # member-facing schedule
+      schedule.ts          # member-facing schedule (includes userWaitlistPosition)
       schedules.ts         # class schedule (recurring) management + month view
+                           # checkInstructorConflict() on substitute assignment
       shifts.ts            # staff shift CRUD (GET/mine, POST, PATCH, DELETE) at /admin/shifts
       shift-patterns.ts    # recurring shift patterns (GET, POST, PATCH, DELETE) at /admin/shift-patterns
                            # POST generates StaffShift instances 12w out; PATCH drops future + regenerates
-      staff.ts             # staff invite, role management, hourly pay rate (PATCH /:id/hourly-pay)
-      stripe.ts            # checkout, webhook, refund, replay, customer portal
-      studios.ts           # studio settings
+      staff.ts             # staff invite → /accept-invite URL; POST /accept-invite applies role+studioId
+                           # pay rates: PATCH /instructors/:id and PATCH /:id/hourly-pay are franchise_admin only
+      stripe.ts            # checkout (with tax rate), webhook, refund, replay, customer portal
+                           # checkout.session.completed captures stripeReceiptUrl on ProductSale
+      studios.ts           # studio settings; POST /studios/:id/copy-from/:sourceId (franchise_admin)
       waitlist.ts          # waitlist join/leave/promote
       webhooks.ts          # Mariana Tek inbound webhooks
-    __tests__/             # 143 Vitest unit tests across 16 files
+    __tests__/             # 149 Vitest unit tests across 17 files
   web/src/
-    app/                   # Next.js pages (login, onboarding, schedule, dashboard, account)
+    app/
+      accept-invite/       # /accept-invite — staff invitation acceptance page (auth + role apply)
+      onboarding/          # /onboarding — franchise_admin only (guarded); 7-step wizard
+                           # steps: Studio → Location → Classes → Policy → Import → Invite → Done
     components/
       ScheduleView.tsx     # Member schedule shell + location picker
-      AccountView.tsx      # Member account page (credits, bookings, plans, purchases)
-      schedule/            # ClassCard, SessionDetailView, DayTabs, FilterBar, CapacityBar
+      AccountView.tsx      # Member account page; fetches allowMemberPause + referralEnabled from studio
+      schedule/            # ClassCard, SessionDetailView (booking note field), DayTabs, FilterBar
       admin/               # AdminShell (mgmt/front-desk toggle), SessionPanel
       calendar/            # CalendarView (week/month/schedules), ScheduleModal, SubstituteModal
-      franchise/           # FranchiseDashboard
+      franchise/
+        FranchiseDashboard.tsx      # tabs: Studios, Networks, Analytics, Promos, Broadcast,
+                                    # Studio Admins, Staff, Permissions, Brands (admin only)
+        FranchiseStaffRoster.tsx    # all staff with studio chips; expandable pay rate editor
+        FranchisePermissionsRoster.tsx  # all staff permissions; studio-context chip for multi-studio instructors
+        FranchiseAdminsRoster.tsx   # all studio_admins; studio chips clickable to remove from that studio
       studio/              # StudioManagerDashboard, RoomsTab, PermissionsTab,
-                           # SettingsTab (3-tab: general/policies/features), StaffTab,
-                           # ProductsTab, AnalyticsTab, QueryTab, AuditLogTab, BulkOpsPanel
+                           # SettingsTab (3-tab: general/policies/features)
+                           # Policies tab: late cancel, no-show, pause rules, allowMemberPause,
+                           #               taxRatePct, referralRewardCredits
+                           # StaffTab — pay rates read-only for studio_admin (set by franchise_admin)
       room/                # RoomMapView, RoomMapEditor, SessionRoomMap (S/M/L/XL font), SpotPicker
       fronthost/           # FronthostDashboard, MemberDrawer, CreditModal
-      member/              # MemberHistoryView, MemberProfilePage
+      member/
+        MemberHistoryView.tsx
+        MemberProfilePage.tsx
+        AccountExtrasSection.tsx  # collapsible sections: referral widget, email prefs,
+                                  # self-pause (if enabled), receipts, GDPR export/delete
       dual/                # DualRoleDashboard
-      onboarding/          # OnboardingFlow (studio setup wizard — admin first-time only)
+      onboarding/          # OnboardingFlow + step components (StepImport, StepInviteAdmin added)
+      brand/               # BrandDashboard — franchise creation, franchise admin assignment,
+                           # cross-franchise analytics, members, classes
     lib/
       api.ts               # Typed API client
       supabase/            # client.ts + server.ts
@@ -213,7 +259,7 @@ apps/
 packages/
   db/prisma/schema.prisma
   db/src/seed.ts
-  types/src/index.ts       # Shared types
+  types/src/index.ts       # Shared types (MemberProfile.activeSubscription includes id)
 e2e/
   global-setup.ts          # Creates test users in Supabase, seeds credits, saves auth state
   fixtures.ts              # authedPage + adminPage fixtures (load .auth/ saved state)
@@ -240,6 +286,21 @@ e2e/
 - **Shift pattern generation**: `generateOccurrences()` in `shift-patterns.ts` anchors the week-interval to the Monday of `validFrom`; uses `weeksSinceStart % intervalWeeks === 0` check. PATCH drops future shifts and regenerates; past shifts are untouched.
 - **iCal token endpoint** (`GET /ical/token`): checks `prisma.instructor.findFirst` (→ `urls.instructor`) and `prisma.member.findFirst` with `staffRoles.has('fronthost')` (→ `urls.fronthost`). Tests must mock both.
 - **StaffTab ShiftsSection**: only loads one-off shifts (those without `patternId`) in the one-off list; patterns are fetched separately via `GET /admin/shift-patterns?memberId=`. Uses `api.shifts.list` (admin endpoint), not `api.shifts.mine`, because the viewer is always an admin.
+- **Pay rate access**: `PATCH /staff/:memberId/hourly-pay` and `PATCH /staff/instructors/:instructorId` require `franchise_admin`. StaffTab shows rates as read-only for studio_admin. Editing is in `FranchiseStaffRoster` (expandable row per person, per-studio for instructors).
+- **Vitest booking mocks**: `prisma.booking` mock must include `count: vi.fn().mockResolvedValue(2)` (first-booking referral check) and `prisma.referral: { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn() }`. Missing either causes 500 in booking tests.
+- **Email preferences**: `Member.emailPreferences Json` defaults to `{}` (treated as all true). Check with `(prefs.classReminder ?? true)` pattern — explicit `false` opts out, missing key = opted in.
+- **Staff invite flow**: `POST /staff/invite` sends to `/accept-invite?email=&studio=&studioId=&role=`. The `/accept-invite` page handles auth then calls `POST /staff/accept-invite` which validates email match and applies `app_metadata` role + studioIds via Supabase admin API.
+- **Referral reward**: fires in `POST /bookings` after first confirmed booking (`prisma.booking.count === 1`). Finds unrewarded `Referral` for the member, grants credits to referrer, marks as rewarded. Non-fatal (wrapped in try/catch).
+- **Staff conflict detection**: `checkInstructorConflict()` defined in both `schedules.ts` and `admin-sessions.ts`. Checks for overlapping sessions (status ≠ CANCELLED). Applied on: substitute assignment (schedules.ts), session reschedule/time-change (admin-sessions.ts). NOT applied on bulk schedule generation (impractical — skip by design).
+- **Tax / VAT**: `Studio.taxRatePct` + `stripeTaxRateId`. On checkout: if `taxRatePct > 0`, creates Stripe TaxRate once and caches ID on Studio. Passed as `default_tax_rates` to checkout session.
+- **Franchise onboarding wizard**: 7 steps: Studio details → Location → Rooms → Policy → Import from existing studio (optional) → Invite studio admin (optional) → Done. Requires `franchise_admin` role — other roles redirected to `/dashboard`. Cancel button: "Cancel" before studio created, "Finish later →" after (with confirm dialog).
+- **Pagination pattern**: cursor-based, `{ items[], nextCursor: string|null, hasMore: bool }`. Params: `?cursor=<id>&take=<n>` (default 50, max 200). Implemented on `GET /admin/members` and `GET /franchise/staff`. Audit log uses same pattern. Apply to all new list endpoints.
+- **DB migrations**: **never use `prisma db push`** — always use `prisma migrate dev --name <description>` from `packages/db/`. The migration track was restored on 2026-05-31 with a `current_state_baseline` migration; `prisma migrate status` shows "Database schema is up to date". All future schema changes must go through `migrate dev`. `prisma migrate dev` requires a shadow database: set `shadowDatabaseUrl` in `packages/db/.env` pointing to a separate Postgres instance (local or a second Supabase project). Without it, `migrate dev` fails. Workaround: use `prisma migrate dev --create-only` to generate the SQL, then apply manually with `migrate deploy`.
+- **Waivers**: `Waiver` model (studioId, title, body, isActive, version) + `WaiverSignature` (waiverId, memberId, signedAt, ipAddress). Routes at `/waivers` prefix: `GET /active?studioId=`, `POST /:id/sign`, `GET /admin?studioId=`, `PUT /admin` (upsert — deactivates previous and creates new version), `DELETE /admin?studioId=`. Booking gate in `bookings.ts`: checks for active waiver on the session's studio; returns `{ error: 'WAIVER_REQUIRED', waiverId }` (403) if member hasn't signed. Frontend should show WaiverModal when it receives this error.
+- **PAST_DUE booking gate**: members with any `PAST_DUE` subscription cannot book (402). Privileged staff (fronthost+) bypass this check.
+- **allowMemberPause default**: changed to `false` — studios must opt in to allow member self-pause (previously defaulted to `true`, silently enabling it for all studios).
+- **Credit expiry warning dedup**: `Member.creditWarningSentAt DateTime?` — nightly job skips sending if a warning was already sent within the last 7 days.
+- **`GET /franchise/studios`** returns `revenueThisMonthCents` (product sales, non-refunded, this calendar month) alongside the existing member/session/fill-rate stats.
 
 ## Security and architecture review protocol
 
@@ -285,6 +346,14 @@ For each file in `apps/api/src/routes/`, check:
 
 ### Remaining
 - [ ] E2E tests in CI — all specs written; CI job exists but disabled (`if: false`). Needs 5 GitHub secrets configured in the repo: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `STUDIO_ID`. Once set, remove `if: false` from `.github/workflows/ci.yml`.
+- [ ] Conflict detection on bulk schedule creation — currently skipped (computing all occurrences upfront is complex); only applied on single-session edits and substitute assignment.
+- [ ] Minimum class threshold / auto-cancel — no `minCapacity` field or automated cancellation if bookings fall below threshold before class.
+- [ ] Class series / multi-session bookings — no concept of booking a 6-week course as a unit.
+- [ ] Platform admin panel — creating Brands + assigning `brand_admin` still requires direct Supabase API access (one-time per brand, acceptable ops overhead).
+- [ ] Receipt PDF generation — currently exposes Stripe's hosted receipt URL; no first-party PDF.
+- [ ] SMS notifications — email only; no SMS channel.
+- [ ] FranchiseDashboard split — component is large; each tab should be extracted to its own file (StudiosTab, AnalyticsTab, PromoTab, BroadcastTab, NetworksTab) imported by the shell. No behaviour change, just maintainability.
+- [ ] Pagination on remaining high-volume endpoints — `GET /franchise/all-admins`, `GET /franchise/promos`, brand member lists.
 
 ## Completed features
 
@@ -319,3 +388,25 @@ For each file in `apps/api/src/routes/`, check:
 - Session announcements — `POST /admin/sessions/:id/announce` (studio_admin+, rate-limited 5/min); emails all confirmed attendees via Resend with admin-supplied subject + message; inline compose form in `SessionPanel` (blue "Announce" button → subject + textarea + send); audit-logged
 - Staff pay export — `GET /admin/export/staff-pay` combines instructor per-head earnings + fronthost shift-hours earnings in one CSV; "Staff Pay" download button added to AnalyticsTab alongside existing exports; `sendSessionAnnouncement` email template added to `email.ts`
 - 6 new unit tests across `announce.test.ts` and `exports.test.ts` (149 total, 17 files)
+
+### Franchise admin & onboarding (2026-05-31)
+- **Onboarding wizard** — `/onboarding` (franchise_admin only); 7 steps: Studio → Location → Rooms → Policy → Import from existing studio → Invite studio admin → Done. Cancel/finish-later button. Redirects to `/dashboard` on complete.
+- **Import from studio** — `POST /studios/:id/copy-from/:sourceId` (franchise_admin); copies plans, products, templates, policy in one transaction; Stripe IDs excluded.
+- **Staff invite fix** — `/accept-invite` page with inline auth form; `POST /staff/accept-invite` validates email match then writes `app_metadata.role + studioIds` via Supabase admin API. Invite URL now includes `studioId` param.
+- **Franchise dashboard** — "Add studio" button now routes to wizard (inline form removed). Revenue this month on studio cards. "Download payroll" button downloads aggregate CSV (`studioId=all`). New tabs: **Promos** (franchise-wide codes created across all studios simultaneously), **Broadcast** (bulk email to selected studios' members).
+- **People-first staff views** — `FranchiseStaffRoster`, `FranchisePermissionsRoster`, `FranchiseAdminsRoster` replace per-studio pickers. Studio membership shown as chips. Admins: click a studio chip to remove from that studio only. Permissions: instructor multi-studio context selector inline.
+- **Pay rates** — franchise_admin only (was studio_admin). StaffTab shows rates read-only. `FranchiseStaffRoster` has expandable pay editor per person (hourly for fronthosts/studio_admins, per-head per studio for instructors).
+- **New API endpoints**: `GET /franchise/staff`, `GET /franchise/all-admins`, `GET/POST/DELETE /franchise/promos`, `POST /franchise/broadcast`, `POST /studios/:id/copy-from/:sourceId`, `POST /staff/accept-invite`
+
+### Member features + studio settings (2026-05-31)
+- **Booking notes** — `Booking.memberNote String?`; member adds note in SessionDetailView before booking; staff see it in bookings list
+- **Staff conflict detection** — `checkInstructorConflict()` in schedules.ts + admin-sessions.ts; blocks double-booking on substitute assignment and session reschedule
+- **Tax / VAT** — `Studio.taxRatePct Float`, `stripeTaxRateId String?`; Stripe TaxRate auto-created and cached; applied as `default_tax_rates` on checkout; configurable in Settings → Policies
+- **Receipts** — `ProductSale.stripeReceiptUrl` captured from PaymentIntent in webhook; `GET /members/me/receipts`; shown in AccountExtrasSection
+- **Member self-pause** — `POST /memberships/subscriptions/:id/self-pause`; checks `studio.allowMemberPause` (admin-controlled toggle in Settings → Policies); enforces `maxPauseDays` + `maxPausesPerYear`; syncs to Stripe
+- **Referral programme** — `Member.referralCode String? @unique`; `Referral` model; `GET /members/me/referral` (auto-generates code); `POST /members/referral/apply`; reward fires on referee's first booking; `Studio.referralRewardCredits` controls credits; UI in AccountExtrasSection
+- **Lifecycle emails** — win-back (inactive 30+ days, no email in 60 days), credit expiry warning (7 days out), first-class follow-up (26h after first booking); all in nightly cron
+- **Email preferences** — `Member.emailPreferences Json`; `PATCH /members/me/email-preferences`; checked before sending reminders, win-back, followup; UI in AccountExtrasSection
+- **GDPR** — `GET /members/me/export` (JSON download); `DELETE /members/me` (anonymise + cancel subs + delete Supabase Auth user)
+- **Studio settings additions** — `allowMemberPause`, `taxRatePct`, `referralRewardCredits` in Settings → Policies; `GET /admin/stats` returns them so AccountView can gate features per studio config
+- **`TransactionType.REFERRAL`** added to Prisma enum

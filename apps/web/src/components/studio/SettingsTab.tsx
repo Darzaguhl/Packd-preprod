@@ -86,6 +86,18 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
   // Membership pause rules
   const [maxPauseDays, setMaxPauseDays] = useState(30)
   const [maxPausesPerYear, setMaxPausesPerYear] = useState(2)
+  const [allowMemberPause, setAllowMemberPause] = useState(true)
+  // Tax / VAT
+  const [taxRatePct, setTaxRatePct] = useState(0)
+  // Referral
+  const [referralRewardCredits, setReferralRewardCredits] = useState(0)
+  // Waiver
+  const [waiverLoading, setWaiverLoading] = useState(true)
+  const [waiverSaving, setWaiverSaving] = useState(false)
+  const [existingWaiver, setExistingWaiver] = useState<{ id: string; title: string; body: string; version: number } | null>(null)
+  const [waiverTitle, setWaiverTitle] = useState('')
+  const [waiverBody, setWaiverBody] = useState('')
+  const [waiverEnabled, setWaiverEnabled] = useState(false)
 
   // Location fields (first location)
   const [locName, setLocName] = useState('')
@@ -137,6 +149,9 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
       setClassReminderHours(reminderHours ?? 24)
       setMaxPauseDays((s as typeof s & { maxPauseDays?: number }).maxPauseDays ?? 30)
       setMaxPausesPerYear((s as typeof s & { maxPausesPerYear?: number }).maxPausesPerYear ?? 2)
+      setAllowMemberPause((s as typeof s & { allowMemberPause?: boolean }).allowMemberPause ?? true)
+      setTaxRatePct((s as typeof s & { taxRatePct?: number }).taxRatePct ?? 0)
+      setReferralRewardCredits((s as typeof s & { referralRewardCredits?: number }).referralRewardCredits ?? 0)
       const loc = s.locations[0]
       if (loc) {
         setLocName(loc.name)
@@ -153,6 +168,15 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
       setWaitlistWindowMinutes(p.waitlistWindowMinutes)
       setSavedPolicy(p)
     }).catch(() => {}).finally(() => setPolicyLoading(false))
+
+    api.waivers.getAdmin(studioId, token).then(res => {
+      if (res.waiver) {
+        setExistingWaiver(res.waiver)
+        setWaiverTitle(res.waiver.title)
+        setWaiverBody(res.waiver.body)
+        setWaiverEnabled(true)
+      }
+    }).catch(() => {}).finally(() => setWaiverLoading(false))
 
     fetch(`${process.env.NEXT_PUBLIC_API_URL}/studios/${studioId}/ai`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -177,7 +201,7 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
     setSaving(true)
     try {
       const loc = studio.locations[0]
-      type StudioExtended = typeof studio & { websiteUrl?: string; supportEmail?: string; bookingWindowDays?: number; bookingCloseHours?: number; waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean; selfCheckInEnabled?: boolean; classReminderHours?: number | null; maxPauseDays?: number; maxPausesPerYear?: number }
+      type StudioExtended = typeof studio & { websiteUrl?: string; supportEmail?: string; bookingWindowDays?: number; bookingCloseHours?: number; waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean; selfCheckInEnabled?: boolean; classReminderHours?: number | null; maxPauseDays?: number; maxPausesPerYear?: number; allowMemberPause?: boolean; taxRatePct?: number; referralRewardCredits?: number }
       const s = studio as StudioExtended
       const newReminderHours = classReminderEnabled ? classReminderHours : null
       const res = await api.studios.update(studioId, {
@@ -197,6 +221,9 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
         classReminderHours: newReminderHours !== (s.classReminderHours ?? 24) ? newReminderHours : undefined,
         maxPauseDays: maxPauseDays !== (s.maxPauseDays ?? 30) ? maxPauseDays : undefined,
         maxPausesPerYear: maxPausesPerYear !== (s.maxPausesPerYear ?? 2) ? maxPausesPerYear : undefined,
+        allowMemberPause: allowMemberPause !== (s.allowMemberPause ?? true) ? allowMemberPause : undefined,
+        taxRatePct: taxRatePct !== (s.taxRatePct ?? 0) ? taxRatePct : undefined,
+        referralRewardCredits: referralRewardCredits !== (s.referralRewardCredits ?? 0) ? referralRewardCredits : undefined,
         location: loc ? {
           id: loc.id,
           name: locName !== loc.name ? locName : undefined,
@@ -234,13 +261,37 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
     }
   }
 
+  async function handleSaveWaiver() {
+    setWaiverSaving(true)
+    try {
+      if (!waiverEnabled) {
+        await api.waivers.remove(studioId, token)
+        setExistingWaiver(null)
+        setWaiverTitle('')
+        setWaiverBody('')
+        showToast('Waiver removed')
+      } else {
+        if (!waiverTitle.trim() || !waiverBody.trim()) { showToast('Title and body are required', false); return }
+        await api.waivers.upsert(studioId, waiverTitle, waiverBody, token)
+        // Reload to get updated version
+        const res = await api.waivers.getAdmin(studioId, token)
+        if (res.waiver) setExistingWaiver(res.waiver)
+        showToast('Waiver saved')
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Failed to save waiver', false)
+    } finally {
+      setWaiverSaving(false)
+    }
+  }
+
   const isPolicyDirty =
     lateCancelWindowHours  !== savedPolicy.lateCancelWindowHours  ||
     lateCancelFeeCredits   !== savedPolicy.lateCancelFeeCredits   ||
     noShowFeeCredits        !== savedPolicy.noShowFeeCredits       ||
     waitlistWindowMinutes  !== savedPolicy.waitlistWindowMinutes
 
-  type StudioExt = typeof studio & { websiteUrl?: string; supportEmail?: string; bookingWindowDays?: number; bookingCloseHours?: number; waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean; selfCheckInEnabled?: boolean; classReminderHours?: number | null; maxPauseDays?: number; maxPausesPerYear?: number }
+  type StudioExt = typeof studio & { websiteUrl?: string; supportEmail?: string; bookingWindowDays?: number; bookingCloseHours?: number; waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean; selfCheckInEnabled?: boolean; classReminderHours?: number | null; maxPauseDays?: number; maxPausesPerYear?: number; allowMemberPause?: boolean; taxRatePct?: number; referralRewardCredits?: number }
   const s2 = studio as StudioExt | null
   const isDirty = studio && (
     name !== studio.name ||
@@ -259,6 +310,9 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
     (classReminderEnabled ? classReminderHours : null) !== (s2?.classReminderHours ?? 24) ||
     maxPauseDays !== (s2?.maxPauseDays ?? 30) ||
     maxPausesPerYear !== (s2?.maxPausesPerYear ?? 2) ||
+    allowMemberPause !== (s2?.allowMemberPause ?? true) ||
+    taxRatePct !== (s2?.taxRatePct ?? 0) ||
+    referralRewardCredits !== (s2?.referralRewardCredits ?? 0) ||
     locName !== (studio.locations[0]?.name ?? '') ||
     address !== (studio.locations[0]?.address ?? '') ||
     city !== (studio.locations[0]?.city ?? '') ||
@@ -542,6 +596,13 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
         {/* Membership pause */}
         <section className="space-y-3">
           <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Membership pause</h3>
+          <label className="flex items-start gap-3 cursor-pointer select-none px-3 py-2 rounded-xl hover:bg-gray-50 transition-colors">
+            <input type="checkbox" checked={allowMemberPause} onChange={e => setAllowMemberPause(e.target.checked)} className="mt-0.5 rounded" />
+            <span>
+              <span className="text-sm font-medium text-gray-900 block">Allow members to self-pause</span>
+              <span className="text-xs text-gray-400">Members can pause their own subscription from their account page</span>
+            </span>
+          </label>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-gray-500 font-medium">Max pause duration (days)</label>
@@ -555,6 +616,85 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
                 className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
                 value={maxPausesPerYear} onChange={e => setMaxPausesPerYear(parseInt(e.target.value) || 2)} />
             </div>
+          </div>
+        </section>
+
+        {/* Tax / VAT */}
+        <section className="space-y-3 pt-4 border-t border-gray-100">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tax / VAT</h3>
+          <div className="flex items-end gap-3">
+            <div className="w-36">
+              <label className="text-xs text-gray-500 font-medium">Tax rate (%)</label>
+              <input type="number" min="0" max="100" step="0.1"
+                className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+                value={taxRatePct} onChange={e => setTaxRatePct(parseFloat(e.target.value) || 0)} />
+            </div>
+            <p className="text-xs text-gray-400 pb-2">Set to 0 to disable tax. Applied to Stripe checkout and shown on receipts.</p>
+          </div>
+        </section>
+
+        {/* Referral programme */}
+        <section className="space-y-3 pt-4 border-t border-gray-100">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Referral programme</h3>
+          <div className="flex items-end gap-3">
+            <div className="w-36">
+              <label className="text-xs text-gray-500 font-medium">Credits per referral</label>
+              <input type="number" min="0" step="1"
+                className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+                value={referralRewardCredits} onChange={e => setReferralRewardCredits(parseInt(e.target.value) || 0)} />
+            </div>
+            <p className="text-xs text-gray-400 pb-2">Credits awarded to a member when someone they referred takes their first class. Set to 0 to disable.</p>
+          </div>
+        </section>
+
+        {/* Liability waiver */}
+        <section className="space-y-3 pt-4 border-t border-gray-100">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Liability waiver</h3>
+          <label className="flex items-start gap-3 cursor-pointer select-none px-3 py-2 rounded-xl hover:bg-gray-50 transition-colors">
+            <input type="checkbox" checked={waiverEnabled} onChange={e => setWaiverEnabled(e.target.checked)} className="mt-0.5 rounded" />
+            <span>
+              <span className="text-sm font-medium text-gray-900 block">Require waiver before first booking</span>
+              <span className="text-xs text-gray-400">Members must read and accept a liability waiver before booking a class</span>
+            </span>
+          </label>
+          {waiverEnabled && (
+            <div className="space-y-3 pl-7">
+              {existingWaiver && (
+                <p className="text-xs text-gray-400">Version {existingWaiver.version} — saving creates a new version and requires all members to re-sign</p>
+              )}
+              <div>
+                <label className="text-xs text-gray-500 font-medium">Waiver title</label>
+                <input
+                  type="text"
+                  className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  placeholder="e.g. Liability Waiver & Release of Claims"
+                  value={waiverTitle}
+                  onChange={e => setWaiverTitle(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 font-medium">Waiver text</label>
+                <textarea
+                  rows={10}
+                  className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
+                  placeholder="By signing this waiver, I acknowledge…"
+                  value={waiverBody}
+                  onChange={e => setWaiverBody(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+          <div className="flex items-center gap-3 pl-7">
+            <button
+              onClick={handleSaveWaiver}
+              disabled={waiverSaving || waiverLoading}
+              className="text-sm font-medium bg-gray-900 text-white px-5 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors"
+            >
+              {waiverSaving ? 'Saving…' : waiverEnabled ? 'Save waiver' : 'Remove waiver'}
+            </button>
+            {waiverEnabled && existingWaiver && (
+              <span className="text-xs text-gray-400">Currently active: v{existingWaiver.version}</span>
+            )}
           </div>
         </section>
 

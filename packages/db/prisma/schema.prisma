@@ -34,6 +34,12 @@ model Studio {
   // Membership pause rules
   maxPauseDays             Int     @default(30)
   maxPausesPerYear         Int     @default(2)
+  allowMemberPause         Boolean @default(false) // whether members can self-pause
+  // Tax
+  taxRatePct               Float   @default(0)     // e.g. 6.0 = 6% VAT; 0 = no tax
+  stripeTaxRateId          String?                  // cached Stripe TaxRate ID
+  // Referral
+  referralRewardCredits    Int     @default(0)      // credits given to referrer per signup; 0 = disabled
   // AI assistant
   aiEnabled                Boolean @default(true)
   anthropicApiKey          String?
@@ -48,6 +54,7 @@ model Studio {
   classSchedules ClassSchedule[]
   memberships    MembershipPlan[]
   products       Product[]
+  referrals      Referral[]
   cancellationPolicy CancellationPolicy?
   integration   StudioIntegration?
   availabilityBlocks InstructorAvailabilityBlock[]
@@ -58,6 +65,7 @@ model Studio {
   brandMemberships     BrandStudio[]
   franchiseMemberships FranchiseStudio[]
   productSales         ProductSale[]
+  waivers              Waiver[]
 }
 
 // ─── Brand (top-level hierarchy above franchise) ────────────────────────────
@@ -422,6 +430,12 @@ model Member {
   // Stripe
   stripeCustomerId     String?
 
+  // Member preferences & lifecycle
+  emailPreferences     Json     @default("{}")   // { classReminder: true, marketing: true, waitlist: true }
+  lastWinbackAt        DateTime?                  // last win-back email sent
+  creditWarningSentAt  DateTime?                  // last credit expiry warning email sent
+  referralCode         String?  @unique           // unique code to share
+
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   studio          Studio           @relation(fields: [studioId], references: [id], onDelete: Cascade)
   bookings        Booking[]
@@ -435,6 +449,9 @@ model Member {
   productSales    ProductSale[]
   staffShifts        StaffShift[]
   staffShiftPatterns StaffShiftPattern[]
+  referralsSent      Referral[] @relation("ReferrerReferrals")
+  referralsReceived  Referral[] @relation("RefereeReferrals")
+  waiverSignatures   WaiverSignature[]
 
   @@unique([studioId, externalId])
   @@index([studioId])              // member list / export queries
@@ -453,6 +470,7 @@ model Booking {
   bookedAt    DateTime      @default(now())
   checkedIn   Boolean       @default(false)
   checkedInAt DateTime?
+  memberNote  String?                          // optional note from member at booking time
   externalId  String?       @unique // Mariana Tek reservation ID (globally unique)
   source      String        @default("packd")
 
@@ -537,6 +555,7 @@ enum TransactionType {
   MEMBERSHIP_RENEWAL
   EXPIRY
   EXPIRY_PROCESSED  // marks source PURCHASE rows consumed by the expiry sweep — prevents double-counting
+  REFERRAL          // credits granted to referrer when referee completes first booking
 }
 
 model MembershipPlan {
@@ -631,8 +650,9 @@ model ProductSale {
   soldAt        DateTime @default(now())
   refundedAt    DateTime?
   refundedCents Int?
-  stripeRefundId String?
-  failedAt      DateTime?
+  stripeRefundId   String?
+  stripeReceiptUrl String?    // Stripe receipt URL captured from webhook
+  failedAt         DateTime?
 
   member  Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
   studio  Studio @relation(fields: [studioId], references: [id], onDelete: Cascade)
@@ -738,6 +758,26 @@ model PromoCodeRedemption {
   @@index([memberId])
 }
 
+// ─── Referrals ───────────────────────────────────────────────────────────────
+
+model Referral {
+  id            String   @id @default(cuid())
+  studioId      String
+  referrerId    String
+  refereeId     String
+  rewardCredits Int      @default(0)   // credits granted to referrer when rewarded
+  rewarded      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  studio   Studio @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  referrer Member @relation("ReferrerReferrals", fields: [referrerId], references: [id], onDelete: Cascade)
+  referee  Member @relation("RefereeReferrals", fields: [refereeId], references: [id], onDelete: Cascade)
+
+  @@unique([referrerId, refereeId])
+  @@index([studioId])
+  @@index([refereeId])
+}
+
 // ─── Staff shifts ─────────────────────────────────────────────────────────────
 
 model StaffShiftPattern {
@@ -778,6 +818,38 @@ model StaffShift {
   @@index([studioId, startsAt])
   @@index([memberId, startsAt])
   @@index([patternId])
+}
+
+// ─── Waivers ─────────────────────────────────────────────────────────────────
+
+model Waiver {
+  id        String   @id @default(cuid())
+  studioId  String
+  title     String
+  body      String   @db.Text
+  isActive  Boolean  @default(true)
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  studio     Studio            @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  signatures WaiverSignature[]
+
+  @@index([studioId, isActive])
+}
+
+model WaiverSignature {
+  id        String   @id @default(cuid())
+  waiverId  String
+  memberId  String
+  signedAt  DateTime @default(now())
+  ipAddress String?
+
+  waiver Waiver @relation(fields: [waiverId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([waiverId, memberId])
+  @@index([memberId])
 }
 
 // ─── Guest passes ─────────────────────────────────────────────────────────────

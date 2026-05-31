@@ -4,7 +4,7 @@ import { requireRole, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
 import { logger } from '../lib/logger.js'
 import { enqueueNoShowCheck } from '../jobs/index.js'
-import { sendSessionAnnouncement } from '../lib/email.js'
+import { sendSessionAnnouncement, sendBookingCancellation } from '../lib/email.js'
 import { assertStudioAccess } from './admin-shared.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
@@ -12,6 +12,27 @@ const requireInstructor  = requireRole('instructor')
 
 const VALID_SESSION_STATUSES = ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const
 type SessionStatus = typeof VALID_SESSION_STATUSES[number]
+
+/** Returns true if instructor has a non-cancelled overlapping session (excluding the given session). */
+async function checkInstructorConflict(
+  instructorId: string,
+  startsAt: Date,
+  endsAt: Date,
+  excludeSessionId?: string,
+): Promise<boolean> {
+  if (!instructorId) return false
+  const conflict = await prisma.classSession.findFirst({
+    where: {
+      instructorId,
+      status: { not: 'CANCELLED' },
+      startsAt: { lt: endsAt },
+      endsAt: { gt: startsAt },
+      ...(excludeSessionId ? { id: { not: excludeSessionId } } : {}),
+    },
+    select: { id: true },
+  })
+  return conflict !== null
+}
 
 export async function adminSessionRoutes(app: FastifyInstance) {
   // GET /admin/sessions?studioId=&date=
@@ -124,6 +145,7 @@ export async function adminSessionRoutes(app: FastifyInstance) {
         where: { sessionId: request.params.id, status: 'CONFIRMED' },
         include: { member: { include: { user: true, creditBalance: true } } },
         orderBy: { bookedAt: 'asc' },
+        // memberNote is a scalar field on Booking — included by default (no explicit select needed)
       })
 
       return bookings.map((b) => ({
@@ -135,6 +157,7 @@ export async function adminSessionRoutes(app: FastifyInstance) {
         checkedInAt: b.checkedInAt?.toISOString() ?? null,
         creditBalance: b.member.creditBalance?.balance ?? 0,
         bookedAt: b.bookedAt.toISOString(),
+        memberNote: b.memberNote ?? null,
       }))
     },
   )
@@ -182,6 +205,15 @@ export async function adminSessionRoutes(app: FastifyInstance) {
         if (isNaN(newStart.getTime()) || isNaN(newEnd.getTime())) return reply.badRequest('Invalid date format')
         if (newEnd <= newStart) return reply.badRequest('endsAt must be after startsAt')
 
+        // Check instructor conflict at the new time
+        const effectiveInstructorId = existing.substituteInstructorId ?? existing.instructorId
+        if (effectiveInstructorId) {
+          const hasConflict = await checkInstructorConflict(effectiveInstructorId, newStart, newEnd, request.params.id)
+          if (hasConflict) {
+            return reply.code(409).send({ error: 'Instructor already has a session at this time' })
+          }
+        }
+
         const session = await prisma.classSession.update({
           where: { id: request.params.id },
           data: { startsAt: newStart, endsAt: newEnd },
@@ -212,6 +244,59 @@ export async function adminSessionRoutes(app: FastifyInstance) {
       }
       if (status === 'CANCELLED') {
         audit({ actorId: user.id, actorRole: user.role, action: AUDIT.SESSION_CANCEL, targetId: request.params.id, studioId: existing.studioId, meta: { startsAt: existing.startsAt } })
+
+        // Cancel confirmed bookings, refund credits, and notify members
+        const confirmedBookings = await prisma.booking.findMany({
+          where: { sessionId: request.params.id, status: 'CONFIRMED' },
+          include: {
+            member: {
+              include: {
+                user: { select: { email: true, firstName: true } },
+                studio: { select: { name: true } },
+              },
+            },
+          },
+        })
+
+        if (confirmedBookings.length > 0) {
+          await prisma.$transaction(async (tx) => {
+            await tx.booking.updateMany({
+              where: { id: { in: confirmedBookings.map(b => b.id) } },
+              data: { status: 'CANCELLED', stationId: null },
+            })
+            if (existing.creditsRequired > 0) {
+              for (const b of confirmedBookings) {
+                await tx.creditBalance.upsert({
+                  where: { memberId: b.memberId },
+                  create: { memberId: b.memberId, balance: existing.creditsRequired },
+                  update: { balance: { increment: existing.creditsRequired } },
+                })
+                await tx.creditTransaction.create({
+                  data: { memberId: b.memberId, amount: existing.creditsRequired, type: 'MANUAL_ADJUSTMENT', note: 'Refund: class cancelled' },
+                })
+              }
+            }
+          })
+
+          const webUrl = process.env.WEB_URL ?? 'http://localhost:3000'
+          const className = existing.templateId
+            ? (await prisma.classTemplate.findUnique({ where: { id: existing.templateId }, select: { name: true } }))?.name ?? 'Class'
+            : 'Class'
+          const studioName = (await prisma.studio.findUnique({ where: { id: existing.studioId }, select: { name: true } }))?.name ?? ''
+          await Promise.allSettled(
+            confirmedBookings.map(b =>
+              sendBookingCancellation({
+                to: b.member.user.email,
+                firstName: b.member.user.firstName,
+                studioName,
+                className,
+                startsAt: existing.startsAt.toISOString(),
+                reason: 'This class has been cancelled by the studio.',
+                webUrl,
+              }),
+            ),
+          )
+        }
       }
 
       return reply.send({ success: true, status: session.status })

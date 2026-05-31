@@ -5,6 +5,7 @@ import { ROLE_RANK } from '@packd/types'
 import { requireRole, getUser } from '../lib/auth.js'
 import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole } from '../lib/supabase-admin.js'
 import { assertStudioAccess } from './admin-shared.js'
+import { enqueueBroadcast } from '../jobs/index.js'
 
 export { assertStudioAccess }
 
@@ -133,7 +134,10 @@ export async function franchiseRoutes(app: FastifyInstance) {
       const tomorrowStart = new Date(todayStart)
       tomorrowStart.setDate(tomorrowStart.getDate() + 1)
 
-      const [studios, allStaff] = await Promise.all([
+      const monthStart = new Date()
+      monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
+
+      const [studios, allStaff, monthlySales] = await Promise.all([
         prisma.studio.findMany({
           include: {
             _count: {
@@ -146,6 +150,12 @@ export async function franchiseRoutes(app: FastifyInstance) {
           where: { staffRoles: { isEmpty: false } },
           select: { studioIds: true },
         }),
+        // Revenue this month from product sales (non-refunded)
+        prisma.productSale.groupBy({
+          by: ['studioId'],
+          where: { soldAt: { gte: monthStart }, refundedAt: null },
+          _sum: { totalCents: true },
+        }),
       ])
 
       const staffCountByStudio = new Map<string, number>()
@@ -153,6 +163,11 @@ export async function franchiseRoutes(app: FastifyInstance) {
         for (const sid of m.studioIds) {
           staffCountByStudio.set(sid, (staffCountByStudio.get(sid) ?? 0) + 1)
         }
+      }
+
+      const revenueByStudio = new Map<string, number>()
+      for (const row of monthlySales) {
+        revenueByStudio.set(row.studioId, row._sum.totalCents ?? 0)
       }
 
       const todaySessions = await prisma.classSession.findMany({
@@ -210,6 +225,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
           todaySessionCount: sessionStats?.count ?? 0,
           staffCount: staffCountByStudio.get(studio.id) ?? 0,
           fillRateToday,
+          revenueThisMonthCents: revenueByStudio.get(studio.id) ?? 0,
         }
       })
 
@@ -616,6 +632,213 @@ export async function franchiseRoutes(app: FastifyInstance) {
       })
 
       return reply.send({ success: true, permissions: merged })
+    },
+  )
+
+  // ── Franchise-wide staff + admin rosters ────────────────────────────────────
+
+  // GET /franchise/staff — all staff across all studios with studio memberships resolved
+  app.get<{ Querystring: { cursor?: string; take?: string } }>(
+    '/staff',
+    { preHandler: requireRole('franchise_admin') },
+    async (request, reply) => {
+      const { cursor, take: takeStr } = request.query
+      const take = Math.min(parseInt(takeStr ?? '100', 10) || 100, 200)
+
+      const [studios, members] = await Promise.all([
+        prisma.studio.findMany({ select: { id: true, name: true } }),
+        prisma.member.findMany({
+          where: { staffRoles: { isEmpty: false } },
+          include: {
+            user: {
+              select: {
+                firstName: true,
+                lastName: true,
+                email: true,
+                instructors: { select: { id: true, studioId: true, payRatePerHeadCents: true } },
+              },
+            },
+          },
+          orderBy: [{ user: { lastName: 'asc' } }, { user: { firstName: 'asc' } }],
+          take: take + 1,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        }),
+      ])
+      const studioMap = new Map(studios.map(s => [s.id, s.name]))
+      const hasMore = members.length > take
+      const items = hasMore ? members.slice(0, take) : members
+      return reply.send({
+        items: items.map(m => ({
+          id: m.id,
+          userId: m.userId,
+          name: `${m.user.firstName} ${m.user.lastName}`,
+          email: m.user.email,
+          roles: m.staffRoles,
+          studioIds: m.studioIds,
+          studios: m.studioIds.map(id => ({ id, name: studioMap.get(id) ?? id })),
+          payRateHourlyCents: m.payRateHourlyCents ?? null,
+          instructorRates: m.user.instructors.map(i => ({
+            instructorId: i.id,
+            studioId: i.studioId,
+            studioName: studioMap.get(i.studioId) ?? i.studioId,
+            payRatePerHeadCents: i.payRatePerHeadCents ?? null,
+          })),
+        })),
+        nextCursor: hasMore ? items[items.length - 1].id : null,
+        hasMore,
+      })
+    },
+  )
+
+  // GET /franchise/all-admins — all studio_admins aggregated across studios with studio names
+  app.get(
+    '/all-admins',
+    { preHandler: requireRole('franchise_admin') },
+    async (_request, reply) => {
+      if (!SERVICE_ROLE_KEY) return reply.internalServerError('SUPABASE_SERVICE_ROLE_KEY not configured')
+
+      const [studios, sbUsers, members] = await Promise.all([
+        prisma.studio.findMany({ select: { id: true, name: true } }),
+        fetchSupabaseUsers(),
+        prisma.member.findMany({
+          where: { staffRoles: { has: 'studio_admin' } },
+          include: { user: { select: { firstName: true, lastName: true, email: true } } },
+        }),
+      ])
+
+      const studioMap = new Map(studios.map(s => [s.id, s.name]))
+      const memberByUserId = new Map(members.map(m => [m.userId, m]))
+
+      // Collect all users who have studio_admin role in Supabase
+      const adminSbUsers = sbUsers.filter(u => {
+        const meta = u.app_metadata ?? {}
+        const roles: string[] = (meta.roles as string[] | undefined) ?? (meta.role ? [meta.role as string] : [])
+        return roles.includes('studio_admin')
+      })
+
+      return reply.send(adminSbUsers.map(su => {
+        const meta = su.app_metadata ?? {}
+        const studioIds: string[] = (meta.studioIds as string[] | undefined) ?? (meta.studioId ? [meta.studioId as string] : [])
+        const m = memberByUserId.get(su.id)
+        const fallbackName = su.email ?? su.id
+        return {
+          userId: su.id,
+          name: m ? `${m.user.firstName} ${m.user.lastName}` : fallbackName,
+          email: su.email ?? m?.user.email ?? '',
+          studioIds,
+          studios: studioIds.map(id => ({ id, name: studioMap.get(id) ?? id })),
+        }
+      }).sort((a, b) => a.name.localeCompare(b.name)))
+    },
+  )
+
+  // ── Franchise-wide promo codes ───────────────────────────────────────────────
+
+  // GET /franchise/promos — list promo codes, aggregated across all franchise studios
+  app.get(
+    '/promos',
+    { preHandler: requireRole('franchise_admin') },
+    async (_request, reply) => {
+      const codes = await prisma.promoCode.findMany({
+        orderBy: { code: 'asc' },
+        include: { _count: { select: { redemptions: true } } },
+      })
+      // Group by code string; aggregate usage counts across studios
+      const byCode = new Map<string, { code: string; description: string | null; type: string; value: number; maxUses: number | null; usageCount: number; studios: string[]; isActive: boolean; validUntil: string | null }>()
+      for (const p of codes) {
+        if (byCode.has(p.code)) {
+          const entry = byCode.get(p.code)!
+          entry.usageCount += p.usageCount
+          entry.studios.push(p.studioId)
+        } else {
+          byCode.set(p.code, {
+            code: p.code,
+            description: p.description,
+            type: p.type,
+            value: p.value,
+            maxUses: p.maxUses,
+            usageCount: p.usageCount,
+            studios: [p.studioId],
+            isActive: p.isActive,
+            validUntil: p.validUntil?.toISOString() ?? null,
+          })
+        }
+      }
+      return reply.send([...byCode.values()])
+    },
+  )
+
+  // POST /franchise/promos — create same promo code across all franchise studios
+  app.post<{
+    Body: {
+      code: string
+      description?: string
+      type: string
+      value: number
+      maxUses?: number | null
+      validFrom?: string
+      validUntil?: string | null
+    }
+  }>(
+    '/promos',
+    { preHandler: requireRole('franchise_admin') },
+    async (request, reply) => {
+      const { code, description, type, value, maxUses, validFrom, validUntil } = request.body
+      if (!code || !type) return reply.badRequest('code and type are required')
+
+      const studios = await prisma.studio.findMany({ select: { id: true } })
+      if (!studios.length) return reply.badRequest('No studios found')
+
+      // Upsert to be idempotent — running twice won't create duplicates
+      await prisma.$transaction(
+        studios.map(s => prisma.promoCode.upsert({
+          where: { studioId_code: { studioId: s.id, code } },
+          update: { description, type, value, maxUses: maxUses ?? null, validUntil: validUntil ? new Date(validUntil) : null, isActive: true },
+          create: { studioId: s.id, code, description, type, value, maxUses: maxUses ?? null, validFrom: validFrom ? new Date(validFrom) : new Date(), validUntil: validUntil ? new Date(validUntil) : null },
+        }))
+      )
+
+      return reply.code(201).send({ success: true, studios: studios.length })
+    },
+  )
+
+  // DELETE /franchise/promos/:code — remove a promo code from all studios
+  app.delete<{ Params: { code: string } }>(
+    '/promos/:code',
+    { preHandler: requireRole('franchise_admin') },
+    async (request, reply) => {
+      const { code } = request.params
+      const { count } = await prisma.promoCode.deleteMany({ where: { code } })
+      return reply.send({ success: true, deleted: count })
+    },
+  )
+
+  // ── Franchise broadcast ──────────────────────────────────────────────────────
+
+  // POST /franchise/broadcast — send an email to all members of selected studios
+  app.post<{ Body: { studioIds: string[]; subject: string; message: string } }>(
+    '/broadcast',
+    { preHandler: requireRole('franchise_admin'), config: { rateLimit: { max: 2, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const { studioIds, subject, message } = request.body
+      if (!studioIds?.length) return reply.badRequest('studioIds is required')
+      if (!subject?.trim() || !message?.trim()) return reply.badRequest('subject and message are required')
+
+      const studios = await prisma.studio.findMany({
+        where: { id: { in: studioIds } },
+        select: { id: true, name: true },
+      })
+      if (!studios.length) return reply.notFound('No matching studios')
+
+      const total = await prisma.member.count({
+        where: { studioId: { in: studioIds }, staffRoles: { isEmpty: true } },
+      })
+
+      const studioName = studios.length === 1 ? studios[0].name : studios.map(s => s.name).join(' & ')
+
+      await enqueueBroadcast({ studioIds, subject, message, studioName })
+
+      return reply.send({ success: true, queued: true, estimatedRecipients: total })
     },
   )
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import type { RoomLayout, SpotAssignment, Station } from '@/lib/api'
+import type { RoomLayout, SpotAssignment } from '@/lib/api'
 import { STATION_META } from './constants'
 
 interface Props {
@@ -10,8 +10,19 @@ interface Props {
   onPick: (stationId: string | null) => void
 }
 
-function initials(name: string) {
-  return name.split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()
+// Return the shortest useful label: strip leading type-name prefix, then truncate
+function shortLabel(label: string, typeName: string, fallback: string): string {
+  const t = label.trim()
+  if (!t) return fallback
+  // Strip exact type-name prefix: "Treadmill 1" → "1"
+  if (t.toLowerCase().startsWith(typeName.toLowerCase())) {
+    const rest = t.slice(typeName.length).trim()
+    return rest || fallback
+  }
+  // Strip first word if it looks like a type word (all letters, ≥3 chars): "Row 2" → "2"
+  const m = t.match(/^[A-Za-z]{3,}\s+(.+)$/)
+  if (m) return m[1]
+  return t
 }
 
 export default function SpotPicker({ layout, assignments, myStationId, onPick }: Props) {
@@ -38,6 +49,7 @@ export default function SpotPicker({ layout, assignments, myStationId, onPick }:
           const occupant = takenByStation.get(station.id)
           const isMine = station.id === myStationId
           const isTaken = !!occupant && !isMine
+          const displayLabel = shortLabel(station.label ?? '', meta.label, meta.short)
 
           return (
             <button
@@ -46,10 +58,10 @@ export default function SpotPicker({ layout, assignments, myStationId, onPick }:
               onClick={() => onPick(isMine ? null : station.id)}
               className={`group absolute flex flex-col items-center justify-center border-2 rounded-xl transition-all ${
                 isMine
-                  ? 'border-gray-900 bg-gray-900 text-white scale-105 shadow-md hover:border-red-500 hover:bg-red-500'
+                  ? 'border-indigo-700 bg-indigo-600 text-white scale-105 shadow-md hover:border-red-500 hover:bg-red-500'
                   : isTaken
-                  ? 'border-gray-200 bg-gray-100 opacity-50 cursor-not-allowed'
-                  : `${meta.color} hover:scale-105 hover:shadow-sm cursor-pointer`
+                  ? 'border-gray-300 bg-gray-200 text-gray-400 opacity-60 cursor-not-allowed'
+                  : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:scale-105 hover:bg-emerald-100 hover:shadow-sm cursor-pointer'
               }`}
               style={{
                 left: `${(station.xM / layout.widthM) * 100}%`,
@@ -60,12 +72,10 @@ export default function SpotPicker({ layout, assignments, myStationId, onPick }:
             >
               {isMine ? (
                 <>
-                  {/* Normal state: checkmark + "You" */}
                   <svg className="w-3 h-3 group-hover:hidden" viewBox="0 0 12 12" fill="none">
                     <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                   <span className="text-[8px] font-semibold truncate px-0.5 max-w-full leading-tight group-hover:hidden">You</span>
-                  {/* Hover state: X + "Cancel" */}
                   <svg className="w-3 h-3 hidden group-hover:block" viewBox="0 0 12 12" fill="none">
                     <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
                   </svg>
@@ -73,31 +83,30 @@ export default function SpotPicker({ layout, assignments, myStationId, onPick }:
                 </>
               ) : isTaken ? (
                 <>
-                  <div className="w-4 h-4 rounded-full bg-gray-400 text-white flex items-center justify-center text-[7px] font-bold">
-                    {initials(occupant!.memberName)}
-                  </div>
-                  <span className="text-[8px] text-gray-500 truncate px-0.5 max-w-full leading-tight">Taken</span>
+                  <span className="text-xs opacity-40">{meta.icon}</span>
+                  <span className="text-[8px] font-medium truncate px-0.5 max-w-full leading-tight">Taken</span>
                 </>
               ) : (
                 <>
                   <span className="text-xs">{meta.icon}</span>
-                  <span className="text-[8px] font-medium truncate px-0.5 max-w-full">{station.label}</span>
+                  <span className="text-[8px] font-medium truncate px-0.5 max-w-full">{displayLabel}</span>
                 </>
               )}
             </button>
           )
         })}
+
       </div>
 
       <div className="flex items-center gap-4 text-xs text-gray-500">
         <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded border-2 border-gray-900 bg-gray-900 inline-block" /> Your spot
+          <span className="w-3 h-3 rounded border-2 border-indigo-700 bg-indigo-600 inline-block" /> Your spot
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded border-2 border-emerald-300 bg-emerald-100 inline-block" /> Available
+          <span className="w-3 h-3 rounded border-2 border-emerald-300 bg-emerald-50 inline-block" /> Available
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded border-2 border-gray-200 bg-gray-100 opacity-50 inline-block" /> Taken
+          <span className="w-3 h-3 rounded border-2 border-gray-300 bg-gray-200 opacity-60 inline-block" /> Taken
         </span>
       </div>
 

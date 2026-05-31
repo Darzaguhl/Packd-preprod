@@ -18,20 +18,96 @@ interface AuditEntry {
   createdAt: string
 }
 
+const ACTION_LABELS: Record<string, string> = {
+  'credit.adjust':         'Adjusted credits',
+  'credit.grant':          'Granted credits',
+  'booking.cancel':        'Cancelled booking',
+  'booking.cancel.admin':  'Cancelled booking',
+  'refund.issue':          'Issued refund',
+  'member.note.delete':    'Deleted member note',
+  'membership.assign':     'Assigned membership plan',
+  'membership.cancel':     'Cancelled membership',
+  'membership.pause':      'Paused subscription',
+  'membership.resume':     'Resumed subscription',
+  'stripe.replay':         'Replayed Stripe event',
+  'guest.checkin':         'Checked in guest',
+  'guest.pass.grant':      'Granted guest pass',
+  'promo.redeem':          'Redeemed promo code',
+  'shift.create':          'Created shift',
+  'shift.update':          'Updated shift',
+  'shift.delete':          'Deleted shift',
+  'shift.pattern.create':  'Created recurring shift',
+  'shift.pattern.delete':  'Deleted recurring shift',
+  'staff.role.add':        'Added staff role',
+  'staff.role.remove':     'Removed staff role',
+  'staff.pay.update':      'Updated pay rate',
+  'schedule.create':       'Created class schedule',
+  'schedule.delete':       'Deleted class schedule',
+  'schedule.bulk':         'Bulk session operation',
+  'session.cancel':        'Cancelled session',
+  'session.reschedule':    'Rescheduled session',
+  'session.checkin':       'Checked in member',
+  'session.announce':      'Sent session announcement',
+}
+
 function fmtAction(action: string): string {
-  return action
-    .replace(/_/g, ' ')
-    .toLowerCase()
-    .replace(/^\w/, c => c.toUpperCase())
+  return ACTION_LABELS[action] ?? action.split('.').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+}
+
+const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+function fmtValue(key: string, value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null
+
+  // Skip pure ID fields — not useful to display
+  if (/Id$|Ids$/.test(key) && key !== 'studioId') return null
+
+  // Cents → currency
+  if (key.endsWith('Cents') && typeof value === 'number') {
+    const label = key === 'payRateHourlyCents' ? 'Hourly rate'
+      : key === 'payRatePerHeadCents' ? 'Per-head rate'
+      : key === 'amount' ? 'Amount'
+      : key === 'totalCents' ? 'Total'
+      : key.replace(/Cents$/, '').replace(/([A-Z])/g, ' $1').trim()
+    return `${label}: ${(value / 100).toLocaleString('en', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })}`
+  }
+
+  // ISO date strings
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) {
+    const d = new Date(value)
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) +
+      ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  // daysOfWeek array
+  if (key === 'daysOfWeek' && Array.isArray(value)) {
+    return 'Days: ' + (value as number[]).map(i => DOW[i] ?? i).join(', ')
+  }
+
+  // Known field labels
+  const FIELD_LABELS: Record<string, string> = {
+    amount: 'Credits', credits: 'Credits', futureShiftsDeleted: 'Future shifts removed',
+    affected: 'Sessions affected', role: 'Role', guestName: 'Guest',
+    code: 'Code', subject: 'Subject', sent: 'Sent', reason: 'Reason',
+    action: 'Action', note: 'Note', from: 'From', to: 'To',
+    startTime: 'Start', endTime: 'End', startsAt: 'Start', endsAt: 'End',
+    intervalWeeks: 'Every N weeks',
+  }
+  const label = FIELD_LABELS[key] ?? key.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase())
+
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return `${label}: ${new Date(value + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
+  }
+
+  return `${label}: ${value}`
 }
 
 function fmtMeta(meta: unknown): string | null {
   if (!meta || typeof meta !== 'object' || Object.keys(meta as object).length === 0) return null
-  const m = meta as Record<string, unknown>
-  return Object.entries(m)
-    .filter(([, v]) => v !== null && v !== undefined && v !== '')
-    .map(([k, v]) => `${k}: ${v}`)
-    .join(' · ')
+  const parts = Object.entries(meta as Record<string, unknown>)
+    .map(([k, v]) => fmtValue(k, v))
+    .filter(Boolean) as string[]
+  return parts.length > 0 ? parts.join(' · ') : null
 }
 
 const ROLE_COLOURS: Record<string, string> = {
@@ -102,12 +178,7 @@ export default function AuditLogTab({ studioId, token }: Props) {
 
                 {/* Content */}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-800">
-                    <span className="font-medium">{fmtAction(e.action)}</span>
-                    {e.targetId && (
-                      <span className="text-gray-400 font-mono text-xs ml-1.5">{e.targetId.slice(-8)}</span>
-                    )}
-                  </p>
+                  <p className="text-sm font-medium text-gray-800">{fmtAction(e.action)}</p>
                   {meta && <p className="text-xs text-gray-400 truncate mt-0.5">{meta}</p>}
                 </div>
 

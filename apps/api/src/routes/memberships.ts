@@ -4,6 +4,11 @@ import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { syncStripePrice, archiveStripeProduct } from '../lib/stripe-sync.js'
 import { logger } from '../lib/logger.js'
+import Stripe from 'stripe'
+
+// Lazy-init so tests without STRIPE_SECRET_KEY don't blow up at import time
+let _stripe: Stripe | null = null
+function stripe() { return _stripe ?? (_stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)) }
 
 const requireStudioAdmin = requireRole('studio_admin')
 
@@ -498,6 +503,72 @@ export async function membershipRoutes(app: FastifyInstance) {
       })
 
       return reply.code(201).send({ success: true, data: sub })
+    },
+  )
+
+  // POST /memberships/subscriptions/:id/self-pause — member self-pause (requireAuth, member owns sub)
+  app.post<{ Params: { id: string }; Body: { pauseUntil: string } }>(
+    '/subscriptions/:id/self-pause',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const user = getUser(request)
+      const { pauseUntil } = request.body
+      if (!pauseUntil) return reply.badRequest('pauseUntil is required')
+
+      const pauseDate = new Date(pauseUntil)
+      if (isNaN(pauseDate.getTime())) return reply.badRequest('pauseUntil must be a valid ISO date')
+      if (pauseDate <= new Date()) return reply.badRequest('pauseUntil must be in the future')
+
+      const member = await prisma.member.findUnique({ where: { userId: user.id } })
+      if (!member) return reply.notFound('Member not found')
+
+      const sub = await prisma.membershipSubscription.findUnique({
+        where: { id: request.params.id },
+        include: { plan: { include: { studio: { select: { id: true, allowMemberPause: true, maxPauseDays: true, maxPausesPerYear: true } } } } },
+      })
+      if (!sub) return reply.notFound('Subscription not found')
+      if (sub.memberId !== member.id) return reply.forbidden()
+      if (sub.status !== 'ACTIVE') return reply.badRequest('Can only pause an active subscription')
+
+      const studio = sub.plan.studio
+      if (!studio.allowMemberPause) {
+        return reply.code(403).send({ error: 'Self-pause is not enabled for this studio' })
+      }
+
+      const now = new Date()
+      const maxPauseDays = studio.maxPauseDays
+      const maxPausesPerYear = studio.maxPausesPerYear
+      const pauseDays = Math.ceil((pauseDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+      if (pauseDays > maxPauseDays) {
+        return reply.badRequest(`Pause duration cannot exceed ${maxPauseDays} days`)
+      }
+
+      // Count pauses this calendar year (using pausedUntil field as a proxy)
+      const yearStart = new Date(now.getFullYear(), 0, 1)
+      const pausesThisYear = await prisma.membershipSubscription.count({
+        where: { memberId: member.id, pausedUntil: { gte: yearStart } },
+      })
+      if (pausesThisYear >= maxPausesPerYear) {
+        return reply.badRequest(`You have reached the maximum of ${maxPausesPerYear} pause${maxPausesPerYear !== 1 ? 's' : ''} per year`)
+      }
+
+      // Pause in Stripe if subscription has a stripeSubId
+      if (sub.stripeSubId) {
+        try {
+          await stripe().subscriptions.update(sub.stripeSubId, {
+            pause_collection: { behavior: 'void' },
+          })
+        } catch (e) {
+          logger.error({ err: e }, 'Stripe pause failed (self-pause)')
+        }
+      }
+
+      const updated = await prisma.membershipSubscription.update({
+        where: { id: sub.id },
+        data: { status: 'PAUSED', pausedUntil: pauseDate },
+      })
+
+      return reply.send({ success: true, data: updated })
     },
   )
 

@@ -155,7 +155,7 @@ export default function RoomMapEditor({ roomId: _roomId, initial, roomLayouts = 
           {
             tempId: `${uid}-${Date.now()}`,
             type,
-            label: `${meta.label} ${prev.filter(s => s.type === type).length + 1}`,
+            label: `${prev.filter(s => s.type === type).length + 1}`,
             xM,
             yM,
             rotation: 0,

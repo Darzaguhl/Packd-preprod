@@ -7,6 +7,8 @@ import StepStudioDetails from './StepStudioDetails'
 import StepLocation from './StepLocation'
 import StepClasses from './StepClasses'
 import StepPolicy from './StepPolicy'
+import StepImport from './StepImport'
+import StepInviteAdmin from './StepInviteAdmin'
 import StepDone from './StepDone'
 
 export type OnboardingData = {
@@ -17,7 +19,7 @@ export type OnboardingData = {
   studioId?: string
 }
 
-const STEPS = ['Studio', 'Location', 'Classes', 'Policy', 'Done']
+const STEPS = ['Studio', 'Location', 'Classes', 'Policy', 'Import', 'Invite', 'Done']
 
 export default function OnboardingFlow() {
   const [step, setStep] = useState(0)
@@ -41,9 +43,19 @@ export default function OnboardingFlow() {
     setStep((s) => s + 1)
   }
 
+  const studioCreated = !!data.studioId
+  const isDone = step === STEPS.length - 1
+
+  function handleCancel() {
+    if (studioCreated) {
+      if (!confirm('The studio has been created but setup isn\'t complete. You can finish it later from your dashboard. Leave anyway?')) return
+    }
+    router.push('/dashboard')
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4 py-12">
-      {/* Progress */}
+      {/* Progress + cancel */}
       <div className="w-full max-w-lg mb-8">
         <div className="flex items-center gap-2">
           {STEPS.map((label, i) => (
@@ -70,6 +82,17 @@ export default function OnboardingFlow() {
             </div>
           ))}
         </div>
+
+        {!isDone && (
+          <div className="flex justify-end mt-3">
+            <button
+              onClick={handleCancel}
+              className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              {studioCreated ? 'Finish later →' : 'Cancel'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Step content */}
@@ -78,7 +101,9 @@ export default function OnboardingFlow() {
         {step === 1 && <StepLocation data={data} onNext={next} onBack={() => setStep(0)} />}
         {step === 2 && <StepClasses data={data} onNext={next} onBack={() => setStep(1)} />}
         {step === 3 && <StepPolicy data={data} onNext={next} onBack={() => setStep(2)} token={token ?? ''} />}
-        {step === 4 && <StepDone data={data} onFinish={() => router.push('/schedule')} />}
+        {step === 4 && <StepImport data={data} token={token ?? ''} onNext={next} onBack={() => setStep(3)} />}
+        {step === 5 && <StepInviteAdmin data={data} token={token ?? ''} onNext={next} onBack={() => setStep(4)} />}
+        {step === 6 && <StepDone data={data} onFinish={() => router.push('/dashboard')} />}
       </div>
     </div>
   )

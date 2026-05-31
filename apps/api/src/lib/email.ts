@@ -228,6 +228,25 @@ export async function sendStaffInvite(opts: {
   )
 }
 
+export async function sendFranchiseBroadcast(opts: {
+  to: string
+  firstName: string
+  studioName: string
+  subject: string
+  message: string
+  webUrl: string
+}) {
+  return send(
+    opts.to,
+    opts.subject,
+    layout(opts.studioName, `
+      <p style="margin:0 0 20px;font-size:15px;color:#555">Hi ${opts.firstName},</p>
+      <p style="margin:0;font-size:15px;color:#333;white-space:pre-line">${opts.message}</p>
+      ${btn(opts.webUrl + '/schedule', 'View schedule')}
+    `),
+  )
+}
+
 export async function sendSessionAnnouncement(opts: {
   to: string
   firstName: string
@@ -250,6 +269,106 @@ export async function sendSessionAnnouncement(opts: {
       </div>
       <p style="margin:0;font-size:15px;color:#333;white-space:pre-line">${opts.message}</p>
       ${btn(opts.webUrl + '/schedule', 'View schedule')}
+    `),
+  )
+}
+
+export async function sendWinback(opts: {
+  to: string
+  firstName: string
+  studioName: string
+  webUrl: string
+}) {
+  return send(
+    opts.to,
+    `We miss you at ${opts.studioName}!`,
+    layout(opts.studioName, `
+      <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111">We miss you, ${opts.firstName}!</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#555">It's been a while since your last class. Ready to get back on the floor?</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#555">Browse our upcoming sessions and find a time that works for you.</p>
+      ${btn(opts.webUrl + '/schedule', 'Browse classes')}
+    `),
+  )
+}
+
+export async function sendCreditExpiryWarning(opts: {
+  to: string
+  firstName: string
+  studioName: string
+  credits: number
+  expiresAt: Date
+  webUrl: string
+}) {
+  const expiryStr = opts.expiresAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  return send(
+    opts.to,
+    `Your credits expire soon — ${opts.studioName}`,
+    layout(opts.studioName, `
+      <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111">Use your credits before they expire!</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#555">Hi ${opts.firstName}, you have <strong>${opts.credits} credit${opts.credits !== 1 ? 's' : ''}</strong> expiring on <strong>${expiryStr}</strong>.</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#555">Book a class now to make the most of them.</p>
+      ${btn(opts.webUrl + '/schedule', 'Book a class')}
+    `),
+  )
+}
+
+export async function sendFirstClassFollowup(opts: {
+  to: string
+  firstName: string
+  studioName: string
+  webUrl: string
+}) {
+  return send(
+    opts.to,
+    `How was your first class at ${opts.studioName}?`,
+    layout(opts.studioName, `
+      <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111">How did it go, ${opts.firstName}?</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#555">We hope you had an amazing first class! We'd love to see you again soon.</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#555">Check out our schedule and book your next session.</p>
+      ${btn(opts.webUrl + '/schedule', 'Book your next class')}
+    `),
+  )
+}
+
+export async function sendSubstituteNotification(opts: {
+  to: string
+  firstName: string
+  studioName: string
+  className: string
+  startsAt: string
+  substituteName: string
+  webUrl: string
+}) {
+  return send(
+    opts.to,
+    `Instructor update — ${opts.className}`,
+    layout(opts.studioName, `
+      <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111">Instructor update</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#555">Hi ${opts.firstName}, the instructor for your upcoming class has changed:</p>
+      <div style="background:#f8f8f8;border-radius:8px;padding:16px 20px;margin-bottom:8px">
+        <p style="margin:0;font-size:16px;font-weight:600;color:#111">${opts.className}</p>
+        <p style="margin:4px 0 0;font-size:14px;color:#666">${formatDt(opts.startsAt)}</p>
+        <p style="margin:8px 0 0;font-size:14px;color:#333">Instructor: <strong>${opts.substituteName}</strong></p>
+      </div>
+      ${btn(opts.webUrl + '/account', 'View booking')}
+    `),
+  )
+}
+
+export async function sendReferralReward(opts: {
+  to: string
+  firstName: string
+  studioName: string
+  credits: number
+  webUrl: string
+}) {
+  return send(
+    opts.to,
+    `You've earned ${opts.credits} credits at ${opts.studioName}!`,
+    layout(opts.studioName, `
+      <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111">Referral reward! 🎉</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#555">Hi ${opts.firstName}, someone you referred just booked their first class. You've earned <strong>${opts.credits} credit${opts.credits !== 1 ? 's' : ''}</strong> as a thank-you!</p>
+      ${btn(opts.webUrl + '/account', 'View your credits')}
     `),
   )
 }

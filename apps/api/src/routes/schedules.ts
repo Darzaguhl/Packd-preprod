@@ -4,9 +4,34 @@ import { requireRole, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
 import { ROLE_RANK } from '@packd/types'
 import { assertStudioAccess } from './admin-shared.js'
+import { sendSubstituteNotification } from '../lib/email.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 const requireInstructor = requireRole('instructor')
+
+/**
+ * Returns true if the instructor already has a non-cancelled session that overlaps
+ * the given time window. Excludes excludeSessionId if provided (useful for edits).
+ */
+async function checkInstructorConflict(
+  instructorId: string,
+  startsAt: Date,
+  endsAt: Date,
+  excludeSessionId?: string,
+): Promise<boolean> {
+  if (!instructorId) return false
+  const conflict = await prisma.classSession.findFirst({
+    where: {
+      instructorId,
+      status: { not: 'CANCELLED' },
+      startsAt: { lt: endsAt },
+      endsAt: { gt: startsAt },
+      ...(excludeSessionId ? { id: { not: excludeSessionId } } : {}),
+    },
+    select: { id: true },
+  })
+  return conflict !== null
+}
 
 function getMondayOf(d: Date): Date {
   const date = new Date(d)
@@ -256,6 +281,10 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       // Body override takes precedence over template default
       const resolvedIsPrivate = isPrivateOverride ?? template?.isPrivate ?? false
 
+      // Note: bulk session generation means we can't check every generated slot for conflicts
+      // without computing them all upfront. Skip conflict check for schedule creation — per-session
+      // substitute assignment does check. Conflict check is applied on single session edits below.
+
       const sched = await prisma.classSchedule.create({
         data: {
           studioId, templateId, instructorId, roomId,
@@ -411,11 +440,48 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       })
       if (!session) return reply.notFound('Session not found')
 
+      // Check substitute conflict (only if setting a substitute, not clearing it)
+      if (substituteInstructorId) {
+        const hasConflict = await checkInstructorConflict(substituteInstructorId, session.startsAt, session.endsAt, sessionId)
+        if (hasConflict) {
+          return reply.code(409).send({ error: 'Instructor already has a session at this time' })
+        }
+      }
+
       const updated = await prisma.classSession.update({
         where: { id: sessionId },
         data: { substituteInstructorId },
-        include: { substitute: { include: { user: true } } },
+        include: {
+          substitute: { include: { user: true } },
+          template: { select: { name: true } },
+          studio: { select: { name: true } },
+        },
       })
+
+      // Notify confirmed attendees about the instructor change (only when assigning, not clearing)
+      if (substituteInstructorId && updated.substitute) {
+        const substituteName = `${updated.substitute.user.firstName} ${updated.substitute.user.lastName}`
+        const confirmedBookings = await prisma.booking.findMany({
+          where: { sessionId, status: 'CONFIRMED' },
+          include: { member: { include: { user: { select: { email: true, firstName: true } } } } },
+        })
+        if (confirmedBookings.length > 0) {
+          const webUrl = process.env.WEB_URL ?? 'http://localhost:3000'
+          await Promise.allSettled(
+            confirmedBookings.map(b =>
+              sendSubstituteNotification({
+                to: b.member.user.email,
+                firstName: b.member.user.firstName,
+                studioName: updated.studio.name,
+                className: updated.template?.name ?? 'Class',
+                startsAt: updated.startsAt.toISOString(),
+                substituteName,
+                webUrl,
+              }),
+            ),
+          )
+        }
+      }
 
       return reply.send({
         success: true,

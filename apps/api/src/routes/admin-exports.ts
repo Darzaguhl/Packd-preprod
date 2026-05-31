@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
+import { ROLE_RANK } from '@packd/types'
 import { assertStudioAccess, validateSelectQuery } from './admin-shared.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
@@ -244,19 +245,26 @@ export async function adminExportsRoutes(app: FastifyInstance) {
       const { studioId, from, to } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
+
+      const isAll = studioId === 'all'
+      if (isAll && ROLE_RANK[user.role] < ROLE_RANK['franchise_admin']) {
+        return reply.forbidden('franchise_admin required to export all studios')
+      }
+      if (!isAll && !await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       const toDate   = to   ? new Date(to)   : new Date()
 
-      const studio = await prisma.studio.findUnique({ where: { id: studioId }, select: { currency: true } })
+      const studio = isAll ? null : await prisma.studio.findUnique({ where: { id: studioId }, select: { currency: true } })
       const currency = studio?.currency ?? 'USD'
       const sym = new Intl.NumberFormat('en', { style: 'currency', currency, maximumFractionDigits: 0 })
         .format(0).replace(/[\d,.\s]/g, '').trim() || currency
 
+      const studioFilter = isAll ? {} : { studioId }
+
       // ── Instructors: per-head pay ──────────────────────────────────────────
       const sessions = await prisma.classSession.findMany({
-        where: { studioId, status: { not: 'CANCELLED' }, startsAt: { gte: fromDate, lte: toDate } },
+        where: { ...studioFilter, status: { not: 'CANCELLED' }, startsAt: { gte: fromDate, lte: toDate } },
         include: {
           instructor: { include: { user: { select: { firstName: true, lastName: true, email: true } } } },
           bookings: { select: { status: true, checkedIn: true } },
@@ -282,7 +290,7 @@ export async function adminExportsRoutes(app: FastifyInstance) {
 
       // ── Fronthosts: hourly shift pay ───────────────────────────────────────
       const shifts = await prisma.staffShift.findMany({
-        where: { studioId, startsAt: { gte: fromDate, lte: toDate } },
+        where: { ...studioFilter, startsAt: { gte: fromDate, lte: toDate } },
         include: {
           member: {
             select: {

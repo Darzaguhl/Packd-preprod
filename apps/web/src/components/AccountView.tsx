@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import type { MemberProfile } from '@packd/types'
 import NavBar from '@/components/NavBar'
 import MemberHistoryView from '@/components/member/MemberHistoryView'
+import AccountExtrasSection from '@/components/member/AccountExtrasSection'
 import { TimeFormatProvider } from '@/lib/time-format-context'
 import type { UpcomingBooking, PastBooking, CreditTransaction, MembershipPlan } from '@/lib/api'
 
@@ -153,6 +154,8 @@ export default function AccountView() {
   const [purchases, setPurchases] = useState<import('@/lib/api').ProductSale[]>([])
   const [selfCheckInEnabled, setSelfCheckInEnabled] = useState(false)
   const [creditPurchaseEnabled, setCreditPurchaseEnabled] = useState(false)
+  const [allowMemberPause, setAllowMemberPause] = useState(false)
+  const [referralEnabled, setReferralEnabled] = useState(false)
 
   // Show success toast and refresh data when Stripe redirects back after payment
   useEffect(() => {
@@ -206,6 +209,8 @@ export default function AccountView() {
             setTimeFormat((s.timeFormat ?? '24h') as '12h' | '24h')
             setSelfCheckInEnabled(s.selfCheckInEnabled ?? false)
             setCreditPurchaseEnabled(s.creditPurchaseEnabled ?? false)
+            setAllowMemberPause((s as typeof s & { allowMemberPause?: boolean }).allowMemberPause ?? false)
+            setReferralEnabled(((s as typeof s & { referralRewardCredits?: number }).referralRewardCredits ?? 0) > 0)
           }).catch(() => {})
           api.members.stats(studioId, t).then(setMemberStats).catch(() => {})
           api.ical.getToken(t).then(d => {
@@ -543,6 +548,19 @@ export default function AccountView() {
                   )
                 })}
               </div>
+            </div>
+          )}
+
+          {/* ── Account extras (referral, email prefs, self-pause, receipts, privacy) ── */}
+          {token && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-semibold text-gray-900 px-1">Account settings</h3>
+              <AccountExtrasSection
+                token={token}
+                activeSubscriptionId={profile?.activeSubscription?.id ?? null}
+                allowMemberPause={allowMemberPause}
+                referralEnabled={referralEnabled}
+              />
             </div>
           )}
 

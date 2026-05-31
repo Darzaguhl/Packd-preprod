@@ -8,6 +8,7 @@
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
+    "dev:nomobile": "turbo dev --filter=@packd/api --filter=@packd/web",
     "postinstall": "npm run db:generate",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
@@ -34,8 +35,8 @@
   },
   "packageManager": "npm@10.9.2",
   "overrides": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0"
   },

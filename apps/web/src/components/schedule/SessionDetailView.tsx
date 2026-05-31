@@ -10,6 +10,7 @@ import { sportConfig } from './constants'
 import { useTimeFormat } from '@/lib/time-format-context'
 import { useTimezone } from '@/lib/timezone-context'
 import { fmtTime } from '@/lib/fmt-time'
+import WaiverModal from './WaiverModal'
 
 interface Props {
   session: SessionSlot
@@ -17,7 +18,7 @@ interface Props {
   privileged?: boolean
   cancelPolicy?: { windowHours: number; feeCredits: number }
   onBack: () => void
-  onBook: (sessionId: string) => Promise<void>
+  onBook: (sessionId: string, memberNote?: string) => Promise<void>
   onCancel: (bookingId: string, sessionId: string) => Promise<void>
   onWaitlist: (sessionId: string) => Promise<void>
   onPickSpot: (stationId: string | null) => Promise<void>
@@ -41,13 +42,22 @@ export default function SessionDetailView({
   const [spots, setSpots] = useState<SessionSpots | null>(null)
   const [spotsLoading, setSpotsLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
-const timeFormat = useTimeFormat()
+  const [memberNote, setMemberNote] = useState('')
+  const [showNoteField, setShowNoteField] = useState(false)
+
+  // Waiver state — set when booking returns WAIVER_REQUIRED
+  const [pendingBookArgs, setPendingBookArgs] = useState<{ sessionId: string; note?: string } | null>(null)
+  const [waiverData, setWaiverData] = useState<{ id: string; title: string; body: string } | null>(null)
+
+  const timeFormat = useTimeFormat()
   const timezone = useTimezone()
   const cfg = sportConfig(s.sport)
-  const isBooked = !!s.userBookingId
+  const isBooked = !!(s.userBookingId ?? spots?.myBookingId)
   const isWaitlisted = !!s.userWaitlistPosition
   const isFull = s.bookedCount >= s.capacity
-  const hasSpot = !!s.userStationId
+  // Prefer server-authoritative stationId from spots over potentially stale session prop
+  const effectiveStationId = spots?.myStationId ?? s.userStationId ?? null
+  const hasSpot = !!effectiveStationId
   const hasLayout = !spotsLoading && !!spots?.layout && spots.layout.stations.length > 0
   const isPast = !privileged && new Date(s.startsAt) < new Date()
 
@@ -70,6 +80,20 @@ const timeFormat = useTimeFormat()
       .then(setSpots)
       .catch(() => setSpots(null))
       .finally(() => setSpotsLoading(false))
+
+    // On cold load getFreshToken() may return '' before Supabase restores the
+    // session from storage. Re-fetch spots once auth is confirmed so
+    // myBookingId / myStationId arrive server-authoritative.
+    let reloaded = false
+    const { data: { subscription } } = createClient().auth.onAuthStateChange(
+      (_event, session) => {
+        if (session && !reloaded) {
+          reloaded = true
+          refreshSpots()
+        }
+      },
+    )
+    return () => subscription.unsubscribe()
   }, [s.roomId, s.id])
 
   // Clicking a spot when NOT yet booked: book + assign in one action.
@@ -78,12 +102,12 @@ const timeFormat = useTimeFormat()
   async function handleBookAndAssign(stationId: string) {
     setActionLoading(true)
     try {
-      let wasNew = false
       try {
-        await onBook(s.id)
-        wasNew = true
+        await handleBookWithWaiverCheck(s.id)
       } catch (e) {
         const msg = e instanceof Error ? e.message.toLowerCase() : ''
+        // If waiver modal opened, abort spot assignment — user must retry after signing
+        if (msg.includes('waiver_required')) return
         if (!msg.includes('already booked') && !msg.includes('unique')) throw e
         // Already booked — fall through to spot assignment
       }
@@ -103,6 +127,35 @@ const timeFormat = useTimeFormat()
     } finally {
       setActionLoading(false)
     }
+  }
+
+  async function handleBookWithWaiverCheck(sessionId: string, note?: string) {
+    try {
+      await onBook(sessionId, note)
+    } catch (e) {
+      const err = e as Error & { error?: string; waiverId?: string }
+      if (err.message === 'WAIVER_REQUIRED' && err.waiverId && s.studioId) {
+        // Fetch waiver content and show modal
+        const t = await getFreshToken()
+        const res = await api.waivers.getActive(s.studioId, t).catch(() => null)
+        if (res?.waiver) {
+          setWaiverData({ id: res.waiver.id, title: res.waiver.title, body: res.waiver.body })
+          setPendingBookArgs({ sessionId, note })
+          return
+        }
+      }
+      throw e
+    }
+  }
+
+  async function handleSignAndBook() {
+    if (!pendingBookArgs || !waiverData) return
+    const t = await getFreshToken()
+    await api.waivers.sign(waiverData.id, t)
+    setWaiverData(null)
+    const { sessionId, note } = pendingBookArgs
+    setPendingBookArgs(null)
+    await onBook(sessionId, note)
   }
 
   async function handleCancel() {
@@ -159,6 +212,7 @@ const timeFormat = useTimeFormat()
       : 'Tap a spot to book and reserve your place'
 
   return (
+    <>
     <div className="animate-[fadeIn_180ms_ease-out]" data-testid="session-detail">
       {/* Back link */}
       <button
@@ -173,7 +227,7 @@ const timeFormat = useTimeFormat()
 
       <div className="flex gap-6 items-start flex-col lg:flex-row">
         {/* ── Left: class info + actions ── */}
-        <div className="w-full lg:w-72 shrink-0 space-y-4">
+        <div className="w-full lg:w-64 shrink-0 space-y-4">
           <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
             <div className={`h-1.5 w-full ${cfg.accent}`} />
             <div className="p-5 space-y-4">
@@ -228,20 +282,51 @@ const timeFormat = useTimeFormat()
           ) : (
             <>
               {/* No layout: show full book/cancel/waitlist controls */}
-              {!spotsLoading && !hasLayout && !isBooked && !isWaitlisted && (
+              {!spotsLoading && !hasLayout && !isBooked && !isWaitlisted && !isFull && (
+                <div className="space-y-2">
+                  {showNoteField ? (
+                    <textarea
+                      value={memberNote}
+                      onChange={e => setMemberNote(e.target.value)}
+                      placeholder="Any notes for the instructor? (injuries, preferences…)"
+                      rows={2}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowNoteField(true)}
+                      className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      + Add a note for the instructor
+                    </button>
+                  )}
+                  <button
+                    data-testid="book-btn"
+                    onClick={async () => {
+                      setActionLoading(true)
+                      try {
+                        await handleBookWithWaiverCheck(s.id, memberNote || undefined)
+                        await refreshSpots()
+                      } catch { /* toast shown in handleBook */ }
+                      finally { setActionLoading(false) }
+                    }}
+                    disabled={actionLoading}
+                    className="w-full py-3 rounded-xl text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
+                  >
+                    {actionLoading ? '…' : 'Book class'}
+                  </button>
+                </div>
+              )}
+
+              {!spotsLoading && !hasLayout && !isBooked && !isWaitlisted && isFull && (
                 <button
-                  data-testid={isFull ? 'waitlist-btn' : 'book-btn'}
-                  onClick={isFull ? handleWaitlist : async () => {
-                    setActionLoading(true)
-                    try {
-                      await onBook(s.id)
-                    } catch { /* toast shown in handleBook */ }
-                    finally { setActionLoading(false) }
-                  }}
+                  data-testid="waitlist-btn"
+                  onClick={handleWaitlist}
                   disabled={actionLoading}
                   className="w-full py-3 rounded-xl text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
                 >
-                  {actionLoading ? '…' : isFull ? 'Join waitlist' : 'Book class'}
+                  {actionLoading ? '…' : 'Join waitlist'}
                 </button>
               )}
 
@@ -316,7 +401,7 @@ const timeFormat = useTimeFormat()
           {spotsLoading ? (
             <div className="h-64 bg-white rounded-2xl border border-gray-100 animate-pulse" />
           ) : spots?.layout && spots.layout.stations.length > 0 ? (
-            <div className="bg-white border border-gray-100 rounded-2xl p-5 space-y-4">
+            <div className="bg-white border border-gray-100 rounded-2xl p-3 space-y-3">
               <div>
                 <h3 className="text-sm font-semibold text-gray-900">
                   {isBooked ? 'Your spot' : 'Pick a spot'}
@@ -326,7 +411,7 @@ const timeFormat = useTimeFormat()
               <SpotPicker
                 layout={spots.layout}
                 assignments={spots.assignments}
-                myStationId={s.userStationId ?? null}
+                myStationId={effectiveStationId}
                 onPick={
                   actionLoading || isPast
                     ? () => {}
@@ -348,5 +433,15 @@ const timeFormat = useTimeFormat()
         </div>
       </div>
     </div>
+
+    {waiverData && (
+      <WaiverModal
+        title={waiverData.title}
+        body={waiverData.body}
+        onSign={handleSignAndBook}
+        onClose={() => { setWaiverData(null); setPendingBookArgs(null) }}
+      />
+    )}
+    </>
   )
 }

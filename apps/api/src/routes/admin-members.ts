@@ -54,23 +54,26 @@ export async function adminMembersRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /admin/members?studioId= — list members (franchise-scoped)
-  app.get<{ Querystring: { studioId: string; q?: string } }>(
+  // GET /admin/members?studioId=&q=&cursor=&take= — paginated member list
+  app.get<{ Querystring: { studioId: string; q?: string; cursor?: string; take?: string } }>(
     '/members',
     { preHandler: requireInstructor },
     async (request, reply) => {
-      const { studioId, q } = request.query
+      const { studioId, q, cursor, take: takeStr } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
       const user = getUser(request)
       if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
-      const where = q && q.trim().length >= 2
-        ? { OR: [
-            { user: { firstName: { contains: q.trim(), mode: 'insensitive' as const } } },
-            { user: { lastName:  { contains: q.trim(), mode: 'insensitive' as const } } },
-            { user: { email:     { contains: q.trim(), mode: 'insensitive' as const } } },
-          ] }
-        : {}
+      const take = Math.min(parseInt(takeStr ?? '50', 10) || 50, 200)
+
+      const where: object = {
+        studioId,
+        ...(q && q.trim().length >= 2 ? { OR: [
+          { user: { firstName: { contains: q.trim(), mode: 'insensitive' as const } } },
+          { user: { lastName:  { contains: q.trim(), mode: 'insensitive' as const } } },
+          { user: { email:     { contains: q.trim(), mode: 'insensitive' as const } } },
+        ] } : {}),
+      }
 
       const members = await prisma.member.findMany({
         where,
@@ -79,17 +82,26 @@ export async function adminMembersRoutes(app: FastifyInstance) {
           creditBalance: { select: { balance: true } },
           memberships: { where: { status: { in: ['ACTIVE', 'PAUSED'] } }, orderBy: { startDate: 'desc' }, take: 1, select: { status: true } },
         },
-        orderBy: [{ user: { firstName: 'asc' } }, { user: { lastName: 'asc' } }],
-        take: 500,
+        orderBy: [{ user: { lastName: 'asc' } }, { user: { firstName: 'asc' } }],
+        take: take + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       })
 
-      return members.map(m => ({
-        id: m.id,
-        name: `${m.user.firstName} ${m.user.lastName}`,
-        email: m.user.email,
-        creditBalance: m.creditBalance?.balance ?? 0,
-        membershipStatus: m.memberships[0]?.status ?? null,
-      }))
+      const hasMore = members.length > take
+      const items = hasMore ? members.slice(0, take) : members
+      const nextCursor = hasMore ? items[items.length - 1].id : null
+
+      return reply.send({
+        items: items.map(m => ({
+          id: m.id,
+          name: `${m.user.firstName} ${m.user.lastName}`,
+          email: m.user.email,
+          creditBalance: m.creditBalance?.balance ?? 0,
+          membershipStatus: m.memberships[0]?.status ?? null,
+        })),
+        nextCursor,
+        hasMore,
+      })
     },
   )
 

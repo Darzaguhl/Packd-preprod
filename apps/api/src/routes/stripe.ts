@@ -45,7 +45,7 @@ export async function stripeRoutes(app: FastifyInstance) {
         prisma.membershipPlan.findUniqueOrThrow({ where: { id: planId } }),
         prisma.member.findUniqueOrThrow({ where: { userId: user.id }, include: { user: true } }),
         prisma.user.findUniqueOrThrow({ where: { id: user.id } }),
-        prisma.studio.findUnique({ where: { id: studioId }, select: { creditPurchaseEnabled: true } }),
+        prisma.studio.findUnique({ where: { id: studioId }, select: { creditPurchaseEnabled: true, taxRatePct: true, stripeTaxRateId: true } }),
       ])
 
       if (studioSettings?.creditPurchaseEnabled === false) {
@@ -107,15 +107,32 @@ export async function stripeRoutes(app: FastifyInstance) {
         }
       }
 
+      // Resolve tax rate if configured for this studio
+      let taxRateId: string | undefined
+      if (studioSettings?.taxRatePct && studioSettings.taxRatePct > 0) {
+        taxRateId = studioSettings.stripeTaxRateId ?? undefined
+        if (!taxRateId) {
+          const tr = await stripe().taxRates.create({
+            display_name: 'VAT',
+            percentage: studioSettings.taxRatePct,
+            inclusive: false,
+          })
+          taxRateId = tr.id
+          await prisma.studio.update({ where: { id: studioId }, data: { stripeTaxRateId: taxRateId } })
+        }
+      }
+
+      const isSubscription = plan.intervalMonths > 0
       const session = await stripe().checkout.sessions.create({
         customer: customerId,
-        payment_method_collection: 'always',
-        mode: plan.intervalMonths > 0 ? 'subscription' : 'payment',
-        line_items: [{ price: plan.stripePriceId, quantity: 1 }],
+        ...(isSubscription ? { payment_method_collection: 'always' } : {}),
+        mode: isSubscription ? 'subscription' : 'payment',
+        line_items: [{ price: plan.stripePriceId, quantity: 1, ...(taxRateId ? { tax_rates: [taxRateId] } : {}) }],
         success_url: `${process.env.WEB_URL}/account?checkout=success`,
         cancel_url: `${process.env.WEB_URL}/account`,
         metadata: { userId: user.id, planId, studioId, memberId: member.id, ...(promoCodeId ? { promoCodeId } : {}) },
         ...(stripeCouponId ? { discounts: [{ coupon: stripeCouponId }] } : {}),
+        ...(taxRateId ? { default_tax_rates: [taxRateId] } : {}),
       })
 
       return { url: session.url }
@@ -388,6 +405,21 @@ export async function stripeRoutes(app: FastifyInstance) {
           }
         }
       })
+
+      // Capture receipt URL from PaymentIntent (non-fatal)
+      if (session.payment_intent) {
+        stripe().paymentIntents.retrieve(session.payment_intent as string, { expand: ['charges'] })
+          .then(async (pi) => {
+            const piAny = pi as any
+            const receiptUrl = piAny.charges?.data?.[0]?.receipt_url ?? null
+            if (receiptUrl) {
+              await prisma.productSale.updateMany({
+                where: { stripePaymentIntentId: session.payment_intent as string },
+                data: { stripeReceiptUrl: receiptUrl },
+              })
+            }
+          }).catch(() => {})
+      }
     }
 
     // Recurring subscription renewal — grant credits each billing cycle

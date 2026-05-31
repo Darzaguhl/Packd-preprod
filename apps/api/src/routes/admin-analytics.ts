@@ -23,7 +23,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
       const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
 
       const [studio, todaySessions, totalMembers, totalBookingsToday, waitlistToday] = await Promise.all([
-        prisma.studio.findUnique({ where: { id: studioId }, select: { name: true, timeFormat: true, currency: true, timezone: true, bookingWindowDays: true, bookingCloseHours: true, waitlistEnabled: true, guestCheckInEnabled: true, creditPurchaseEnabled: true, selfCheckInEnabled: true, classReminderHours: true, maxPauseDays: true, maxPausesPerYear: true, websiteUrl: true, supportEmail: true } }),
+        prisma.studio.findUnique({ where: { id: studioId }, select: { name: true, timeFormat: true, currency: true, timezone: true, bookingWindowDays: true, bookingCloseHours: true, waitlistEnabled: true, guestCheckInEnabled: true, creditPurchaseEnabled: true, selfCheckInEnabled: true, classReminderHours: true, maxPauseDays: true, maxPausesPerYear: true, allowMemberPause: true, referralRewardCredits: true, websiteUrl: true, supportEmail: true } }),
         prisma.classSession.count({ where: { studioId, startsAt: { gte: today, lt: tomorrow } } }),
         prisma.member.count({ where: { studioId } }),
         prisma.booking.count({ where: { session: { studioId }, bookedAt: { gte: today }, status: 'CONFIRMED' } }),
@@ -44,6 +44,8 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
         classReminderHours: studio?.classReminderHours ?? 24,
         maxPauseDays: studio?.maxPauseDays ?? 30,
         maxPausesPerYear: studio?.maxPausesPerYear ?? 2,
+        allowMemberPause: studio?.allowMemberPause ?? true,
+        referralRewardCredits: studio?.referralRewardCredits ?? 0,
         websiteUrl: studio?.websiteUrl ?? null,
         supportEmail: studio?.supportEmail ?? null,
         todaySessions, totalMembers, totalBookingsToday, waitlistToday,

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@packd/db'
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library.js'
 import { requireAuth, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import Stripe from 'stripe'
@@ -253,6 +254,7 @@ export async function memberRoutes(app: FastifyInstance) {
       sessionStatus: b.session.status,
       bookedAt: b.bookedAt.toISOString(),
       stationLabel: b.station?.label ?? null,
+      memberNote: b.memberNote ?? null,
     }))
   })
 
@@ -400,4 +402,202 @@ export async function memberRoutes(app: FastifyInstance) {
       return reply.send(sales)
     },
   )
+
+  // PATCH /members/me/email-preferences
+  app.patch<{ Body: { classReminder?: boolean; marketing?: boolean; waitlist?: boolean } }>(
+    '/me/email-preferences',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const user = getUser(request)
+      const member = await prisma.member.findUnique({ where: { userId: user.id }, select: { id: true, emailPreferences: true } })
+      if (!member) return reply.notFound('No member profile found')
+
+      const current = (member.emailPreferences ?? {}) as Record<string, boolean>
+      const { classReminder, marketing, waitlist } = request.body
+      const updated = {
+        ...current,
+        ...(classReminder !== undefined && { classReminder }),
+        ...(marketing     !== undefined && { marketing }),
+        ...(waitlist      !== undefined && { waitlist }),
+      }
+
+      await prisma.member.update({ where: { id: member.id }, data: { emailPreferences: updated } })
+      return reply.send({ success: true, emailPreferences: updated })
+    },
+  )
+
+  // GET /members/me/referral — returns/generates referral code + stats
+  app.get('/me/referral', { preHandler: requireAuth }, async (request, reply) => {
+    const user = getUser(request)
+    const member = await prisma.member.findUnique({ where: { userId: user.id }, select: { id: true, referralCode: true } })
+    if (!member) return reply.notFound('No member profile found')
+
+    let code = member.referralCode
+    if (!code) {
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const candidate = Math.random().toString(36).substring(2, 8).toUpperCase()
+        try {
+          await prisma.member.update({ where: { id: member.id }, data: { referralCode: candidate } })
+          code = candidate
+          break
+        } catch (e) {
+          if (e instanceof PrismaClientKnownRequestError && e.code === 'P2002') continue
+          throw e
+        }
+      }
+      if (!code) return reply.code(500).send({ error: 'Could not generate a unique referral code. Please try again.' })
+    }
+
+    const referrals = await prisma.referral.findMany({ where: { referrerId: member.id } })
+    const totalReferrals = referrals.length
+    const creditsEarned = referrals.filter(r => r.rewarded).reduce((sum, r) => sum + r.rewardCredits, 0)
+    const pendingReward = referrals.filter(r => !r.rewarded).reduce((sum, r) => sum + r.rewardCredits, 0)
+
+    return reply.send({ code, totalReferrals, pendingReward, creditsEarned })
+  })
+
+  // POST /members/referral/apply — apply a referral code
+  app.post<{ Body: { code: string } }>(
+    '/referral/apply',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const user = getUser(request)
+      const { code } = request.body
+      if (!code) return reply.badRequest('code is required')
+
+      const member = await prisma.member.findUnique({ where: { userId: user.id }, select: { id: true, studioId: true } })
+      if (!member) return reply.notFound('No member profile found')
+
+      const referrer = await prisma.member.findUnique({ where: { referralCode: code }, select: { id: true } })
+      if (!referrer) return reply.notFound('Referral code not found')
+
+      if (referrer.id === member.id) {
+        return reply.code(409).send({ error: 'You cannot apply your own referral code' })
+      }
+
+      const existing = await prisma.referral.findFirst({ where: { refereeId: member.id } })
+      if (existing) {
+        return reply.code(409).send({ error: 'You have already applied a referral code' })
+      }
+
+      const studio = await prisma.studio.findUnique({ where: { id: member.studioId }, select: { referralRewardCredits: true } })
+      const rewardCredits = studio?.referralRewardCredits ?? 0
+
+      await prisma.referral.create({
+        data: { studioId: member.studioId, referrerId: referrer.id, refereeId: member.id, rewardCredits },
+      })
+
+      return reply.code(201).send({ success: true })
+    },
+  )
+
+  // GET /members/me/receipts — list product sales with Stripe receipt URLs
+  app.get('/me/receipts', { preHandler: requireAuth }, async (request, reply) => {
+    const user = getUser(request)
+    const member = await prisma.member.findUnique({ where: { userId: user.id }, select: { id: true, studio: { select: { currency: true } } } })
+    if (!member) return reply.notFound()
+    const sales = await prisma.productSale.findMany({
+      where: { memberId: member.id, failedAt: null },
+      select: { id: true, soldAt: true, totalCents: true, items: true, stripeReceiptUrl: true },
+      orderBy: { soldAt: 'desc' },
+      take: 100,
+    })
+    const currency = member.studio.currency ?? 'USD'
+    return reply.send(sales.map(s => ({ ...s, currency, soldAt: s.soldAt.toISOString() })))
+  })
+
+  // GET /members/me/export — GDPR data export
+  app.get('/me/export', { preHandler: requireAuth }, async (request, reply) => {
+    const user = getUser(request)
+    const member = await prisma.member.findUnique({
+      where: { userId: user.id },
+      include: {
+        user: true,
+        creditBalance: true,
+      },
+    })
+    if (!member) return reply.notFound('No member profile found')
+
+    const twoYearsAgo = new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000)
+    const [bookings, transactions, subscriptions, sales] = await Promise.all([
+      prisma.booking.findMany({
+        where: { memberId: member.id, bookedAt: { gte: twoYearsAgo } },
+        include: { session: { include: { template: { select: { name: true } } } } },
+        orderBy: { bookedAt: 'desc' },
+      }),
+      prisma.creditTransaction.findMany({
+        where: { memberId: member.id },
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+      }),
+      prisma.membershipSubscription.findMany({
+        where: { memberId: member.id },
+        include: { plan: { select: { name: true, priceInCents: true } } },
+        orderBy: { startDate: 'desc' },
+      }),
+      prisma.productSale.findMany({
+        where: { memberId: member.id },
+        orderBy: { soldAt: 'desc' },
+        take: 200,
+      }),
+    ])
+
+    const data = {
+      exportedAt: new Date().toISOString(),
+      profile: {
+        id: member.id,
+        email: member.user.email,
+        firstName: member.user.firstName,
+        lastName: member.user.lastName,
+        createdAt: member.user.createdAt,
+        creditBalance: member.creditBalance?.balance ?? 0,
+      },
+      bookings: bookings.map(b => ({ id: b.id, sessionId: b.sessionId, className: b.session.template.name, startsAt: b.session.startsAt, status: b.status, bookedAt: b.bookedAt })),
+      creditTransactions: transactions.map(t => ({ id: t.id, amount: t.amount, type: t.type, note: t.note, createdAt: t.createdAt })),
+      memberships: subscriptions.map(s => ({ id: s.id, planName: s.plan.name, status: s.status, startDate: s.startDate, endDate: s.endDate })),
+      purchases: sales.map(s => ({ id: s.id, totalCents: s.totalCents, soldAt: s.soldAt, paymentMethod: s.paymentMethod })),
+    }
+
+    reply.header('Content-Type', 'application/json')
+    reply.header('Content-Disposition', 'attachment; filename="my-data.json"')
+    return reply.send(data)
+  })
+
+  // DELETE /members/me — GDPR account deletion
+  app.delete('/me', { preHandler: requireAuth }, async (request, reply) => {
+    const user = getUser(request)
+    const member = await prisma.member.findUnique({
+      where: { userId: user.id },
+      include: { memberships: { where: { status: { in: ['ACTIVE', 'PAUSED'] } } } },
+    })
+    if (!member) return reply.notFound('No member profile found')
+
+    // Cancel active subscriptions
+    if (member.memberships.length > 0) {
+      await prisma.membershipSubscription.updateMany({
+        where: { memberId: member.id, status: { in: ['ACTIVE', 'PAUSED'] } },
+        data: { status: 'CANCELLED' },
+      })
+    }
+
+    // Anonymize user record
+    const deletedEmail = `deleted_${user.id}@packd.invalid`
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { email: deletedEmail, firstName: 'Deleted', lastName: 'User', avatarUrl: null },
+    })
+
+    // Delete member record
+    await prisma.member.delete({ where: { id: member.id } })
+
+    // Delete from Supabase Auth
+    const SUPABASE_URL = process.env.SUPABASE_URL!
+    const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
+    await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${user.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${SERVICE_ROLE_KEY}`, apikey: SERVICE_ROLE_KEY },
+    }).catch(() => {})
+
+    return reply.send({ success: true })
+  })
 }

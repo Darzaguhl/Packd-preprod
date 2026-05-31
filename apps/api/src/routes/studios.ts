@@ -110,6 +110,9 @@ export async function studioRoutes(app: FastifyInstance) {
       classReminderHours?: number | null
       maxPauseDays?: number
       maxPausesPerYear?: number
+      allowMemberPause?: boolean
+      taxRatePct?: number
+      referralRewardCredits?: number
       location?: { id: string; name?: string; address?: string; city?: string; country?: string }
     }
   }>(
@@ -123,6 +126,7 @@ export async function studioRoutes(app: FastifyInstance) {
         bookingWindowDays, bookingCloseHours,
         waitlistEnabled, guestCheckInEnabled, creditPurchaseEnabled,
         selfCheckInEnabled, classReminderHours, maxPauseDays, maxPausesPerYear,
+        allowMemberPause, taxRatePct, referralRewardCredits,
         location,
       } = request.body
       const user = getUser(request)
@@ -152,6 +156,9 @@ export async function studioRoutes(app: FastifyInstance) {
           ...(classReminderHours !== undefined && { classReminderHours }),
           ...(maxPauseDays !== undefined && { maxPauseDays }),
           ...(maxPausesPerYear !== undefined && { maxPausesPerYear }),
+          ...(allowMemberPause !== undefined && { allowMemberPause }),
+          ...(taxRatePct !== undefined && { taxRatePct }),
+          ...(referralRewardCredits !== undefined && { referralRewardCredits }),
         },
         include: { locations: true },
       })
@@ -390,6 +397,71 @@ export async function studioRoutes(app: FastifyInstance) {
       })
 
       return reply.code(201).send({ success: true, data: { id: studio.id } })
+    },
+  )
+
+  // POST /studios/:studioId/copy-from/:sourceStudioId — copy resources from an existing studio (franchise_admin+)
+  app.post<{
+    Params: { studioId: string; sourceStudioId: string }
+    Body: { copy: ('plans' | 'products' | 'templates' | 'policy')[] }
+  }>(
+    '/:studioId/copy-from/:sourceStudioId',
+    { preHandler: requireFranchiseAdmin },
+    async (request, reply) => {
+      const { studioId, sourceStudioId } = request.params
+      const { copy = [] } = request.body
+
+      if (studioId === sourceStudioId) return reply.badRequest('Source and destination must differ')
+      if (!copy.length) return reply.send({ success: true, copied: [] })
+
+      const [dest, source] = await Promise.all([
+        prisma.studio.findUnique({ where: { id: studioId } }),
+        prisma.studio.findUnique({ where: { id: sourceStudioId } }),
+      ])
+      if (!dest) return reply.notFound('Destination studio not found')
+      if (!source) return reply.notFound('Source studio not found')
+
+      const copied: string[] = []
+
+      await prisma.$transaction(async (tx) => {
+        if (copy.includes('policy')) {
+          const pol = await tx.cancellationPolicy.findUnique({ where: { studioId: sourceStudioId } })
+          if (pol) {
+            await tx.cancellationPolicy.upsert({
+              where: { studioId },
+              update: { lateCancelWindowHours: pol.lateCancelWindowHours, lateCancelFeeCredits: pol.lateCancelFeeCredits, noShowFeeCredits: pol.noShowFeeCredits, waitlistWindowMinutes: pol.waitlistWindowMinutes },
+              create: { studioId, lateCancelWindowHours: pol.lateCancelWindowHours, lateCancelFeeCredits: pol.lateCancelFeeCredits, noShowFeeCredits: pol.noShowFeeCredits, waitlistWindowMinutes: pol.waitlistWindowMinutes },
+            })
+            copied.push('policy')
+          }
+        }
+
+        if (copy.includes('plans')) {
+          const plans = await tx.membershipPlan.findMany({ where: { studioId: sourceStudioId } })
+          await Promise.all(plans.map(p => tx.membershipPlan.create({
+            data: { studioId, name: p.name, description: p.description, priceInCents: p.priceInCents, intervalMonths: p.intervalMonths, creditsPerCycle: p.creditsPerCycle, guestPassesPerCycle: p.guestPassesPerCycle, creditExpiryDays: p.creditExpiryDays, isIntroOffer: p.isIntroOffer, maxRedemptionsPerMember: p.maxRedemptionsPerMember },
+          })))
+          if (plans.length) copied.push('plans')
+        }
+
+        if (copy.includes('products')) {
+          const products = await tx.product.findMany({ where: { studioId: sourceStudioId } })
+          await Promise.all(products.map(p => tx.product.create({
+            data: { studioId, name: p.name, category: p.category, priceInCents: p.priceInCents, creditsRequired: p.creditsRequired, inStock: p.inStock },
+          })))
+          if (products.length) copied.push('products')
+        }
+
+        if (copy.includes('templates')) {
+          const templates = await tx.classTemplate.findMany({ where: { studioId: sourceStudioId } })
+          await Promise.all(templates.map(t => tx.classTemplate.create({
+            data: { studioId, name: t.name, description: t.description, durationMin: t.durationMin, sport: t.sport, color: t.color, isPrivate: t.isPrivate, defaultCapacity: t.defaultCapacity, defaultCreditsRequired: t.defaultCreditsRequired, defaultIntervalWeeks: t.defaultIntervalWeeks },
+          })))
+          if (templates.length) copied.push('templates')
+        }
+      })
+
+      return reply.send({ success: true, copied })
     },
   )
 

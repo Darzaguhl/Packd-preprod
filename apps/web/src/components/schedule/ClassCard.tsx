@@ -46,21 +46,38 @@ export default function ClassCard({
     opacity: isDragging ? 0.5 : 1,
   }
 
+  // Past classes — collapsed compact row, not clickable
+  if (isPast) {
+    return (
+      <div
+        ref={setNodeRef}
+        style={style}
+        data-testid="class-card"
+        data-session-id={s.id}
+        data-past="true"
+        className="flex items-center gap-3 px-4 py-2 rounded-xl border border-gray-100 bg-gray-50 opacity-50"
+      >
+        <div className={`w-1 h-6 rounded-full shrink-0 ${cfg.accent}`} />
+        <span className="text-xs font-semibold text-gray-500 tabular-nums w-10 shrink-0">{startTime}</span>
+        <span className="text-xs font-semibold text-gray-700 truncate">{s.templateName}</span>
+        <span className="text-xs text-gray-400 truncate">{s.instructorName} · {durationMin}m</span>
+      </div>
+    )
+  }
+
   return (
     <div
       ref={setNodeRef}
       style={style}
       data-testid="class-card"
       data-session-id={s.id}
-      data-past={isPast ? 'true' : 'false'}
-      onClick={() => !draggable && !isPast && onSelect(s)}
+      data-past="false"
+      onClick={() => !draggable && onSelect(s)}
       className={`group relative flex items-stretch border rounded-2xl overflow-hidden transition-all duration-150 ${
-        isPast
-          ? 'bg-gray-50 opacity-50 cursor-not-allowed'
-          : isDragging
-            ? 'bg-white shadow-2xl border-gray-300 scale-[1.02] cursor-pointer'
-            : 'bg-white border-gray-100 hover:border-gray-200 hover:shadow-md cursor-pointer'
-      } ${isBooked && !isPast ? 'ring-1 ring-black ring-inset' : ''}`}
+        isDragging
+          ? 'bg-white shadow-2xl border-gray-300 scale-[1.02] cursor-pointer'
+          : 'bg-white border-gray-100 hover:border-gray-200 hover:shadow-md cursor-pointer'
+      } ${isBooked ? 'ring-1 ring-black ring-inset' : ''}`}
     >
       {/* Sport accent bar */}
       <div className={`w-1 shrink-0 ${cfg.accent}`} />

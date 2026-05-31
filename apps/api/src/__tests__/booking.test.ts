@@ -14,6 +14,7 @@ vi.mock('@packd/db', () => {
     findUnique: vi.fn().mockResolvedValue(null),   // no existing booking by default
     findFirst: vi.fn().mockResolvedValue(null),    // no time conflict by default
     findUniqueOrThrow: vi.fn(),
+    count: vi.fn().mockResolvedValue(2),           // not first booking by default (avoids referral logic)
   }
   const creditBalance = { findUnique: vi.fn(), update: vi.fn(), upsert: vi.fn() }
   const creditTransaction = { create: vi.fn() }
@@ -21,6 +22,13 @@ vi.mock('@packd/db', () => {
   const waitlistEntry = { findFirst: vi.fn().mockResolvedValue(null), findUnique: vi.fn().mockResolvedValue(null), update: vi.fn() }
   // Network check: null = studio not in any network (same-studio bookings bypass this)
   const studioNetworkMembership = { findFirst: vi.fn().mockResolvedValue(null) }
+  // Referral: no referral by default
+  const referral = { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn() }
+  // PAST_DUE gate: no overdue subscription by default
+  const membershipSubscription = { findFirst: vi.fn().mockResolvedValue(null) }
+  // Waiver: no active waiver by default
+  const waiver = { findFirst: vi.fn().mockResolvedValue(null) }
+  const waiverSignature = { findUnique: vi.fn().mockResolvedValue({ id: 'sig-1' }) }
 
   return {
     prisma: {
@@ -32,6 +40,10 @@ vi.mock('@packd/db', () => {
       cancellationPolicy,
       waitlistEntry,
       studioNetworkMembership,
+      referral,
+      membershipSubscription,
+      waiver,
+      waiverSignature,
       auditLog: { create: vi.fn().mockResolvedValue({}) },
       $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({ classSession, member, booking, creditBalance, creditTransaction, waitlistEntry }),

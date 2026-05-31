@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import type { SessionSlot } from '@packd/types'
 import { api, type MemberNetworkInfo } from '@/lib/api'
@@ -81,6 +81,9 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
     const d = searchParams.get('day')
     return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : toIsoDate(new Date())
   })
+  // True once we've corrected selectedDay to the studio's timezone on first load.
+  // Prevents subsequent studio-filter switches from jumping the selected day.
+  const initialDaySet = useRef(!!searchParams.get('day'))
   const [selectedSport, setSelectedSport] = useState('ALL')
   const [selectedLocation, setSelectedLocation] = useState('ALL')
   const [weekOffset, setWeekOffset] = useState<number>(() => {
@@ -170,7 +173,10 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
         setTimeFormat((data.timeFormat ?? '24h') as TimeFormat)
         const tz = data.timezone ?? 'UTC'
         setStudioTimezone(tz)
-        if (!searchParams.get('day')) setSelectedDay(toIsoDateInZone(new Date(), tz))
+        if (!initialDaySet.current) {
+          initialDaySet.current = true
+          setSelectedDay(toIsoDateInZone(new Date(), tz))
+        }
         setCancelPolicy({ windowHours: data.lateCancelWindowHours ?? 12, feeCredits: data.lateCancelFeeCredits ?? 1 })
       })
       .catch(() => setSessions([]))
@@ -178,14 +184,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStudioId, weekOffset, token])
 
-  // Derived: current week's Monday
-  const currentWeekMonday = useMemo(
-    () => weekStart(new Date(Date.now() + weekOffset * WEEK_MS)),
-    [weekOffset],
-  )
-
-  // Derived: week number
-  const weekNumber = useMemo(() => isoWeekNumber(currentWeekMonday), [currentWeekMonday])
+  // Derived: week number (computed below from days)
 
   // Derived: unique locations across all sessions this week
   const locations = useMemo<{ id: string; name: string }[]>(() => {
@@ -197,26 +196,59 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   // Reset location filter when we navigate to a new week (in case the new week has different locations)
   useEffect(() => { setSelectedLocation('ALL') }, [weekOffset])
 
+  // When week changes: current week → today, any other week → Monday of that week
+  useEffect(() => {
+    const tz = studioTimezone || 'UTC'
+    if (weekOffset === 0) {
+      setSelectedDay(toIsoDateInZone(new Date(), tz))
+    } else {
+      const monday = weekStart(new Date(Date.now() + weekOffset * WEEK_MS))
+      setSelectedDay(toIsoDateInZone(monday, tz))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekOffset])
+
   // Derived: sessions filtered by location (used for day tab counts + day sessions)
   const locationSessions = useMemo(
     () => selectedLocation === 'ALL' ? sessions : sessions.filter(s => s.locationId === selectedLocation),
     [sessions, selectedLocation],
   )
 
-  // Derived: day tabs (counts respect location filter)
+  // Derived: day tabs — computed entirely in the studio timezone so the week
+  // always starts on Monday regardless of the browser's local timezone.
   const days = useMemo<DayTab[]>(() => {
-    const tzOpt = studioTimezone ? { timeZone: studioTimezone } : {}
+    const tz = studioTimezone || 'UTC'
+    // Reference point for this week, shifted by weekOffset
+    const ref = new Date(Date.now() + weekOffset * WEEK_MS)
+    // "Today" as an ISO date in the studio timezone
+    const todayIso = toIsoDateInZone(ref, tz)
+    const [ty, tm, td] = todayIso.split('-').map(Number)
+    // Use noon UTC for the reference day — avoids any DST boundary issues
+    const todayNoon = new Date(Date.UTC(ty, tm - 1, td, 12, 0, 0))
+    // Day-of-week in the studio timezone (Mon=0 … Sun=6)
+    const dowStr = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: tz }).format(todayNoon)
+    const fromMon: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 }
+    const daysBack = fromMon[dowStr] ?? 0
+    // Noon UTC on Monday of this week in the studio timezone
+    const mondayNoon = new Date(todayNoon.getTime() - daysBack * 86400000)
+
     return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(currentWeekMonday.getTime() + i * 86400000)
-      const iso = toIsoDateInZone(d, studioTimezone)
+      const d = new Date(mondayNoon.getTime() + i * 86400000)
+      const iso = toIsoDateInZone(d, tz)
       return {
-        label: d.toLocaleDateString('en-US', { weekday: 'short', ...tzOpt }),
-        date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...tzOpt }),
+        label: d.toLocaleDateString('en-US', { weekday: 'short', timeZone: tz }),
+        date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz }),
         iso,
-        count: locationSessions.filter((s) => toIsoDateInZone(new Date(s.startsAt), studioTimezone) === iso).length,
+        count: locationSessions.filter(s => toIsoDateInZone(new Date(s.startsAt), tz) === iso).length,
       }
     })
-  }, [locationSessions, currentWeekMonday, studioTimezone])
+  }, [locationSessions, studioTimezone, weekOffset])
+
+  const weekNumber = useMemo(() => {
+    if (!days.length) return 0
+    const [y, m, d] = days[0].iso.split('-').map(Number)
+    return isoWeekNumber(new Date(Date.UTC(y, m - 1, d, 12, 0, 0)))
+  }, [days])
 
   // Derived: sports present in current week (respect location filter)
   const availableSports = useMemo(
@@ -250,11 +282,11 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
     setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, ...patch } : s)))
   }
 
-  async function handleBook(sessionId: string) {
+  async function handleBook(sessionId: string, memberNote?: string) {
     setActionLoading(sessionId)
     try {
       const t = await getFreshToken()
-      const res = await api.bookings.create(sessionId, t)
+      const res = await api.bookings.create(sessionId, t, undefined, memberNote)
       const session = sessions.find((s) => s.id === sessionId)!
       mutateSession(sessionId, {
         bookedCount: session.bookedCount + 1,
@@ -265,7 +297,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
       // Don't show a toast for "already booked" — the caller (handleBookAndAssign)
       // handles that case silently and falls through to spot assignment.
       const msg = e instanceof Error ? e.message.toLowerCase() : ''
-      if (!msg.includes('already booked') && !msg.includes('unique')) {
+      if (!msg.includes('already booked') && !msg.includes('unique') && !msg.includes('waiver_required')) {
         showToast(e instanceof Error ? e.message : 'Failed to book', false)
       }
       throw e  // always re-throw so callers can catch and react
@@ -502,7 +534,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
             sessions={sessions}
             selectedDay={selectedDay}
             onSelectDay={handleCalendarDaySelect}
-            currentWeekStart={currentWeekMonday}
+            currentWeekStart={days.length ? (() => { const [y,m,d] = days[0].iso.split('-').map(Number); return new Date(Date.UTC(y, m-1, d, 12, 0, 0)) })() : new Date()}
           />
         </div>
       </div>

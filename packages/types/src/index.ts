@@ -95,6 +95,7 @@ export interface MemberProfile {
   email: string
   creditBalance: number
   activeSubscription?: {
+    id: string
     planName: string
     status: string
     endDate?: string

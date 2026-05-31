@@ -1,7 +1,37 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import { prisma } from '@packd/db'
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library.js'
 import { ROLE_RANK } from '@packd/types'
 import { requireRole, requireAuth, getUser } from '../lib/auth.js'
+
+/**
+ * If the session has no layout snapshot yet, lock it to the room's currently
+ * active layout. Called inside the same transaction as the spot assignment so
+ * the snapshot is atomic with the booking change.
+ * This prevents future room redesigns from orphaning existing station references.
+ */
+async function snapshotLayoutIfNeeded(
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+  sessionId: string,
+  roomId: string,
+) {
+  const session = await tx.classSession.findUnique({
+    where: { id: sessionId },
+    select: { layoutId: true },
+  })
+  if (session?.layoutId) return // already snapshotted
+
+  const activeLayout = await tx.roomLayout.findFirst({
+    where: { roomId, isActive: true },
+    select: { id: true },
+  })
+  if (!activeLayout) return
+
+  await tx.classSession.update({
+    where: { id: sessionId },
+    data: { layoutId: activeLayout.id },
+  })
+}
 
 async function assertRoomAccess(
   userId: string,
@@ -291,7 +321,20 @@ export async function roomRoutes(app: FastifyInstance) {
         membershipStatus: b.member.memberships[0]?.status ?? null,
       }))
 
-      return reply.send({ layout, assignments })
+      // Identify the caller's own booking so the client doesn't need to rely on stale params
+      const myMember = user.id
+        ? await prisma.member.findUnique({ where: { userId: user.id }, select: { id: true } })
+        : null
+      const myBooking = myMember
+        ? session.bookings.find(b => b.memberId === myMember.id)
+        : null
+
+      return reply.send({
+        layout,
+        assignments,
+        myBookingId: myBooking?.id ?? null,
+        myStationId: myBooking?.stationId ?? null,
+      })
     },
   )
 
@@ -313,17 +356,16 @@ export async function roomRoutes(app: FastifyInstance) {
       const booking = await prisma.booking.findUnique({ where: { id: bookingId }, select: { sessionId: true } })
       if (!booking || booking.sessionId !== sessionId) return reply.notFound('Booking not found in this session')
 
-      // clear any existing booking on that station for this session
-      if (stationId) {
-        await prisma.booking.updateMany({
-          where: { sessionId, stationId, id: { not: bookingId } },
-          data: { stationId: null },
-        })
-      }
-
-      const updated = await prisma.booking.update({
-        where: { id: bookingId },
-        data: { stationId },
+      const updated = await prisma.$transaction(async (tx) => {
+        if (stationId) {
+          await snapshotLayoutIfNeeded(tx, sessionId, roomId)
+          // Atomically evict any existing occupant then assign
+          await tx.booking.updateMany({
+            where: { sessionId, stationId, id: { not: bookingId } },
+            data: { stationId: null },
+          })
+        }
+        return tx.booking.update({ where: { id: bookingId }, data: { stationId } })
       })
 
       return reply.send({ bookingId: updated.id, stationId: updated.stationId })
@@ -338,7 +380,7 @@ export async function roomRoutes(app: FastifyInstance) {
     '/:roomId/sessions/:sessionId/my-spot',
     { preHandler: requireAuth },
     async (request, reply) => {
-      const { sessionId } = request.params
+      const { roomId, sessionId } = request.params
       const { stationId } = request.body
       const user = getUser(request)
 
@@ -352,22 +394,18 @@ export async function roomRoutes(app: FastifyInstance) {
         return reply.code(404).send({ error: 'No confirmed booking found' })
       }
 
-      // check station isn't taken
-      if (stationId) {
-        const conflict = await prisma.booking.findUnique({
-          where: { sessionId_stationId: { sessionId, stationId } },
+      try {
+        const updated = await prisma.$transaction(async (tx) => {
+          if (stationId) await snapshotLayoutIfNeeded(tx, sessionId, roomId)
+          return tx.booking.update({ where: { id: booking.id }, data: { stationId } })
         })
-        if (conflict && conflict.id !== booking.id) {
+        return reply.send({ stationId: updated.stationId })
+      } catch (e) {
+        if (e instanceof PrismaClientKnownRequestError && e.code === 'P2002') {
           return reply.code(409).send({ error: 'Station already taken' })
         }
+        throw e
       }
-
-      const updated = await prisma.booking.update({
-        where: { id: booking.id },
-        data: { stationId },
-      })
-
-      return reply.send({ stationId: updated.stationId })
     },
   )
 }

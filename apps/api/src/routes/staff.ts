@@ -14,6 +14,7 @@ const STAFF_PHOTO_BUCKET = 'instructor-photos' // Supabase bucket — also store
 
 const VALID_STAFF_ROLES = ['fronthost', 'instructor'] as const
 type StaffRole = typeof VALID_STAFF_ROLES[number]
+const VALID_INVITE_ROLES = [...VALID_STAFF_ROLES, 'studio_admin'] as const
 
 async function assertStudioAccess(
   userId: string,
@@ -237,8 +238,8 @@ export async function staffRoutes(app: FastifyInstance) {
       const user = getUser(request)
 
       if (!email || !firstName || !studioId) return reply.badRequest('email, firstName, and studioId are required')
-      if (!VALID_STAFF_ROLES.includes(role as StaffRole)) {
-        return reply.badRequest('role must be fronthost or instructor')
+      if (!(VALID_INVITE_ROLES as readonly string[]).includes(role)) {
+        return reply.badRequest('role must be fronthost, instructor, or studio_admin')
       }
       if (!await assertStudioAccess(user.id, user.role, studioId, user.studioIds)) {
         return reply.forbidden('Access denied to this studio')
@@ -251,7 +252,7 @@ export async function staffRoutes(app: FastifyInstance) {
       const inviterName = inviterUser ? `${inviterUser.firstName} ${inviterUser.lastName}` : 'A studio admin'
 
       const webUrl = process.env.WEB_URL ?? 'http://localhost:3001'
-      const signupUrl = `${webUrl}/onboarding?invite=1&email=${encodeURIComponent(email)}&studio=${encodeURIComponent(studio.name)}&role=${role}`
+      const signupUrl = `${webUrl}/accept-invite?email=${encodeURIComponent(email)}&studio=${encodeURIComponent(studio.name)}&studioId=${studioId}&role=${role}`
 
       await sendStaffInvite({
         to: email,
@@ -267,13 +268,62 @@ export async function staffRoutes(app: FastifyInstance) {
     },
   )
 
-  // PATCH /staff/instructors/:instructorId — update instructor pay rate (studio_admin+)
+  // POST /staff/accept-invite — authenticated user accepts their invite and gets their role applied
+  // Called client-side immediately after signup/login on the /accept-invite page.
+  app.post<{ Body: { studioId: string; role: string; invitedEmail: string } }>(
+    '/accept-invite',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { studioId, role, invitedEmail } = request.body
+      const user = getUser(request)
+
+      if (!studioId || !role || !invitedEmail) return reply.badRequest('studioId, role, and invitedEmail are required')
+      if (!(VALID_INVITE_ROLES as readonly string[]).includes(role)) {
+        return reply.badRequest('Invalid role')
+      }
+
+      // Verify the authenticated user's email matches the invited email
+      const dbUser = await prisma.user.findUnique({ where: { id: user.id }, select: { email: true } })
+      if (!dbUser || dbUser.email.toLowerCase() !== invitedEmail.toLowerCase()) {
+        return reply.forbidden('This invitation was sent to a different email address')
+      }
+
+      const studio = await prisma.studio.findUnique({ where: { id: studioId }, select: { id: true, name: true } })
+      if (!studio) return reply.notFound('Studio not found')
+
+      const current = await getSupabaseAppMeta(user.id)
+      const existingRoles: string[] = current.roles ?? (current.role && current.role !== 'member' ? [current.role as string] : [])
+      const existingIds: string[] = current.studioIds ?? []
+
+      const newRoles = [...new Set([...existingRoles, role])]
+      const newIds = [...new Set([...existingIds, studioId])]
+      const primaryRole = getPrimaryRole(newRoles)
+
+      await setSupabaseAppMeta(user.id, { role: primaryRole, roles: newRoles, studioIds: newIds })
+
+      const existingMember = await prisma.member.findUnique({ where: { userId: user.id } })
+      if (existingMember) {
+        await prisma.member.update({
+          where: { userId: user.id },
+          data: { staffRoles: newRoles, studioIds: newIds, studioId: existingMember.studioId ?? studioId },
+        })
+      } else {
+        await prisma.member.create({
+          data: { userId: user.id, studioId, staffRoles: newRoles, studioIds: newIds, source: 'invite' },
+        })
+      }
+
+      return reply.send({ success: true, role: primaryRole, studioName: studio.name })
+    },
+  )
+
+  // PATCH /staff/instructors/:instructorId — update instructor pay rate (franchise_admin only)
   app.patch<{
     Params: { instructorId: string }
     Body: { payRatePerHeadCents?: number | null }
   }>(
     '/instructors/:instructorId',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireRole('franchise_admin') },
     async (request, reply) => {
       const { instructorId } = request.params
       const { payRatePerHeadCents } = request.body
@@ -298,13 +348,13 @@ export async function staffRoutes(app: FastifyInstance) {
     },
   )
 
-  // PATCH /staff/:memberId/hourly-pay — set hourly pay rate for any staff member (studio_admin+)
+  // PATCH /staff/:memberId/hourly-pay — set hourly pay rate (franchise_admin only)
   app.patch<{
     Params: { memberId: string }
     Body: { payRateHourlyCents: number | null }
   }>(
     '/:memberId/hourly-pay',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireRole('franchise_admin') },
     async (request, reply) => {
       const { memberId } = request.params
       const { payRateHourlyCents } = request.body

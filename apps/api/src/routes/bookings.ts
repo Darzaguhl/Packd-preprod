@@ -4,7 +4,7 @@ import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library.js
 import { requireAuth, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
 import { ROLE_RANK } from '@packd/types'
-import { enqueueLateCancelCheck, enqueueWaitlistExpiry } from '../jobs/index.js'
+import { enqueueLateCancelCheck, enqueueWaitlistExpiry, enqueueFirstClassFollowup } from '../jobs/index.js'
 import { ensureMemberForAdmin } from './members.js'
 import { sendBookingConfirmation, sendBookingCancellation, sendWaitlistPromotion } from '../lib/email.js'
 
@@ -20,11 +20,11 @@ export async function bookingRoutes(app: FastifyInstance) {
   // POST /bookings — create booking
   // Privileged roles (studio_admin, fronthost, instructor, etc.) may pass a
   // memberId in the body to book on behalf of another member (walk-in flow).
-  app.post<{ Body: { sessionId: string; memberId?: string } }>(
+  app.post<{ Body: { sessionId: string; memberId?: string; memberNote?: string } }>(
     '/',
     { preHandler: requireAuth },
     async (request, reply) => {
-      const { sessionId, memberId: targetMemberId } = request.body
+      const { sessionId, memberId: targetMemberId, memberNote } = request.body
 
       // Fix #12: validate required body fields
       if (!sessionId || typeof sessionId !== 'string') {
@@ -67,6 +67,36 @@ export async function bookingRoutes(app: FastifyInstance) {
           if (!homeMembership || !targetMembership || homeMembership.networkId !== targetMembership.networkId) {
             return reply.forbidden('Cannot book at a studio outside your network')
           }
+        }
+      }
+
+      // Non-privileged members with a PAST_DUE subscription cannot book until payment is resolved
+      if (!isPrivileged) {
+        const pastDueSub = await prisma.membershipSubscription.findFirst({
+          where: { memberId: member.id, status: 'PAST_DUE' },
+          select: { id: true },
+        })
+        if (pastDueSub) {
+          return reply.code(402).send({ error: 'Your subscription payment is overdue. Please update your payment method to continue booking.' })
+        }
+      }
+
+      // Waiver check: if the studio has an active waiver, the member must have signed it
+      const sessionStudioId = isMemberBooking
+        ? (await prisma.classSession.findUnique({ where: { id: sessionId }, select: { studioId: true } }))?.studioId ?? member.studioId
+        : member.studioId
+      const activeWaiver = await prisma.waiver.findFirst({
+        where: { studioId: sessionStudioId, isActive: true },
+        select: { id: true },
+        orderBy: { createdAt: 'desc' },
+      })
+      if (activeWaiver) {
+        const signed = await prisma.waiverSignature.findUnique({
+          where: { waiverId_memberId: { waiverId: activeWaiver.id, memberId: member.id } },
+          select: { id: true },
+        })
+        if (!signed) {
+          return reply.code(403).send({ error: 'WAIVER_REQUIRED', waiverId: activeWaiver.id })
         }
       }
 
@@ -173,12 +203,12 @@ export async function bookingRoutes(app: FastifyInstance) {
         if (existing?.status === 'CANCELLED' || existing?.status === 'LATE_CANCELLED') {
           newBooking = await tx.booking.update({
             where: { id: existing.id },
-            data: { status: 'CONFIRMED', stationId: null, checkedIn: false, checkedInAt: null },
+            data: { status: 'CONFIRMED', stationId: null, checkedIn: false, checkedInAt: null, ...(memberNote !== undefined && { memberNote: memberNote || null }) },
           })
         } else {
           try {
             newBooking = await tx.booking.create({
-              data: { sessionId, memberId: member.id, status: 'CONFIRMED' },
+              data: { sessionId, memberId: member.id, status: 'CONFIRMED', ...(memberNote ? { memberNote } : {}) },
             })
           } catch (e: unknown) {
             if (e instanceof PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -207,6 +237,23 @@ export async function bookingRoutes(app: FastifyInstance) {
       })
 
       await enqueueLateCancelCheck(booking.booking.id, booking.session.startsAt)
+
+      // Check for first booking — trigger referral reward + followup email (non-fatal)
+      const memberId = member.id
+      const bookingCount = await prisma.booking.count({ where: { memberId, status: 'CONFIRMED' } })
+      if (bookingCount === 1) {
+        // Reward referrer if unrewarded referral exists
+        const referral = await prisma.referral.findFirst({ where: { refereeId: memberId, rewarded: false } })
+        if (referral && referral.rewardCredits > 0) {
+          prisma.$transaction([
+            prisma.creditBalance.upsert({ where: { memberId: referral.referrerId }, create: { memberId: referral.referrerId, balance: referral.rewardCredits }, update: { balance: { increment: referral.rewardCredits } } }),
+            prisma.creditTransaction.create({ data: { memberId: referral.referrerId, amount: referral.rewardCredits, type: 'REFERRAL', note: 'Referral reward' } }),
+            prisma.referral.update({ where: { id: referral.id }, data: { rewarded: true } }),
+          ]).catch(() => {})
+        }
+        // Enqueue first-class follow-up email (26h after booking)
+        enqueueFirstClassFollowup(memberId, booking.booking.sessionId).catch(() => {})
+      }
 
       // Send booking confirmation email (non-fatal)
       prisma.classSession.findUnique({
