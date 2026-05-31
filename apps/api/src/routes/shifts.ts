@@ -159,6 +159,8 @@ export async function shiftsRoutes(app: FastifyInstance) {
 
       const existing = await prisma.staffShift.findUnique({ where: { id }, select: { startsAt: true, endsAt: true, memberId: true, studioId: true } })
       if (!existing) return reply.notFound()
+      if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['franchise_admin'] &&
+          !user.studioIds?.includes(existing.studioId)) return reply.forbidden()
 
       const start = startsAt ? new Date(startsAt) : existing.startsAt
       const end = endsAt ? new Date(endsAt) : existing.endsAt
@@ -192,6 +194,8 @@ export async function shiftsRoutes(app: FastifyInstance) {
       const { id } = request.params
       const existing = await prisma.staffShift.findUnique({ where: { id }, select: { id: true, memberId: true, studioId: true, startsAt: true, endsAt: true } })
       if (!existing) return reply.notFound()
+      if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['franchise_admin'] &&
+          !user.studioIds?.includes(existing.studioId)) return reply.forbidden()
 
       await prisma.staffShift.delete({ where: { id } })
       audit({ actorId: user.id, actorRole: user.role, action: AUDIT.SHIFT_DELETE, targetId: existing.memberId, studioId: existing.studioId, meta: { shiftId: id, startsAt: existing.startsAt, endsAt: existing.endsAt } })

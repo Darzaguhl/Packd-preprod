@@ -90,6 +90,9 @@ export async function bookingRoutes(app: FastifyInstance) {
 
         // Members and instructors cannot book classes that have already started.
         // Fronthosts and above can re-book or adjust spots on running/past classes.
+        // Fronthosts are intentionally excluded — they need to walk-in book at any time
+        // (past-class or outside the booking window). Instructors booking for themselves
+        // are restricted like members. Use ROLE_RANK for all other privilege checks.
         const isNonPrivileged = !user.role || user.role === 'member' || user.role === 'instructor'
         if (isNonPrivileged && session.startsAt <= new Date()) {
           throw Object.assign(new Error('Class has already started'), { statusCode: 400 })

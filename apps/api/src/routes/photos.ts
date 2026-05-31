@@ -242,7 +242,7 @@ export async function photoRoutes(app: FastifyInstance) {
       const member = await prisma.member.findFirst({
         where: { userId: user.id, studioIds: { has: studioId } },
       })
-      const isGlobalAdmin = (user.role === 'admin' || user.role === 'franchise_admin')
+      const isGlobalAdmin = ROLE_RANK[user.role as keyof typeof ROLE_RANK] >= ROLE_RANK['franchise_admin']
       if (!member && !isGlobalAdmin) return reply.forbidden()
 
       // Find instructors who teach at this studio, then expand to ALL their

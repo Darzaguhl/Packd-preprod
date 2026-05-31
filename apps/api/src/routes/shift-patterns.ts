@@ -189,6 +189,8 @@ export async function shiftPatternsRoutes(app: FastifyInstance) {
       const { id } = request.params
       const existing = await prisma.staffShiftPattern.findUnique({ where: { id } })
       if (!existing) return reply.notFound()
+      if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['franchise_admin'] &&
+          !user.studioIds?.includes(existing.studioId)) return reply.forbidden()
 
       const {
         daysOfWeek = existing.daysOfWeek,
@@ -265,6 +267,8 @@ export async function shiftPatternsRoutes(app: FastifyInstance) {
         select: { id: true, memberId: true, studioId: true },
       })
       if (!pattern) return reply.notFound()
+      if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['franchise_admin'] &&
+          !user.studioIds?.includes(pattern.studioId)) return reply.forbidden()
 
       // Delete future shifts generated from this pattern
       const now = new Date()

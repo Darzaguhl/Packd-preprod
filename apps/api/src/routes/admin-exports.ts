@@ -69,7 +69,8 @@ export async function adminExportsRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
-      if (!await assertStudioAccess(getUser(request).id, getUser(request).role, studioId, reply, getUser(request).studioIds)) return
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const members = await prisma.member.findMany({
         where: { studioId, staffRoles: { isEmpty: true } },
@@ -111,7 +112,8 @@ export async function adminExportsRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId, from, to } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
-      if (!await assertStudioAccess(getUser(request).id, getUser(request).role, studioId, reply, getUser(request).studioIds)) return
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       const toDate   = to   ? new Date(to)   : new Date()
@@ -150,7 +152,8 @@ export async function adminExportsRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId, from, to } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
-      if (!await assertStudioAccess(getUser(request).id, getUser(request).role, studioId, reply, getUser(request).studioIds)) return
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       const toDate   = to   ? new Date(to)   : new Date()

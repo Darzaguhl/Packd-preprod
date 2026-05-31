@@ -1,29 +1,12 @@
-import type { FastifyInstance, FastifyReply } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import { prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
 import { ROLE_RANK } from '@packd/types'
+import { assertStudioAccess } from './admin-shared.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 const requireInstructor = requireRole('instructor')
-
-async function assertStudioAccess(
-  userId: string,
-  userRole: string,
-  studioId: string,
-  reply: FastifyReply,
-  jwtStudioIds?: string[],
-): Promise<boolean> {
-  if (ROLE_RANK[userRole as keyof typeof ROLE_RANK] >= ROLE_RANK['franchise_admin']) return true
-  // Fast path: JWT already encodes studio access — skip the DB lookup
-  if (jwtStudioIds && jwtStudioIds.includes(studioId)) return true
-  const member = await prisma.member.findUnique({ where: { userId }, select: { studioId: true, studioIds: true } })
-  if (!member || (!member.studioIds.includes(studioId) && member.studioId !== studioId)) {
-    reply.code(403).send({ error: 'Access denied' })
-    return false
-  }
-  return true
-}
 
 function getMondayOf(d: Date): Date {
   const date = new Date(d)
