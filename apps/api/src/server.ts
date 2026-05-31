@@ -44,6 +44,7 @@ import { brandRoutes } from './routes/brands.js'
 import { aiRoutes } from './routes/ai.js'
 import { waiverRoutes } from './routes/waivers.js'
 import { setupJobs, stopJobs } from './jobs/index.js'
+import { prisma } from '@packd/db'
 
 const app = Fastify({
   logger: {
@@ -146,7 +147,15 @@ await app.register(brandRoutes, { prefix: '/brands' })
 await app.register(aiRoutes, { prefix: '/ai' })
 await app.register(waiverRoutes, { prefix: '/waivers' })
 
-app.get('/health', async () => ({ ok: true }))
+app.get('/health', async (_req, reply) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`
+    return { ok: true, db: 'up', ts: new Date().toISOString() }
+  } catch (e) {
+    reply.code(503)
+    return { ok: false, db: 'down', ts: new Date().toISOString() }
+  }
+})
 
 // Background jobs
 await setupJobs()
