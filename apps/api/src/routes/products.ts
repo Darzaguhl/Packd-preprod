@@ -1,8 +1,14 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@packd/db'
-import { requireAuth, requireRole } from '../lib/auth.js'
+import { requireAuth, requireRole, getUser } from '../lib/auth.js'
+import { ROLE_RANK } from '@packd/types'
 import { syncStripePrice, archiveStripeProduct } from '../lib/stripe-sync.js'
 import { logger } from '../lib/logger.js'
+
+function ownsStudio(user: ReturnType<typeof getUser>, studioId: string): boolean {
+  return ROLE_RANK[user.role as keyof typeof ROLE_RANK] >= ROLE_RANK['franchise_admin'] ||
+    (user.studioIds?.includes(studioId) ?? false)
+}
 
 export async function productRoutes(app: FastifyInstance) {
   // GET /products?studioId= — list products for a studio (all authenticated staff)
@@ -77,6 +83,7 @@ export async function productRoutes(app: FastifyInstance) {
       const { name, category, priceInCents, creditsRequired, imageUrl, inStock } = request.body
       const existing = await prisma.product.findUnique({ where: { id: request.params.id } })
       if (!existing) return reply.notFound()
+      if (!ownsStudio(getUser(request), existing.studioId)) return reply.forbidden()
 
       // Re-sync Stripe if name or price changed
       let stripeProductId = existing.stripeProductId ?? undefined
@@ -123,6 +130,7 @@ export async function productRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const existing = await prisma.product.findUnique({ where: { id: request.params.id } })
       if (!existing) return reply.notFound()
+      if (!ownsStudio(getUser(request), existing.studioId)) return reply.forbidden()
       await prisma.product.delete({ where: { id: request.params.id } })
       if (existing.stripeProductId) {
         archiveStripeProduct(existing.stripeProductId).catch(e => logger.error({ err: e }, 'Stripe archive failed'))

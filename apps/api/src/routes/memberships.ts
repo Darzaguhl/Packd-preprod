@@ -246,6 +246,9 @@ export async function membershipRoutes(app: FastifyInstance) {
 
       const existing = await prisma.membershipPlan.findUnique({ where: { id: planId } })
       if (!existing) return reply.notFound('Plan not found')
+      const userForPatch = getUser(request)
+      if (ROLE_RANK[userForPatch.role as keyof typeof ROLE_RANK] < ROLE_RANK['franchise_admin'] &&
+          !userForPatch.studioIds?.includes(existing.studioId)) return reply.forbidden()
 
       // Re-sync Stripe if price-relevant fields changed
       let stripeProductId = existing.stripeProductId ?? undefined
@@ -299,6 +302,9 @@ export async function membershipRoutes(app: FastifyInstance) {
         include: { _count: { select: { subscriptions: { where: { status: 'ACTIVE' } } } } },
       })
       if (!plan) return reply.notFound('Plan not found')
+      const userForDelete = getUser(request)
+      if (ROLE_RANK[userForDelete.role as keyof typeof ROLE_RANK] < ROLE_RANK['franchise_admin'] &&
+          !userForDelete.studioIds?.includes(plan.studioId)) return reply.forbidden()
       if (plan._count.subscriptions > 0) {
         return reply.code(409).send({
           error: `Cannot delete — ${plan._count.subscriptions} active subscription(s) still use this plan`,

@@ -20,7 +20,7 @@ vi.mock('../lib/stripe-sync.js', () => ({
 vi.mock('../lib/auth.js', () => ({
   requireAuth: vi.fn().mockResolvedValue(undefined),
   requireRole: vi.fn(() => vi.fn().mockResolvedValue(undefined)),
-  getUser: vi.fn(() => ({ id: 'user-1', email: 'admin@packd.test', role: 'studio_admin' })),
+  getUser: vi.fn(() => ({ id: 'user-1', email: 'admin@packd.test', role: 'studio_admin', studioIds: ['studio-1'] })),
 }))
 
 import Fastify from 'fastify'

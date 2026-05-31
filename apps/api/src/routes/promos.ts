@@ -1,8 +1,14 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
+import { ROLE_RANK } from '@packd/types'
 
 const requireStudioAdmin = requireRole('studio_admin')
+
+function ownsStudio(user: ReturnType<typeof getUser>, studioId: string): boolean {
+  return ROLE_RANK[user.role as keyof typeof ROLE_RANK] >= ROLE_RANK['franchise_admin'] ||
+    (user.studioIds?.includes(studioId) ?? false)
+}
 
 const VALID_TYPES = ['CREDIT_GRANT', 'FREE_CLASS', 'MEMBERSHIP_PCT', 'MEMBERSHIP_FLAT'] as const
 type PromoType = typeof VALID_TYPES[number]
@@ -120,6 +126,7 @@ export async function promoRoutes(app: FastifyInstance) {
 
       const promo = await prisma.promoCode.findUnique({ where: { id } })
       if (!promo) return reply.notFound()
+      if (!ownsStudio(getUser(request), promo.studioId)) return reply.forbidden()
 
       const updated = await prisma.promoCode.update({
         where: { id },
@@ -154,6 +161,7 @@ export async function promoRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const promo = await prisma.promoCode.findUnique({ where: { id: request.params.id } })
       if (!promo) return reply.notFound()
+      if (!ownsStudio(getUser(request), promo.studioId)) return reply.forbidden()
       await prisma.promoCode.delete({ where: { id: request.params.id } })
       return reply.send({ success: true })
     },
