@@ -11,3 +11,4 @@ build
 .expo
 *.tsbuildinfo
 .auth/
+.claude/settings.local.json
