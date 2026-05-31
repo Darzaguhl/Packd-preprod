@@ -133,6 +133,7 @@ jobs:
         run: |
           cat > apps/api/.env << 'EOF'
           DATABASE_URL=${{ secrets.DATABASE_URL }}
+          PGBOSS_DATABASE_URL=${{ secrets.PGBOSS_DATABASE_URL }}
           SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           CORS_ORIGIN=http://localhost:3000
