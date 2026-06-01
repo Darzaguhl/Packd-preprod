@@ -90,8 +90,9 @@ test.describe('Credit balance', () => {
 
         await cards.nth(i).click()
         const bookBtn = page.locator('[data-testid="book-btn"]')
-        await expect(bookBtn).toBeVisible({ timeout: 5000 })
-        if (!await bookBtn.isEnabled()) {
+        // Session may have a room layout (spot-picker instead of book-btn) — skip those
+        const btnVisible = await bookBtn.isVisible({ timeout: 5000 }).catch(() => false)
+        if (!btnVisible || !await bookBtn.isEnabled()) {
           await page.goBack(); continue
         }
 

@@ -17,13 +17,16 @@
       "dependsOn": ["^typecheck"]
     },
     "db:generate": {
-      "cache": false
+      "cache": false,
+      "passThroughEnv": ["DATABASE_URL", "DIRECT_URL"]
     },
     "db:migrate": {
-      "cache": false
+      "cache": false,
+      "passThroughEnv": ["DATABASE_URL", "DIRECT_URL"]
     },
     "db:migrate:deploy": {
-      "cache": false
+      "cache": false,
+      "passThroughEnv": ["DATABASE_URL", "DIRECT_URL"]
     }
   }
 }

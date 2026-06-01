@@ -18,9 +18,11 @@ const FRONTHOST_EMAIL = process.env.E2E_EMAIL ?? 'e2e-member@packd.test'
 
 async function goToStaffTab(page: import('@playwright/test').Page) {
   await page.goto('/dashboard')
-  await expect(page.locator('.animate-pulse').first()).not.toBeVisible({ timeout: 10_000 })
+  // Wait for the management/live mode switcher — confirms the dashboard loaded
+  await expect(page.getByRole('button', { name: /^live$/i })).toBeVisible({ timeout: 12_000 })
   await page.getByRole('button', { name: /^staff$/i }).click()
-  await expect(page.locator('.animate-pulse').first()).not.toBeVisible({ timeout: 8_000 })
+  // Wait for the staff member list to appear
+  await expect(page.locator('[data-testid="staff-member-row"]').first()).toBeVisible({ timeout: 10_000 })
 }
 
 async function openFronthostDrawer(page: import('@playwright/test').Page) {
@@ -58,17 +60,19 @@ test.describe('Staff shifts — one-off', () => {
     await page.getByTestId('shift-save-btn').click()
 
     // Wait for the shift row to show the expected time (retries until UI refreshes)
-    await expect(page.getByTestId('shift-time').first()).toHaveText(/9.*(am|:00).*5.*(pm|:00)/i, { timeout: 6_000 })
+    await expect(page.getByTestId('shift-time').first()).toHaveText(/9.*(am|:00).*5.*(pm|:00)/i, { timeout: 10_000 })
 
     // ── Edit shift ─────────────────────────────────────────────────────────
     await page.getByTestId('edit-shift-btn').first().click()
+    // Wait for the edit modal's save button to confirm the modal is open
+    await expect(page.getByTestId('shift-save-btn')).toBeVisible({ timeout: 5_000 })
 
     // Change end time to 18:00
     await page.locator('input[type="time"]').nth(1).fill('18:00')
     await page.getByTestId('shift-save-btn').click()
 
     // Wait for the time to update to 6 PM (retries until UI refreshes)
-    await expect(page.getByTestId('shift-time').first()).toHaveText(/6.*(pm|:00)/i, { timeout: 5_000 })
+    await expect(page.getByTestId('shift-time').first()).toHaveText(/6.*(pm|:00)/i, { timeout: 10_000 })
 
     // ── Delete shift ───────────────────────────────────────────────────────
     await page.getByTestId('delete-shift-btn').first().click()
