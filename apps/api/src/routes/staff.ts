@@ -164,6 +164,9 @@ export async function staffRoutes(app: FastifyInstance) {
       const primaryRole = getPrimaryRole(newRoles)
 
       await setSupabaseAppMeta(targetUser.id, { role: primaryRole, roles: newRoles, studioIds: newIds })
+      // Revoke existing sessions so the user must re-authenticate with the new (elevated) role.
+      // Their current JWT still reflects the old role until they log back in.
+      revokeUserSessions(targetUser.id).catch(err => console.warn('[staff] session revocation on grant failed:', err))
 
       // Upsert Member record
       const primaryStudioId = newIds[0]
@@ -361,6 +364,8 @@ export async function staffRoutes(app: FastifyInstance) {
       const primaryRole = getPrimaryRole(newRoles)
 
       await setSupabaseAppMeta(user.id, { role: primaryRole, roles: newRoles, studioIds: newIds })
+      // Revoke existing sessions — user must log back in to receive a JWT with the new role.
+      revokeUserSessions(user.id).catch(err => console.warn('[staff] session revocation on accept-invite failed:', err))
 
       const existingMember = await prisma.member.findUnique({ where: { userId: user.id } })
       if (existingMember) {

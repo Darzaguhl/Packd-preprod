@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { createHmac } from 'crypto'
+import { createHmac, timingSafeEqual } from 'crypto'
 import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
 import { logger } from '../lib/logger.js'
@@ -8,18 +8,48 @@ import { Id } from '../schemas.js'
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
 
-const ICAL_SECRET = process.env.ICAL_SECRET
-if (!ICAL_SECRET) {
+const _ICAL_SECRET  = process.env.ICAL_SECRET          ?? 'packd-ical-secret-change-in-production'
+const _ICAL_PREV    = process.env.ICAL_SECRET_PREVIOUS  ?? null   // set during key rotation
+
+if (!process.env.ICAL_SECRET) {
   logger.warn('[ical] ICAL_SECRET env var is not set — iCal feed tokens are insecure. Set ICAL_SECRET in production.')
 }
-const _ICAL_SECRET = ICAL_SECRET ?? 'packd-ical-secret-change-in-production'
 
-function makeToken(userId: string): string {
-  return createHmac('sha256', _ICAL_SECRET).update(userId).digest('hex')
+function makeToken(userId: string, secret = _ICAL_SECRET): string {
+  return createHmac('sha256', secret).update(userId).digest('hex')
 }
 
+/**
+ * Verify an iCal feed token against the current secret and optionally the
+ * previous secret (ICAL_SECRET_PREVIOUS). Supporting two keys allows zero-
+ * downtime rotation: set ICAL_SECRET=<new>, ICAL_SECRET_PREVIOUS=<old>,
+ * deploy — existing calendar subscriptions keep working while new tokens
+ * are signed with the new key. Drop ICAL_SECRET_PREVIOUS after ~30 days.
+ *
+ * Uses constant-time comparison on both checks to prevent timing attacks.
+ */
 function verifyToken(userId: string, token: string): boolean {
-  return makeToken(userId) === token
+  const expected = Buffer.from(makeToken(userId, _ICAL_SECRET))
+  const provided  = Buffer.from(token)
+  if (expected.length !== provided.length) {
+    // Check previous key too before returning false
+    if (_ICAL_PREV) {
+      const prevExpected = Buffer.from(makeToken(userId, _ICAL_PREV))
+      if (prevExpected.length === provided.length) {
+        return timingSafeEqual(prevExpected, provided)
+      }
+    }
+    return false
+  }
+  if (timingSafeEqual(expected, provided)) return true
+  // Check previous key on mismatch (token was signed before rotation)
+  if (_ICAL_PREV) {
+    const prevExpected = Buffer.from(makeToken(userId, _ICAL_PREV))
+    if (prevExpected.length === provided.length) {
+      return timingSafeEqual(prevExpected, provided)
+    }
+  }
+  return false
 }
 
 // ─── iCal helpers ─────────────────────────────────────────────────────────────
