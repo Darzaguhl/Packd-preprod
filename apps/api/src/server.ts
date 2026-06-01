@@ -48,6 +48,9 @@ import { waiverRoutes } from './routes/waivers.js'
 import { setupJobs, stopJobs } from './jobs/index.js'
 import { prisma } from '@packd/db'
 
+// Validate critical env vars at startup — fail fast before binding any port
+if (!process.env.SUPABASE_URL) throw new Error('SUPABASE_URL env var is required')
+
 const app = Fastify({
   logger: {
     level: process.env.LOG_LEVEL ?? 'info',

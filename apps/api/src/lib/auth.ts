@@ -2,11 +2,18 @@ import { createRemoteJWKSet, jwtVerify } from 'jose'
 import type { FastifyRequest, FastifyReply } from 'fastify'
 import { ROLE_RANK, type AuthUser, type UserRole } from '@packd/types'
 
-if (!process.env.SUPABASE_URL) throw new Error('SUPABASE_URL env var is required')
-const SUPABASE_URL = process.env.SUPABASE_URL
-const JWKS = createRemoteJWKSet(
-  new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`),
-)
+// SUPABASE_URL is validated lazily (inside getJWKS) so that importing this
+// module for spec generation / testing doesn't throw when the env var is absent.
+// At runtime the server.ts startup guard ensures it is set before any request fires.
+let _jwks: ReturnType<typeof createRemoteJWKSet> | null = null
+function getJWKS() {
+  if (!_jwks) {
+    const url = process.env.SUPABASE_URL
+    if (!url) throw new Error('SUPABASE_URL env var is required')
+    _jwks = createRemoteJWKSet(new URL(`${url}/auth/v1/.well-known/jwks.json`))
+  }
+  return _jwks
+}
 
 const ELEVATED_ROLES = new Set<string>(['admin', 'brand_admin', 'franchise_admin', 'studio_admin', 'instructor', 'fronthost'])
 
@@ -18,7 +25,7 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
 
   const token = authHeader.slice(7)
   try {
-    const { payload } = await jwtVerify(token, JWKS)
+    const { payload } = await jwtVerify(token, getJWKS())
 
     // Role MUST come from app_metadata (server-controlled).
     // user_metadata is writable by the client and must never grant elevated access.
@@ -70,7 +77,7 @@ export async function tryAuth(request: FastifyRequest): Promise<void> {
   if (!authHeader?.startsWith('Bearer ')) return
   const token = authHeader.slice(7)
   try {
-    const { payload } = await jwtVerify(token, JWKS)
+    const { payload } = await jwtVerify(token, getJWKS())
     const appMeta = payload.app_metadata as { role?: string; roles?: string[]; studioId?: string; studioIds?: string[]; brandId?: string; franchiseId?: string } | undefined
     const rawRole = appMeta?.role
     const role: UserRole = ELEVATED_ROLES.has(rawRole ?? '') ? (rawRole as UserRole) : 'member'

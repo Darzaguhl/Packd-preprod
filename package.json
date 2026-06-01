@@ -16,6 +16,7 @@
     "db:migrate": "turbo db:migrate",
     "db:migrate:deploy": "turbo db:migrate:deploy",
     "db:studio": "cd packages/db && npx prisma studio",
+    "generate:types": "npm run generate:openapi --workspace=@packd/api && npx openapi-typescript apps/api/openapi.json -o apps/web/src/lib/api-types.generated.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
