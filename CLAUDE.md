@@ -383,4 +383,4 @@ For each file in `apps/api/src/routes/`, check:
 - [ ] External penetration test — internal audit found 30 issues (all fixed). Schedule a third-party pen test before enterprise launch.
 
 ### Technical debt
-- [ ] Response type generation — all API response types are still hand-written in `api.ts`. Add Zod response schemas to Fastify routes so `api-types.generated.ts` emits response shapes, then replace hand-written interfaces with generated types. This is the last step to complete the OpenAPI contract.
+- [x] Response type generation — `apps/api/src/schemas/responses.ts` (50+ Zod schemas); 35 routes annotated with `schema.response`; `api-types.generated.ts` now emits typed `application/json` bodies; `api-client.ts` exports `GetBody<'/path'>` aliases replacing hand-written interfaces. OpenAPI contract complete.
