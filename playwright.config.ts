@@ -20,7 +20,7 @@ export default defineConfig({
   // In CI, Playwright starts both servers. Locally, start them manually.
   webServer: process.env.CI ? [
     {
-      command: 'cd apps/api && npm run dev',
+      command: 'cd apps/api && PORT=4000 npm run dev',
       url: 'http://localhost:4000/health',
       reuseExistingServer: false,
       timeout: 60_000,
@@ -28,7 +28,7 @@ export default defineConfig({
       stderr: 'pipe',
     },
     {
-      command: 'cd apps/web && PORT=3000 npm run dev',
+      command: 'cd apps/web && npm run dev',
       url: 'http://localhost:3000',
       reuseExistingServer: false,
       timeout: 120_000,

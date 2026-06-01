@@ -93,6 +93,7 @@ jobs:
   #   SUPABASE_ANON_KEY         publishable key (sb_publishable_...)
   #   SUPABASE_SERVICE_ROLE_KEY service role key (never expose client-side)
   #   DATABASE_URL              postgres://... (Supabase direct connection string)
+  #   PGBOSS_DATABASE_URL       postgres://... (direct connection, no pgBouncer; can equal DATABASE_URL)
   #   STUDIO_ID                 cuid of the seeded Packd Demo studio
   #
   e2e:
@@ -104,7 +105,6 @@ jobs:
       CI: true
       BASE_URL: http://localhost:3000
       NEXT_PUBLIC_API_URL: http://localhost:4000
-      PORT: 4000
       ICAL_SECRET: ci-e2e-secret
       # Stripe + Resend can be placeholders — E2E tests don't trigger payments
       STRIPE_SECRET_KEY: sk_test_placeholder

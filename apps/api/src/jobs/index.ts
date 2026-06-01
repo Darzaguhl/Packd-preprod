@@ -6,7 +6,7 @@ import { sendWaitlistPromotion, sendClassReminder, sendWinback, sendCreditExpiry
 let boss: PgBoss
 
 export async function setupJobs() {
-  boss = new PgBoss(process.env.PGBOSS_DATABASE_URL ?? process.env.DATABASE_URL!)
+  boss = new PgBoss(process.env.PGBOSS_DATABASE_URL || process.env.DATABASE_URL!)
 
   // pg-boss requires an error listener — without one Node will throw an unhandled
   // exception and kill the entire process on any DB connectivity blip.
