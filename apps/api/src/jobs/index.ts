@@ -1,7 +1,7 @@
 import PgBoss from 'pg-boss'
 import { logger } from '../lib/logger.js'
 import { prisma } from '@packd/db'
-import { sendWaitlistPromotion, sendClassReminder, sendWinback, sendCreditExpiryWarning, sendFirstClassFollowup, sendFranchiseBroadcast } from '../lib/email.js'
+import { sendWaitlistPromotion, sendClassReminder, sendWinback, sendCreditExpiryWarning, sendFirstClassFollowup, sendFranchiseBroadcast, sendOpsAlert } from '../lib/email.js'
 
 let boss: PgBoss
 
@@ -12,6 +12,10 @@ export async function setupJobs() {
   // exception and kill the entire process on any DB connectivity blip.
   boss.on('error', (err: Error) => {
     logger.error({ err: err.message }, '[pg-boss] error')
+    sendOpsAlert(
+      'pg-boss connectivity error',
+      `pg-boss emitted an error event — this may indicate a DB connectivity problem.\n\nError: ${err.message}\n\nStack:\n${err.stack ?? '(no stack)'}`,
+    ).catch(() => {})
   })
 
   await boss.start()
@@ -31,8 +35,37 @@ export async function setupJobs() {
     await boss.createQueue(name)
   }
 
+  // ── Job failure alerting ─────────────────────────────────────────────────────
+  // pg-boss v10 exposes a per-queue error hook. We register one after all workers
+  // are set up so any unhandled throw in a handler fires an ops alert.
+  // This complements the boss.on('error') listener above (which covers DB-level
+  // errors) with application-level job processing failures.
+  function wrapWorker<T>(
+    queueName: string,
+    handler: (jobs: PgBoss.Job<T>[]) => Promise<unknown>,
+  ): (jobs: PgBoss.Job<T>[]) => Promise<unknown> {
+    return async (jobs) => {
+      try {
+        return await handler(jobs)
+      } catch (err) {
+        const jobIds = jobs.map(j => j.id).join(', ')
+        logger.error({ err, queueName, jobIds }, '[pg-boss] job failed')
+        sendOpsAlert(
+          `Job failure: ${queueName}`,
+          `Queue: ${queueName}\nJob IDs: ${jobIds}\n\nError: ${err instanceof Error ? err.message : String(err)}\n\nStack:\n${err instanceof Error ? (err.stack ?? '(no stack)') : ''}`,
+        ).catch(() => {})
+        throw err // re-throw so pg-boss can retry / mark failed
+      }
+    }
+  }
+
+  // Convenience: register a worker with automatic alerting on unhandled failures
+  async function work<T>(name: string, handler: (jobs: PgBoss.Job<T>[]) => Promise<unknown>) {
+    return boss.work(name, wrapWorker(name, handler))
+  }
+
   // Waitlist expiry — runs when a notified member doesn't confirm in time
-  await boss.work('waitlist.expire', async ([job]) => {
+  await work('waitlist.expire', async ([job]) => {
     const { waitlistEntryId } = job.data as { waitlistEntryId: string }
     const entry = await prisma.waitlistEntry.findUnique({ where: { id: waitlistEntryId } })
     if (!entry || entry.status !== 'NOTIFIED') return
@@ -86,7 +119,7 @@ export async function setupJobs() {
   })
 
   // Late cancel fee — runs after class starts, checks for late cancellations
-  await boss.work('booking.late-cancel-fee', async ([job]) => {
+  await work('booking.late-cancel-fee', async ([job]) => {
     const { bookingId } = job.data as { bookingId: string }
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
@@ -121,7 +154,7 @@ export async function setupJobs() {
   })
 
   // No-show processing — runs 30 min after class starts
-  await boss.work('session.no-show', async ([job]) => {
+  await work('session.no-show', async ([job]) => {
     const { sessionId } = job.data as { sessionId: string }
     const session = await prisma.classSession.findUnique({
       where: { id: sessionId },
@@ -178,7 +211,7 @@ export async function setupJobs() {
   })
 
   // Membership renewal — grants credits and extends subscription for the next cycle
-  await boss.work('membership.renewal-reminder', async ([job]) => {
+  await work('membership.renewal-reminder', async ([job]) => {
     const { subscriptionId } = job.data as { subscriptionId: string }
     const sub = await prisma.membershipSubscription.findUnique({
       where: { id: subscriptionId },
@@ -226,7 +259,7 @@ export async function setupJobs() {
 
   // Nightly cron: expire old waitlist entries, schedule no-show checks, renew memberships
   await boss.schedule('nightly.maintenance', '0 2 * * *', {})
-  await boss.work('nightly.maintenance', async () => {
+  await work('nightly.maintenance', async () => {
     const now = new Date()
 
     // Expire stale WAITING entries for past sessions
@@ -334,7 +367,7 @@ export async function setupJobs() {
   })
 
   // Credit expiry sweep — deduct expired credits from balances
-  await boss.work('credit.expiry-sweep', async () => {
+  await work('credit.expiry-sweep', async () => {
     const now = new Date()
 
     // Find all positive credit transactions that have expired and haven't been offset yet
@@ -386,7 +419,7 @@ export async function setupJobs() {
   })
 
   // Class reminder — send 24h before session to all confirmed bookings
-  await boss.work('session.reminder', async ([job]) => {
+  await work('session.reminder', async ([job]) => {
     const { sessionId } = job.data as { sessionId: string }
     const session = await prisma.classSession.findUnique({
       where: { id: sessionId },
@@ -425,7 +458,7 @@ export async function setupJobs() {
   })
 
   // Franchise broadcast — sends emails in batches of 25 concurrently
-  await boss.work('franchise.broadcast', async ([job]) => {
+  await work('franchise.broadcast', async ([job]) => {
     const { studioIds, subject, message, studioName } = job.data as {
       studioIds: string[]; subject: string; message: string; studioName: string
     }
@@ -463,7 +496,7 @@ export async function setupJobs() {
   })
 
   // First-class follow-up email — sent ~26h after a member's first booking
-  await boss.work('member.first-class-followup', async ([job]) => {
+  await work('member.first-class-followup', async ([job]) => {
     const { memberId } = job.data as { memberId: string }
     const member = await prisma.member.findUnique({
       where: { id: memberId },

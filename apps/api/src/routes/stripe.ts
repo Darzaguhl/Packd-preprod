@@ -3,9 +3,10 @@ import Stripe from 'stripe'
 import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
-import { sendWelcome, sendPaymentFailed } from '../lib/email.js'
+import { sendWelcome, sendPaymentFailed, sendOpsAlert } from '../lib/email.js'
 import { ROLE_RANK } from '@packd/types'
 import { audit, AUDIT } from '../lib/audit.js'
+import { logger } from '../lib/logger.js'
 import { Id } from '../schemas.js'
 
 // ── Route validation schemas ──────────────────────────────────────────────────
@@ -363,6 +364,11 @@ export async function stripeRoutes(app: FastifyInstance) {
       return { received: true }
     }
 
+    // Process the event — wrap in try/catch so any failure triggers an ops alert.
+    // The webhook already returned 200 (idempotency record created), so Stripe
+    // won't retry. The alert is our only safety net.
+    try {
+
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session
       const { userId, planId, studioId, memberId, promoCodeId } = session.metadata!
@@ -583,6 +589,17 @@ export async function stripeRoutes(app: FastifyInstance) {
     }
 
     return { received: true }
+
+    } catch (err) {
+      // Stripe already acknowledged the event (200 sent on idempotency record creation).
+      // This catch is our last line of defence — log and alert so the issue isn't silent.
+      logger.error({ err, eventId: event.id, eventType: event.type }, '[stripe-webhook] unhandled error during event processing')
+      sendOpsAlert(
+        `Stripe webhook processing failed: ${event.type}`,
+        `Event ID: ${event.id}\nEvent type: ${event.type}\n\nError: ${err instanceof Error ? err.message : String(err)}\n\nStack:\n${err instanceof Error ? (err.stack ?? '(no stack)') : ''}\n\nThis event has already been deduped. To reprocess, use POST /stripe/replay/${event.id}`,
+      ).catch(() => {})
+      return { received: true, error: 'processing_failed' }
+    }
   })
 
   // POST /stripe/replay/:eventId — re-process a Stripe event (studio_admin+)

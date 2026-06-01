@@ -355,6 +355,35 @@ export async function sendSubstituteNotification(opts: {
   )
 }
 
+// ─── Ops alerting ─────────────────────────────────────────────────────────────
+
+/**
+ * Send a plain-text ops alert to OPS_EMAIL.
+ *
+ * Use for failures that require human attention but don't need a fancy template:
+ *  - pg-boss job failures
+ *  - Stripe webhook processing errors
+ *  - Any unhandled server-side error that silently swallows money or credits
+ *
+ * Non-fatal — never throws. Returns false if OPS_EMAIL isn't configured or send fails.
+ */
+export async function sendOpsAlert(subject: string, body: string): Promise<boolean> {
+  const to = process.env.OPS_EMAIL
+  if (!to) {
+    logger.warn('[ops-alert] OPS_EMAIL not set — alert suppressed: ' + subject)
+    return false
+  }
+  return send(
+    to,
+    `[Packd Alert] ${subject}`,
+    `<!DOCTYPE html><html><body style="font-family:monospace;padding:24px;background:#fff">
+      <h2 style="color:#dc2626;margin:0 0 16px">[Packd Alert] ${subject}</h2>
+      <pre style="background:#f5f5f5;padding:16px;border-radius:6px;overflow:auto;font-size:13px;white-space:pre-wrap">${body.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+      <p style="color:#666;font-size:12px;margin-top:16px">Sent at ${new Date().toISOString()} · Packd API</p>
+    </body></html>`,
+  )
+}
+
 export async function sendReferralReward(opts: {
   to: string
   firstName: string
