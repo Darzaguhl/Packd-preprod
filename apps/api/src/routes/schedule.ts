@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { tryAuth, getUser } from '../lib/auth.js'
 
@@ -6,6 +7,11 @@ export async function scheduleRoutes(app: FastifyInstance) {
   // GET /schedule/brand-studios?studioId=X — public, returns brand hierarchy for filter UI
   app.get<{ Querystring: { studioId: string } }>(
     '/brand-studios',
+    {
+      schema: {
+        querystring: z.object({ studioId: z.string().min(1) }),
+      },
+    },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
@@ -66,7 +72,16 @@ export async function scheduleRoutes(app: FastifyInstance) {
   // GET /schedule/:studioId?from=&to= — optional auth; public browsing allowed
   app.get<{ Params: { studioId: string }; Querystring: { from: string; to: string } }>(
     '/:studioId',
-    { preHandler: tryAuth },
+    {
+      preHandler: tryAuth,
+      schema: {
+        params: z.object({ studioId: z.string().min(1) }),
+        querystring: z.object({
+          from: z.string().min(1),
+          to: z.string().min(1),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId } = request.params
       const { from, to } = request.query

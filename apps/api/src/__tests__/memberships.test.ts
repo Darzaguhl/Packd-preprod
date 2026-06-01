@@ -35,12 +35,15 @@ vi.mock('stripe', () => ({
 
 import Fastify from 'fastify'
 import sensible from '@fastify/sensible'
+import { serializerCompiler, validatorCompiler } from '@fastify/type-provider-zod'
 import { membershipRoutes } from '../routes/memberships.js'
 import { prisma } from '@packd/db'
 import { getUser } from '../lib/auth.js'
 
 async function buildApp() {
   const app = Fastify()
+  app.setValidatorCompiler(validatorCompiler)
+  app.setSerializerCompiler(serializerCompiler)
   await app.register(sensible)
   await app.register(membershipRoutes, { prefix: '/memberships' })
   return app

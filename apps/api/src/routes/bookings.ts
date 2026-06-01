@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library.js'
 import { requireAuth, getUser } from '../lib/auth.js'
@@ -8,6 +9,7 @@ import { enqueueLateCancelCheck, enqueueWaitlistExpiry, enqueueFirstClassFollowu
 import { ensureMemberForAdmin } from './members.js'
 import { sendBookingConfirmation, sendBookingCancellation, sendWaitlistPromotion } from '../lib/email.js'
 import { logger } from '../lib/logger.js'
+import { IdParam } from '../schemas.js'
 
 /** Format a human-readable note for credit transactions, e.g. "Cycling · 26 May, 09:00" */
 function fmtClassNote(className: string | null | undefined, startsAt: Date): string {
@@ -23,7 +25,17 @@ export async function bookingRoutes(app: FastifyInstance) {
   // memberId in the body to book on behalf of another member (walk-in flow).
   app.post<{ Body: { sessionId: string; memberId?: string; memberNote?: string } }>(
     '/',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: {
+        body: z.object({
+          sessionId: z.string().min(1),
+          memberId: z.string().min(1).optional(),
+          stationId: z.string().min(1).optional(),
+          memberNote: z.string().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { sessionId, memberId: targetMemberId, memberNote } = request.body
 
@@ -290,7 +302,10 @@ export async function bookingRoutes(app: FastifyInstance) {
   // DELETE /bookings/:id — cancel booking
   app.delete<{ Params: { id: string } }>(
     '/:id',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: { params: IdParam },
+    },
     async (request, reply) => {
       const user = getUser(request)
 
@@ -454,7 +469,10 @@ export async function bookingRoutes(app: FastifyInstance) {
   // POST /bookings/:id/checkin — member self check-in
   app.post<{ Params: { id: string } }>(
     '/:id/checkin',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: { params: IdParam },
+    },
     async (request, reply) => {
       const user = getUser(request)
 

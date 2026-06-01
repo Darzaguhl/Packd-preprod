@@ -4,6 +4,7 @@ import { prisma, type Prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole, createSupabaseUser } from '../lib/supabase-admin.js'
+import { IdParam } from '../schemas.js'
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
@@ -160,7 +161,7 @@ export async function brandRoutes(app: FastifyInstance) {
   })
 
   // ── Get single brand ──────────────────────────────────────────────────────
-  app.get('/:id', { preHandler: requireAuth }, async (request, reply) => {
+  app.get('/:id', { preHandler: requireAuth, schema: { params: IdParam } }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const user = getUser(request)
     await assertBrandAccess(id, user.id, user.role, user.brandId).catch(e => { throw reply.code(e.statusCode).send({ error: e.message }) })
@@ -199,7 +200,7 @@ export async function brandRoutes(app: FastifyInstance) {
   })
 
   // ── Create brand (admin only) ─────────────────────────────────────────────
-  app.post('/', { preHandler: requireRole('admin') }, async (request, reply) => {
+  app.post('/', { preHandler: requireRole('admin'), schema: { body: CreateBrandBody } }, async (request, reply) => {
     const body = CreateBrandBody.safeParse(request.body)
     if (!body.success) return reply.badRequest(body.error.message)
 
@@ -209,7 +210,7 @@ export async function brandRoutes(app: FastifyInstance) {
   })
 
   // ── Update brand ──────────────────────────────────────────────────────────
-  app.patch('/:id', { preHandler: requireAuth }, async (request, reply) => {
+  app.patch('/:id', { preHandler: requireAuth, schema: { params: IdParam } }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const user = getUser(request)
     await assertBrandAccess(id, user.id, user.role, user.brandId).catch(e => { throw reply.code(e.statusCode).send({ error: e.message }) })
@@ -222,14 +223,20 @@ export async function brandRoutes(app: FastifyInstance) {
   })
 
   // ── Delete brand (admin only) ─────────────────────────────────────────────
-  app.delete('/:id', { preHandler: requireRole('admin') }, async (request, reply) => {
+  app.delete('/:id', { preHandler: requireRole('admin'), schema: { params: IdParam } }, async (request, reply) => {
     const { id } = request.params as { id: string }
     await prisma.brand.delete({ where: { id } })
     return { success: true }
   })
 
   // ── Add studio to brand (admin only) ─────────────────────────────────────
-  app.post('/:id/studios', { preHandler: requireRole('admin') }, async (request, reply) => {
+  app.post('/:id/studios', {
+    preHandler: requireRole('admin'),
+    schema: {
+      params: IdParam,
+      body: z.object({ studioId: z.string().min(1) }),
+    },
+  }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const { studioId } = request.body as { studioId: string }
     if (!studioId) return reply.badRequest('studioId required')
@@ -243,14 +250,17 @@ export async function brandRoutes(app: FastifyInstance) {
   })
 
   // ── Remove studio from brand (admin only) ────────────────────────────────
-  app.delete('/:id/studios/:studioId', { preHandler: requireRole('admin') }, async (request, reply) => {
+  app.delete('/:id/studios/:studioId', {
+    preHandler: requireRole('admin'),
+    schema: { params: z.object({ id: z.string().min(1), studioId: z.string().min(1) }) },
+  }, async (request, reply) => {
     const { id, studioId } = request.params as { id: string; studioId: string }
     await prisma.brandStudio.deleteMany({ where: { brandId: id, studioId } })
     return { success: true }
   })
 
   // ── Create franchise under brand (brand_admin or admin) ─────────────────
-  app.post('/:id/franchises', { preHandler: requireAuth }, async (request, reply) => {
+  app.post('/:id/franchises', { preHandler: requireAuth, schema: { params: IdParam } }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const user = getUser(request)
     await assertBrandAccess(id, user.id, user.role, user.brandId).catch(e => { throw reply.code(e.statusCode).send({ error: e.message }) })
@@ -273,7 +283,7 @@ export async function brandRoutes(app: FastifyInstance) {
   })
 
   // ── Promote user to franchise_admin under a brand franchise ──────────────
-  app.post('/:id/franchise-admins', { preHandler: requireAuth }, async (request, reply) => {
+  app.post('/:id/franchise-admins', { preHandler: requireAuth, schema: { params: IdParam } }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const user = getUser(request)
     await assertBrandAccess(id, user.id, user.role, user.brandId).catch(e => { throw reply.code(e.statusCode).send({ error: e.message }) })
@@ -394,7 +404,13 @@ export async function brandRoutes(app: FastifyInstance) {
   })
 
   // ── Cross-brand analytics: aggregate stats across all studios ────────────
-  app.get('/:id/stats', { preHandler: requireAuth }, async (request, reply) => {
+  app.get('/:id/stats', {
+    preHandler: requireAuth,
+    schema: {
+      params: IdParam,
+      querystring: z.object({ period: z.enum(['7d', '30d', '90d']).optional() }),
+    },
+  }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const { period = '30d' } = request.query as { period?: string }
     const user = getUser(request)
@@ -459,7 +475,17 @@ export async function brandRoutes(app: FastifyInstance) {
   })
 
   // ── Cross-brand member search ─────────────────────────────────────────────
-  app.get('/:id/members', { preHandler: requireAuth }, async (request, reply) => {
+  app.get('/:id/members', {
+    preHandler: requireAuth,
+    schema: {
+      params: IdParam,
+      querystring: z.object({
+        q: z.string().optional(),
+        studioId: z.string().min(1).optional(),
+        limit: z.string().optional(),
+      }),
+    },
+  }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const { q = '', studioId: filterStudio, limit = '50' } = request.query as { q?: string; studioId?: string; limit?: string }
     const user = getUser(request)
@@ -513,7 +539,17 @@ export async function brandRoutes(app: FastifyInstance) {
   })
 
   // ── Cross-brand upcoming sessions ─────────────────────────────────────────
-  app.get('/:id/sessions', { preHandler: requireAuth }, async (request, reply) => {
+  app.get('/:id/sessions', {
+    preHandler: requireAuth,
+    schema: {
+      params: IdParam,
+      querystring: z.object({
+        studioId: z.string().min(1).optional(),
+        from: z.string().optional(),
+        to: z.string().optional(),
+      }),
+    },
+  }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const { studioId: filterStudio, from, to } = request.query as { studioId?: string; from?: string; to?: string }
     const user = getUser(request)

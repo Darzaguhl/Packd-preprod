@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { assertStudioAccess } from './admin-shared.js'
+import { Id, StudioIdQuery } from '../schemas.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 
@@ -9,7 +11,10 @@ export async function waiverRoutes(app: FastifyInstance) {
   // GET /waivers/active?studioId= — get the active waiver for a studio (any authenticated user)
   app.get<{ Querystring: { studioId: string } }>(
     '/active',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: { querystring: StudioIdQuery },
+    },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
@@ -27,7 +32,16 @@ export async function waiverRoutes(app: FastifyInstance) {
   // POST /waivers/:id/sign — member signs a waiver
   app.post<{ Params: { id: string } }>(
     '/:id/sign',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: z.object({ id: Id }),
+        body: z.object({
+          studioId: z.string().min(1).optional(),
+          ipAddress: z.string().optional(),
+        }).nullish(),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       const member = await prisma.member.findUnique({ where: { userId: user.id }, select: { id: true } })
@@ -53,7 +67,10 @@ export async function waiverRoutes(app: FastifyInstance) {
   // GET /waivers/admin?studioId= — get the active waiver for a studio (admin)
   app.get<{ Querystring: { studioId: string } }>(
     '/admin',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: { querystring: StudioIdQuery },
+    },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
@@ -73,7 +90,16 @@ export async function waiverRoutes(app: FastifyInstance) {
   // Deactivates any previous waiver and creates a new one.
   app.put<{ Body: { studioId: string; title: string; body: string } }>(
     '/admin',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        body: z.object({
+          studioId: z.string().min(1),
+          title: z.string().min(1),
+          body: z.string().min(1),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, title, body } = request.body
       if (!studioId) return reply.badRequest('studioId is required')
@@ -105,7 +131,10 @@ export async function waiverRoutes(app: FastifyInstance) {
   // DELETE /waivers/admin?studioId= — deactivate the active waiver (studio no longer requires one)
   app.delete<{ Querystring: { studioId: string } }>(
     '/admin',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: { querystring: StudioIdQuery },
+    },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')

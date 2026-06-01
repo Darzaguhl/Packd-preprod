@@ -69,12 +69,15 @@ vi.mock('../lib/email.js', () => ({
 
 import Fastify from 'fastify'
 import sensible from '@fastify/sensible'
+import { serializerCompiler, validatorCompiler } from '@fastify/type-provider-zod'
 import { bookingRoutes } from '../routes/bookings.js'
 import { prisma } from '@packd/db'
 import { sendBookingConfirmation, sendBookingCancellation } from '../lib/email.js'
 
 async function buildApp() {
   const app = Fastify()
+  app.setValidatorCompiler(validatorCompiler)
+  app.setSerializerCompiler(serializerCompiler)
   await app.register(sensible)
   await app.register(bookingRoutes, { prefix: '/bookings' })
   return app

@@ -1,10 +1,12 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
 import { ROLE_RANK } from '@packd/types'
 import { assertStudioAccess } from './admin-shared.js'
 import { sendSubstituteNotification } from '../lib/email.js'
+import { IdParam, StudioIdQuery } from '../schemas.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 const requireInstructor = requireRole('instructor')
@@ -99,7 +101,15 @@ export async function classScheduleRoutes(app: FastifyInstance) {
   // GET /schedules?studioId=&weekStart= — schedules + sessions for a week
   app.get<{ Querystring: { studioId: string; weekStart?: string } }>(
     '/',
-    { preHandler: requireInstructor },
+    {
+      preHandler: requireInstructor,
+      schema: {
+        querystring: z.object({
+          studioId: z.string().min(1),
+          weekStart: z.string().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, weekStart } = request.query
       if (!studioId) return reply.badRequest('studioId required')
@@ -199,7 +209,10 @@ export async function classScheduleRoutes(app: FastifyInstance) {
   // GET /schedules/all?studioId= — list all recurring schedules (for management)
   app.get<{ Querystring: { studioId: string } }>(
     '/all',
-    { preHandler: requireInstructor },
+    {
+      preHandler: requireInstructor,
+      schema: { querystring: StudioIdQuery },
+    },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId required')
@@ -257,7 +270,27 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     }
   }>(
     '/',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        body: z.object({
+          studioId: z.string().min(1),
+          templateId: z.string().min(1),
+          instructorId: z.string().min(1),
+          roomId: z.string().min(1),
+          capacity: z.number().int().positive(),
+          creditsRequired: z.number().int().min(0).optional(),
+          isPrivate: z.boolean().optional(),
+          daysOfWeek: z.array(z.number().int().min(0).max(6)).min(1),
+          startTime: z.string().regex(/^\d{2}:\d{2}$/),
+          durationMin: z.number().int().positive(),
+          intervalWeeks: z.number().int().min(1).optional(),
+          validFrom: z.string().min(1),
+          validUntil: z.string().optional(),
+          generateWeeks: z.number().int().positive().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const {
         studioId, templateId, instructorId, roomId, capacity,
@@ -322,7 +355,25 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     }
   }>(
     '/:id',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        params: IdParam,
+        body: z.object({
+          studioId: z.string().min(1),
+          templateId: z.string().min(1).optional(),
+          instructorId: z.string().min(1).optional(),
+          roomId: z.string().min(1).optional(),
+          capacity: z.number().int().positive().optional(),
+          creditsRequired: z.number().int().min(0).optional(),
+          daysOfWeek: z.array(z.number().int().min(0).max(6)).optional(),
+          startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+          durationMin: z.number().int().positive().optional(),
+          intervalWeeks: z.number().int().min(1).optional(),
+          validUntil: z.string().nullable().optional(),
+        }).nullish(),
+      },
+    },
     async (request, reply) => {
       const { id } = request.params
       const { studioId, ...fields } = request.body
@@ -384,7 +435,13 @@ export async function classScheduleRoutes(app: FastifyInstance) {
   // DELETE /schedules/:id — deactivate schedule + cancel future unbooked sessions
   app.delete<{ Params: { id: string }; Querystring: { studioId: string } }>(
     '/:id',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        params: IdParam,
+        querystring: StudioIdQuery,
+      },
+    },
     async (request, reply) => {
       const { id } = request.params
       const { studioId } = request.query
@@ -416,7 +473,16 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     Body: { substituteInstructorId: string | null; studioId: string }
   }>(
     '/sessions/:sessionId/substitute',
-    { preHandler: requireInstructor },
+    {
+      preHandler: requireInstructor,
+      schema: {
+        params: z.object({ sessionId: z.string().min(1) }),
+        body: z.object({
+          substituteInstructorId: z.string().min(1).nullable(),
+          studioId: z.string().min(1),
+        }),
+      },
+    },
     async (request, reply) => {
       const { sessionId } = request.params
       const { substituteInstructorId, studioId } = request.body
@@ -502,7 +568,17 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     Querystring: { studioId: string; templateId: string; instructorId: string; startTime: string }
   }>(
     '/orphaned',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        querystring: z.object({
+          studioId: z.string().min(1),
+          templateId: z.string().min(1),
+          instructorId: z.string().min(1),
+          startTime: z.string().min(1),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, templateId, instructorId, startTime } = request.query
       if (!studioId || !templateId || !instructorId || !startTime) {
@@ -542,7 +618,17 @@ export async function classScheduleRoutes(app: FastifyInstance) {
   // GET /schedules/month?studioId=&year=&month=[&instructorId=] — sessions grouped by date for month view
   app.get<{ Querystring: { studioId: string; year: string; month: string; instructorId?: string } }>(
     '/month',
-    { preHandler: requireInstructor },
+    {
+      preHandler: requireInstructor,
+      schema: {
+        querystring: z.object({
+          studioId: z.string().min(1),
+          year: z.string().optional(),
+          month: z.string().optional(),
+          instructorId: z.string().min(1).optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, year, month, instructorId } = request.query
       if (!studioId) return reply.badRequest('studioId required')
@@ -600,7 +686,10 @@ export async function classScheduleRoutes(app: FastifyInstance) {
   // GET /schedules/orphaned?studioId= — sessions without a scheduleId grouped by pattern
   app.get<{ Querystring: { studioId: string } }>(
     '/orphaned',
-    { preHandler: requireInstructor },
+    {
+      preHandler: requireInstructor,
+      schema: { querystring: StudioIdQuery },
+    },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId required')

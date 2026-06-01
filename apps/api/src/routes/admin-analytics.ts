@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma, Prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { assertStudioAccess } from './admin-shared.js'
+import { StudioIdQuery } from '../schemas.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 const requireInstructor  = requireRole('instructor')
@@ -11,7 +13,10 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
   // GET /admin/stats?studioId=
   app.get<{ Querystring: { studioId: string } }>(
     '/stats',
-    { preHandler: requireInstructor },
+    {
+      preHandler: requireInstructor,
+      schema: { querystring: StudioIdQuery },
+    },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
@@ -56,7 +61,15 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
   // GET /admin/leaderboard?studioId=&period=week|month|alltime
   app.get<{ Querystring: { studioId: string; period?: string } }>(
     '/leaderboard',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        querystring: StudioIdQuery.extend({
+          period: z.enum(['week', 'month', 'alltime']).optional(),
+          limit:  z.coerce.number().int().min(1).max(100).optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, period = 'month' } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
@@ -132,7 +145,15 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
   // on a minimal dataset (session IDs + confirmed member ID arrays only).
   app.get<{ Querystring: { studioId: string; weeks?: string } }>(
     '/analytics',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        querystring: StudioIdQuery.extend({
+          period: z.string().optional(),
+          weeks:  z.coerce.number().int().min(4).max(52).optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')

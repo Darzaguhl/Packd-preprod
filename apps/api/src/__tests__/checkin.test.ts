@@ -18,16 +18,20 @@ vi.mock('../lib/auth.js', () => ({
 
 import Fastify from 'fastify'
 import sensible from '@fastify/sensible'
+import { serializerCompiler, validatorCompiler } from '@fastify/type-provider-zod'
 import { adminRoutes } from '../routes/admin.js'
 import { bookingRoutes } from '../routes/bookings.js'
 import { prisma } from '@packd/db'
 import { getUser } from '../lib/auth.js'
+
 
 vi.mock('../jobs/index.js', () => ({ enqueueLateCancelCheck: vi.fn() }))
 vi.mock('../routes/members.js', () => ({ ensureMemberForAdmin: vi.fn() }))
 
 async function buildApp() {
   const app = Fastify()
+  app.setValidatorCompiler(validatorCompiler)
+  app.setSerializerCompiler(serializerCompiler)
   await app.register(sensible)
   await app.register(adminRoutes, { prefix: '/admin' })
   return app
@@ -110,6 +114,8 @@ describe('POST /admin/sessions/:id/checkin/:bookingId', () => {
 describe('POST /bookings/:id/checkin', () => {
   async function buildBookingApp() {
     const app = Fastify()
+    app.setValidatorCompiler(validatorCompiler)
+    app.setSerializerCompiler(serializerCompiler)
     await app.register(sensible)
     await app.register(bookingRoutes, { prefix: '/bookings' })
     return app

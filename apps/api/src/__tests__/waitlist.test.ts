@@ -43,6 +43,7 @@ vi.mock('../lib/auth.js', () => ({
 
 import Fastify from 'fastify'
 import sensible from '@fastify/sensible'
+import { serializerCompiler, validatorCompiler } from '@fastify/type-provider-zod'
 import { waitlistRoutes } from '../routes/waitlist.js'
 import { prisma } from '@packd/db'
 
@@ -56,6 +57,8 @@ const mockConfirmSession = (overrides = {}) => ({
 
 async function buildApp() {
   const app = Fastify()
+  app.setValidatorCompiler(validatorCompiler)
+  app.setSerializerCompiler(serializerCompiler)
   await app.register(sensible)
   await app.register(waitlistRoutes, { prefix: '/waitlist' })
   return app

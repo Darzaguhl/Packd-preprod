@@ -1,12 +1,22 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
+import { IdParam } from '../schemas.js'
 
 export async function waitlistRoutes(app: FastifyInstance) {
   // POST /waitlist — join waitlist
   app.post<{ Body: { sessionId: string } }>(
     '/',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: {
+        body: z.object({
+          sessionId: z.string().min(1),
+          memberId: z.string().min(1).optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { sessionId } = request.body
 
@@ -44,7 +54,10 @@ export async function waitlistRoutes(app: FastifyInstance) {
   // DELETE /waitlist/:id — leave waitlist
   app.delete<{ Params: { id: string } }>(
     '/:id',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: { params: IdParam },
+    },
     async (request, reply) => {
       const user = getUser(request)
       const entry = await prisma.waitlistEntry.findUniqueOrThrow({
@@ -66,7 +79,13 @@ export async function waitlistRoutes(app: FastifyInstance) {
   // POST /waitlist/:id/confirm — confirm waitlist promotion
   app.post<{ Params: { id: string } }>(
     '/:id/confirm',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: IdParam,
+        body: z.object({ memberId: z.string().min(1).optional() }).nullish(),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       const entry = await prisma.waitlistEntry.findUniqueOrThrow({

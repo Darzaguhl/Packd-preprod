@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { createHmac } from 'crypto'
 import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
 import { logger } from '../lib/logger.js'
+import { Id } from '../schemas.js'
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
 
@@ -73,6 +75,7 @@ export async function icalRoutes(app: FastifyInstance) {
   // GET /ical/instructor/:userId/:token — public, no auth required
   app.get<{ Params: { userId: string; token: string } }>(
     '/instructor/:userId/:token',
+    { schema: { params: z.object({ userId: Id, token: Id }) } },
     async (request, reply) => {
       const { userId, token } = request.params
 
@@ -148,6 +151,7 @@ export async function icalRoutes(app: FastifyInstance) {
   // GET /ical/member/:userId/:token — public, no auth required
   app.get<{ Params: { userId: string; token: string } }>(
     '/member/:userId/:token',
+    { schema: { params: z.object({ userId: Id, token: Id }) } },
     async (request, reply) => {
       const { userId, token } = request.params
 
@@ -225,6 +229,7 @@ export async function icalRoutes(app: FastifyInstance) {
   // GET /ical/fronthost/:userId/:token — public, no auth required
   app.get<{ Params: { userId: string; token: string } }>(
     '/fronthost/:userId/:token',
+    { schema: { params: z.object({ userId: Id, token: Id }) } },
     async (request, reply) => {
       const { userId, token } = request.params
 

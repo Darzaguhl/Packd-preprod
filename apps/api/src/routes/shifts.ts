@@ -1,9 +1,11 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
 import { assertStudioAccess } from './admin-shared.js'
 import { ROLE_RANK } from '@packd/types'
+import { Id, ISODateTime, StudioIdQuery } from '../schemas.js'
 
 function isAdmin(role: string) {
   return ROLE_RANK[role as keyof typeof ROLE_RANK] >= ROLE_RANK['studio_admin']
@@ -24,9 +26,7 @@ const shiftSelect = {
   member: { select: { id: true, user: { select: { email: true } } } },
 } as const
 
-// Augment with resolved name from the staff list for display
 async function enrichShifts(shifts: Awaited<ReturnType<typeof prisma.staffShift.findMany<{ select: typeof shiftSelect }>>>) {
-  // Gather unique memberIds and look up their names
   const ids = [...new Set(shifts.map(s => s.memberId))]
   const members = await prisma.member.findMany({
     where: { id: { in: ids } },
@@ -49,11 +49,18 @@ async function enrichShifts(shifts: Awaited<ReturnType<typeof prisma.staffShift.
 
 export async function shiftsRoutes(app: FastifyInstance) {
 
-  // GET /admin/shifts?studioId=&from=&to=
-  // studio_admin+: returns all shifts for the studio in range
   app.get<{ Querystring: { studioId: string; from?: string; to?: string } }>(
     '/',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: {
+        querystring: StudioIdQuery.extend({
+          memberId: z.string().min(1).optional(),
+          from: ISODateTime.optional(),
+          to: ISODateTime.optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       if (!isAdmin(user.role)) return reply.forbidden()
@@ -76,8 +83,6 @@ export async function shiftsRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /admin/shifts/mine?studioId=&from=&to=
-  // fronthost+: returns the caller's own upcoming shifts
   app.get<{ Querystring: { studioId?: string; from?: string; to?: string } }>(
     '/mine',
     { preHandler: requireAuth },
@@ -108,11 +113,20 @@ export async function shiftsRoutes(app: FastifyInstance) {
     },
   )
 
-  // POST /admin/shifts
-  // studio_admin+: create a shift
   app.post<{ Body: { studioId: string; memberId: string; startsAt: string; endsAt: string; note?: string } }>(
     '/',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: {
+        body: z.object({
+          studioId: Id,
+          memberId: Id,
+          startsAt: ISODateTime,
+          endsAt: ISODateTime,
+          note: z.string().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       if (!isAdmin(user.role)) return reply.forbidden()
@@ -145,14 +159,22 @@ export async function shiftsRoutes(app: FastifyInstance) {
     },
   )
 
-  // PATCH /admin/shifts/:id
-  // studio_admin+: update start/end/note
   app.patch<{
     Params: { id: string }
     Body: { startsAt?: string; endsAt?: string; note?: string | null }
   }>(
     '/:id',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: z.object({ id: Id }),
+        body: z.object({
+          startsAt: ISODateTime.optional(),
+          endsAt: ISODateTime.optional(),
+          note: z.string().nullable().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       if (!isAdmin(user.role)) return reply.forbidden()
@@ -185,11 +207,9 @@ export async function shiftsRoutes(app: FastifyInstance) {
     },
   )
 
-  // DELETE /admin/shifts/:id
-  // studio_admin+: delete a shift
   app.delete<{ Params: { id: string } }>(
     '/:id',
-    { preHandler: requireAuth },
+    { preHandler: requireAuth, schema: { params: z.object({ id: Id }) } },
     async (request, reply) => {
       const user = getUser(request)
       if (!isAdmin(user.role)) return reply.forbidden()

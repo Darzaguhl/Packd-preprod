@@ -1,11 +1,40 @@
 import type { FastifyInstance } from 'fastify'
 import Stripe from 'stripe'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
 import { sendWelcome, sendPaymentFailed } from '../lib/email.js'
 import { ROLE_RANK } from '@packd/types'
 import { audit, AUDIT } from '../lib/audit.js'
 import { assertStudioAccess } from './admin-shared.js'
+import { Id } from '../schemas.js'
+
+// ── Route validation schemas ──────────────────────────────────────────────────
+const CheckoutBody = z.object({
+  planId: Id,
+  studioId: Id,
+  promoCode: z.string().optional(),
+  promoCodeId: z.string().optional(),
+})
+const CustomerCardQuery = z.object({ memberId: Id })
+const ChargeMemberBody = z.object({
+  memberId: Id,
+  studioId: Id,
+  items: z.array(z.object({
+    productId: z.string().min(1),
+    name: z.string().min(1),
+    qty: z.number().int().positive(),
+    priceInCents: z.number().int().min(0),
+    creditsRequired: z.number().int().min(0),
+  })),
+  totalCents: z.number().int().min(0),
+  totalCredits: z.number().int().min(0),
+})
+const ReplayParams = z.object({ eventId: z.string().min(1) })
+const RefundBody = z.object({
+  saleId: Id,
+  amountCents: z.number().int().positive().optional(),
+})
 
 // Lazy-init so tests without STRIPE_SECRET_KEY don't blow up at import time
 let _stripe: Stripe | null = null
@@ -37,7 +66,10 @@ export async function stripeRoutes(app: FastifyInstance) {
   // POST /stripe/checkout — buy a credit pack or membership
   app.post<{ Body: { planId: string; studioId: string; promoCodeId?: string } }>(
     '/checkout',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: { body: CheckoutBody },
+    },
     async (request, reply) => {
       const { planId, studioId, promoCodeId } = request.body
       const user = getUser(request)
@@ -148,7 +180,10 @@ export async function stripeRoutes(app: FastifyInstance) {
   // GET /stripe/customer-card?memberId= — check if member has a saved card (fronthost+)
   app.get<{ Querystring: { memberId: string } }>(
     '/customer-card',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: { querystring: CustomerCardQuery },
+    },
     async (request, reply) => {
       const user = getUser(request)
       if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['fronthost']) {
@@ -189,7 +224,10 @@ export async function stripeRoutes(app: FastifyInstance) {
     }
   }>(
     '/charge-member',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: { body: ChargeMemberBody },
+    },
     async (request, reply) => {
       const { memberId, studioId, items, totalCents, totalCredits } = request.body
       const user = getUser(request)
@@ -555,7 +593,10 @@ export async function stripeRoutes(app: FastifyInstance) {
   // Deletes the StripeEvent idempotency record so the handler runs again.
   app.post<{ Params: { eventId: string } }>(
     '/replay/:eventId',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: { params: ReplayParams },
+    },
     async (request, reply) => {
       const user = getUser(request)
       if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['studio_admin']) {
@@ -612,7 +653,10 @@ export async function stripeRoutes(app: FastifyInstance) {
     Body: { saleId: string; amountCents?: number }
   }>(
     '/refund',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: { body: RefundBody },
+    },
     async (request, reply) => {
       const { saleId, amountCents } = request.body
       const user = getUser(request)

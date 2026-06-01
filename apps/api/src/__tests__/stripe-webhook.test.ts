@@ -65,6 +65,7 @@ vi.mock('../lib/auth.js', () => ({
 
 import Fastify from 'fastify'
 import sensible from '@fastify/sensible'
+import { serializerCompiler, validatorCompiler } from '@fastify/type-provider-zod'
 import { stripeRoutes } from '../routes/stripe.js'
 import { prisma } from '@packd/db'
 import { sendPaymentFailed } from '../lib/email.js'
@@ -73,6 +74,8 @@ import { sendPaymentFailed } from '../lib/email.js'
 
 async function buildApp() {
   const app = Fastify()
+  app.setValidatorCompiler(validatorCompiler)
+  app.setSerializerCompiler(serializerCompiler)
   // Expose rawBody for webhook signature check
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req, body, done) => {
     ;(req as unknown as { rawBody: Buffer }).rawBody = body as Buffer

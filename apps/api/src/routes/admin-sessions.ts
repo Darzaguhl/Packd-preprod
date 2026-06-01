@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
@@ -6,6 +7,7 @@ import { logger } from '../lib/logger.js'
 import { enqueueNoShowCheck } from '../jobs/index.js'
 import { sendSessionAnnouncement, sendBookingCancellation } from '../lib/email.js'
 import { assertStudioAccess } from './admin-shared.js'
+import { Id, StudioIdQuery, ISODateTime } from '../schemas.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 const requireInstructor  = requireRole('instructor')
@@ -38,7 +40,16 @@ export async function adminSessionRoutes(app: FastifyInstance) {
   // GET /admin/sessions?studioId=&date=
   app.get<{ Querystring: { studioId: string; date?: string } }>(
     '/sessions',
-    { preHandler: requireInstructor },
+    {
+      preHandler: requireInstructor,
+      schema: {
+        querystring: StudioIdQuery.extend({
+          locationId:   z.string().min(1).optional(),
+          date:         z.string().optional(),
+          instructorId: z.string().min(1).optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, date } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
@@ -135,7 +146,12 @@ export async function adminSessionRoutes(app: FastifyInstance) {
   // GET /admin/sessions/:id/bookings
   app.get<{ Params: { id: string } }>(
     '/sessions/:id/bookings',
-    { preHandler: requireInstructor },
+    {
+      preHandler: requireInstructor,
+      schema: {
+        params: z.object({ id: Id }),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       const session = await prisma.classSession.findUniqueOrThrow({ where: { id: request.params.id } })
@@ -165,7 +181,12 @@ export async function adminSessionRoutes(app: FastifyInstance) {
   // POST /admin/sessions/:id/checkin/:bookingId
   app.post<{ Params: { id: string; bookingId: string } }>(
     '/sessions/:id/checkin/:bookingId',
-    { preHandler: requireInstructor },
+    {
+      preHandler: requireInstructor,
+      schema: {
+        params: z.object({ id: Id, bookingId: Id }),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       const session = await prisma.classSession.findUniqueOrThrow({ where: { id: request.params.id } })
@@ -196,7 +217,18 @@ export async function adminSessionRoutes(app: FastifyInstance) {
   // PATCH /admin/sessions/:id
   app.patch<{ Params: { id: string }; Body: { status?: string; startsAt?: string; endsAt?: string; isPrivate?: boolean } }>(
     '/sessions/:id',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        params: z.object({ id: Id }),
+        body: z.object({
+          status:      z.string().optional(),
+          startsAt:    ISODateTime.optional(),
+          endsAt:      ISODateTime.optional(),
+          isPrivate:   z.boolean().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { status, startsAt, endsAt, isPrivate } = request.body
       const user = getUser(request)
@@ -321,7 +353,20 @@ export async function adminSessionRoutes(app: FastifyInstance) {
     }
   }>(
     '/sessions/bulk',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        body: z.object({
+          studioId:               z.string().min(1),
+          from:                   z.string().min(1),
+          to:                     z.string().min(1),
+          action:                 z.enum(['CANCEL', 'SUBSTITUTE']),
+          instructorId:           z.string().min(1).optional(),
+          templateId:             z.string().min(1).optional(),
+          substituteInstructorId: z.string().min(1).optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, from, to, instructorId, templateId, action, substituteInstructorId } = request.body
       if (!studioId || !from || !to || !action) return reply.badRequest('studioId, from, to and action are required')
@@ -408,7 +453,17 @@ export async function adminSessionRoutes(app: FastifyInstance) {
   // Rate-limited to 5/min — prevents accidental spam blasts.
   app.post<{ Params: { id: string }; Body: { subject: string; message: string } }>(
     '/sessions/:id/announce',
-    { preHandler: requireStudioAdmin, config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
+    {
+      preHandler: requireStudioAdmin,
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+      schema: {
+        params: z.object({ id: Id }),
+        body: z.object({
+          subject: z.string().min(1),
+          message: z.string().min(1),
+        }),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       const { subject, message } = request.body

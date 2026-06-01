@@ -30,11 +30,14 @@ vi.mock('../jobs/index.js', () => ({ enqueueNoShowCheck: vi.fn() }))
 
 import Fastify from 'fastify'
 import sensible from '@fastify/sensible'
+import { serializerCompiler, validatorCompiler } from '@fastify/type-provider-zod'
 import { adminRoutes } from '../routes/admin.js'
 import { prisma } from '@packd/db'
 
 async function buildApp() {
   const app = Fastify()
+  app.setValidatorCompiler(validatorCompiler)
+  app.setSerializerCompiler(serializerCompiler)
   await app.register(sensible)
   await app.register(adminRoutes, { prefix: '/admin' })
   return app

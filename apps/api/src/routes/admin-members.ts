@@ -1,10 +1,12 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { audit, AUDIT } from '../lib/audit.js'
 import { assertStudioAccess } from './admin-shared.js'
 import Stripe from 'stripe'
+import { Id, StudioIdQuery, CursorQuery, MemberIdParam } from '../schemas.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 const requireInstructor  = requireRole('instructor')
@@ -57,7 +59,14 @@ export async function adminMembersRoutes(app: FastifyInstance) {
   // GET /admin/members?studioId=&q=&cursor=&take= — paginated member list
   app.get<{ Querystring: { studioId: string; q?: string; cursor?: string; take?: string } }>(
     '/members',
-    { preHandler: requireInstructor },
+    {
+      preHandler: requireInstructor,
+      schema: {
+        querystring: StudioIdQuery.merge(CursorQuery).extend({
+          q: z.string().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, q, cursor, take: takeStr } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
@@ -108,7 +117,14 @@ export async function adminMembersRoutes(app: FastifyInstance) {
   // GET /admin/members/search?studioId=&q=
   app.get<{ Querystring: { studioId: string; q: string } }>(
     '/members/search',
-    { preHandler: requireInstructor },
+    {
+      preHandler: requireInstructor,
+      schema: {
+        querystring: StudioIdQuery.extend({
+          q: z.string().min(1),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, q } = request.query
       if (!q || q.trim().length < 2) return reply.badRequest('q must be at least 2 characters')
@@ -268,7 +284,16 @@ export async function adminMembersRoutes(app: FastifyInstance) {
   // POST /admin/members/:memberId/credits — manual credit adjustment (fronthost+)
   app.post<{ Params: { memberId: string }; Body: { amount: number; note?: string } }>(
     '/members/:memberId/credits',
-    { preHandler: requireInstructor },
+    {
+      preHandler: requireInstructor,
+      schema: {
+        params: MemberIdParam,
+        body: z.object({
+          amount: z.number().int().refine(n => n !== 0, { message: 'amount must be non-zero' }),
+          note:   z.string().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { memberId } = request.params
       const { amount, note } = request.body
@@ -357,7 +382,13 @@ export async function adminMembersRoutes(app: FastifyInstance) {
   // POST /admin/members/:memberId/notes
   app.post<{ Params: { memberId: string }; Body: { content: string } }>(
     '/members/:memberId/notes',
-    { preHandler: requireInstructor },
+    {
+      preHandler: requireInstructor,
+      schema: {
+        params: MemberIdParam,
+        body: z.object({ content: z.string().min(1) }),
+      },
+    },
     async (request, reply) => {
       const { memberId } = request.params
       const { content } = request.body
@@ -385,7 +416,12 @@ export async function adminMembersRoutes(app: FastifyInstance) {
   // DELETE /admin/members/:memberId/notes/:noteId
   app.delete<{ Params: { memberId: string; noteId: string } }>(
     '/members/:memberId/notes/:noteId',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        params: z.object({ memberId: Id, noteId: Id }),
+      },
+    },
     async (request, reply) => {
       const { memberId, noteId } = request.params
       const note = await prisma.memberNote.findUnique({
@@ -550,7 +586,16 @@ export async function adminMembersRoutes(app: FastifyInstance) {
   // POST /admin/members/:memberId/guest-passes/grant
   app.post<{ Params: { memberId: string }; Body: { amount: number; note?: string } }>(
     '/members/:memberId/guest-passes/grant',
-    { preHandler: requireInstructor },
+    {
+      preHandler: requireInstructor,
+      schema: {
+        params: MemberIdParam,
+        body: z.object({
+          amount: z.number().int().min(1),
+          note:   z.string().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
@@ -627,7 +672,14 @@ export async function adminMembersRoutes(app: FastifyInstance) {
   // GET /admin/audit-log?studioId=&limit=&cursor= — paginated audit log (studio_admin+)
   app.get<{ Querystring: { studioId: string; limit?: string; cursor?: string; targetId?: string } }>(
     '/audit-log',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        querystring: StudioIdQuery.merge(CursorQuery).extend({
+          targetId: z.string().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, limit: limitStr, cursor, targetId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')

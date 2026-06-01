@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
@@ -6,6 +7,7 @@ import { syncStripePrice, archiveStripeProduct } from '../lib/stripe-sync.js'
 import { logger } from '../lib/logger.js'
 import { assertStudioAccess } from './admin-shared.js'
 import Stripe from 'stripe'
+import { Id, NonNegativeInt, StudioIdQuery, SubscriptionStatus } from '../schemas.js'
 
 // Lazy-init so tests without STRIPE_SECRET_KEY don't blow up at import time
 let _stripe: Stripe | null = null
@@ -151,7 +153,7 @@ export async function membershipRoutes(app: FastifyInstance) {
   // GET /memberships/plans?studioId= — list plans for a studio (studio_admin+)
   app.get<{ Querystring: { studioId: string } }>(
     '/plans',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireStudioAdmin, schema: { querystring: StudioIdQuery } },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
@@ -194,7 +196,7 @@ export async function membershipRoutes(app: FastifyInstance) {
     }
   }>(
     '/plans',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireStudioAdmin, schema: { querystring: StudioIdQuery } },
     async (request, reply) => {
       const { studioId, name, description, priceInCents, intervalMonths = 1, creditsPerCycle, guestPassesPerCycle = 0 } = request.body
       if (!studioId || !name || priceInCents === undefined) {
@@ -251,7 +253,20 @@ export async function membershipRoutes(app: FastifyInstance) {
     }
   }>(
     '/plans/:planId',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        params: z.object({ planId: Id }),
+        body: z.object({
+          name: z.string().min(1).optional(),
+          description: z.string().optional(),
+          priceInCents: NonNegativeInt.optional(),
+          intervalMonths: z.number().int().min(0).optional(),
+          creditsPerCycle: NonNegativeInt.nullable().optional(),
+          guestPassesPerCycle: NonNegativeInt.optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { planId } = request.params
       const { name, description, priceInCents, intervalMonths, creditsPerCycle, guestPassesPerCycle } = request.body
@@ -305,7 +320,20 @@ export async function membershipRoutes(app: FastifyInstance) {
   // Blocked if there are active subscriptions
   app.delete<{ Params: { planId: string } }>(
     '/plans/:planId',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        params: z.object({ planId: Id }),
+        body: z.object({
+          name: z.string().min(1).optional(),
+          description: z.string().optional(),
+          priceInCents: NonNegativeInt.optional(),
+          intervalMonths: z.number().int().min(0).optional(),
+          creditsPerCycle: NonNegativeInt.nullable().optional(),
+          guestPassesPerCycle: NonNegativeInt.optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { planId } = request.params
       const plan = await prisma.membershipPlan.findUnique({
@@ -335,7 +363,16 @@ export async function membershipRoutes(app: FastifyInstance) {
   // By default returns only ACTIVE and PAUSED. Pass all=true to include CANCELLED/EXPIRED.
   app.get<{ Querystring: { studioId?: string; memberId?: string; all?: string } }>(
     '/',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        querystring: z.object({
+          studioId: z.string().min(1).optional(),
+          memberId: z.string().min(1).optional(),
+          all: z.string().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, memberId, all } = request.query
       if (!studioId && !memberId) return reply.badRequest('studioId or memberId is required')
@@ -456,7 +493,17 @@ export async function membershipRoutes(app: FastifyInstance) {
     }
   }>(
     '/',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        body: z.object({
+          memberId: Id,
+          planId: Id,
+          startDate: z.string().datetime({ offset: true }).optional(),
+          grantCredits: z.boolean().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { memberId, planId, startDate, grantCredits = true } = request.body
       if (!memberId || !planId) return reply.badRequest('memberId and planId are required')
@@ -532,7 +579,13 @@ export async function membershipRoutes(app: FastifyInstance) {
   // POST /memberships/subscriptions/:id/self-pause — member self-pause (requireAuth, member owns sub)
   app.post<{ Params: { id: string }; Body: { pauseUntil: string } }>(
     '/subscriptions/:id/self-pause',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: z.object({ id: Id }),
+        body: z.object({ pauseUntil: z.string().min(1) }),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       const { pauseUntil } = request.body

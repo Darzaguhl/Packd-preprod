@@ -1,15 +1,11 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library.js'
 import { ROLE_RANK } from '@packd/types'
 import { requireRole, requireAuth, getUser } from '../lib/auth.js'
+import { Id } from '../schemas.js'
 
-/**
- * If the session has no layout snapshot yet, lock it to the room's currently
- * active layout. Called inside the same transaction as the spot assignment so
- * the snapshot is atomic with the booking change.
- * This prevents future room redesigns from orphaning existing station references.
- */
 async function snapshotLayoutIfNeeded(
   tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
   sessionId: string,
@@ -19,7 +15,7 @@ async function snapshotLayoutIfNeeded(
     where: { id: sessionId },
     select: { layoutId: true },
   })
-  if (session?.layoutId) return // already snapshotted
+  if (session?.layoutId) return
 
   const activeLayout = await tx.roomLayout.findFirst({
     where: { roomId, isActive: true },
@@ -51,7 +47,6 @@ async function assertRoomAccess(
     reply.code(404).send({ error: 'Room not found' })
     return false
   }
-  // Staff carry their assigned studio IDs in the JWT — no Member record needed
   if (jwtStudioIds && jwtStudioIds.length > 0) {
     if (jwtStudioIds.includes(room.location.studioId)) return true
     reply.code(403).send({ error: 'Access denied' })
@@ -62,9 +57,7 @@ async function assertRoomAccess(
     reply.code(403).send({ error: 'Access denied' })
     return false
   }
-  // Same studio — allow immediately
   if (member.studioId === room.location.studioId) return true
-  // Cross-studio — allow if both studios are in the same network
   const [homeMembership, targetMembership] = await Promise.all([
     prisma.studioNetworkMembership.findFirst({ where: { studioId: member.studioId }, select: { networkId: true } }),
     prisma.studioNetworkMembership.findFirst({ where: { studioId: room.location.studioId }, select: { networkId: true } }),
@@ -76,8 +69,22 @@ async function assertRoomAccess(
   return false
 }
 
+const stationSchema = z.object({
+  type: z.enum(['BIKE', 'TREADMILL', 'BENCH', 'ROWER', 'MAT', 'REFORMER', 'BARRE', 'OTHER']),
+  label: z.string().min(1),
+  xM: z.number(),
+  yM: z.number(),
+  rotation: z.number().optional(),
+})
+
+const layoutBodySchema = z.object({
+  name: z.string().min(1).optional(),
+  widthM: z.number().positive(),
+  lengthM: z.number().positive(),
+  stations: z.array(stationSchema),
+})
+
 export async function roomRoutes(app: FastifyInstance) {
-  // GET /rooms/:roomId/layout — active layout with stations
   app.get<{ Params: { roomId: string } }>(
     '/:roomId/layout',
     { preHandler: requireAuth },
@@ -97,7 +104,6 @@ export async function roomRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /rooms/:roomId/layouts — all saved layouts for this room (active + inactive), most recent first
   app.get<{ Params: { roomId: string } }>(
     '/:roomId/layouts',
     { preHandler: requireAuth },
@@ -114,7 +120,6 @@ export async function roomRoutes(app: FastifyInstance) {
     },
   )
 
-  // POST /rooms/:roomId/layouts/:layoutId/activate — switch the active layout without creating a new record
   app.post<{ Params: { roomId: string; layoutId: string } }>(
     '/:roomId/layouts/:layoutId/activate',
     { preHandler: requireRole('studio_admin') },
@@ -139,7 +144,6 @@ export async function roomRoutes(app: FastifyInstance) {
     },
   )
 
-  // PATCH /rooms/:roomId/layouts/:layoutId — update an existing layout in place (name, dimensions, stations)
   app.patch<{
     Params: { roomId: string; layoutId: string }
     Body: {
@@ -150,7 +154,13 @@ export async function roomRoutes(app: FastifyInstance) {
     }
   }>(
     '/:roomId/layouts/:layoutId',
-    { preHandler: requireRole('studio_admin') },
+    {
+      preHandler: requireRole('studio_admin'),
+      schema: {
+        params: z.object({ roomId: Id, layoutId: Id }),
+        body: layoutBodySchema,
+      },
+    },
     async (request, reply) => {
       const { roomId, layoutId } = request.params
       const { name, widthM, lengthM, stations } = request.body
@@ -166,7 +176,6 @@ export async function roomRoutes(app: FastifyInstance) {
         if (!validTypes.includes(s.type)) return reply.code(400).send({ error: `Invalid station type: ${s.type}` })
       }
 
-      // Delete old stations, update layout fields, create new stations in a transaction
       const layout = await prisma.$transaction(async tx => {
         await tx.station.deleteMany({ where: { layoutId } })
         return tx.roomLayout.update({
@@ -193,10 +202,9 @@ export async function roomRoutes(app: FastifyInstance) {
     },
   )
 
-  // DELETE /rooms/:roomId/layouts/:layoutId — delete a saved layout (cannot delete the active one)
   app.delete<{ Params: { roomId: string; layoutId: string } }>(
     '/:roomId/layouts/:layoutId',
-    { preHandler: requireRole('studio_admin') },
+    { preHandler: requireRole('studio_admin'), schema: { params: z.object({ roomId: Id, layoutId: Id }) } },
     async (request, reply) => {
       const { roomId, layoutId } = request.params
       const user = getUser(request)
@@ -211,7 +219,6 @@ export async function roomRoutes(app: FastifyInstance) {
     },
   )
 
-  // POST /rooms/:roomId/layout — create/replace active layout
   app.post<{
     Params: { roomId: string }
     Body: {
@@ -222,7 +229,13 @@ export async function roomRoutes(app: FastifyInstance) {
     }
   }>(
     '/:roomId/layout',
-    { preHandler: requireRole('studio_admin') },
+    {
+      preHandler: requireRole('studio_admin'),
+      schema: {
+        params: z.object({ roomId: Id }),
+        body: layoutBodySchema,
+      },
+    },
     async (request, reply) => {
       const { roomId } = request.params
       const { name = 'Default', widthM, lengthM, stations } = request.body
@@ -237,7 +250,6 @@ export async function roomRoutes(app: FastifyInstance) {
         }
       }
 
-      // Deactivate previous layouts and create the new one atomically
       const layout = await prisma.$transaction(async (tx) => {
         await tx.roomLayout.updateMany({ where: { roomId, isActive: true }, data: { isActive: false } })
         return tx.roomLayout.create({
@@ -265,7 +277,6 @@ export async function roomRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /rooms/:roomId/sessions/:sessionId/spots — stations + assignments
   app.get<{ Params: { roomId: string; sessionId: string } }>(
     '/:roomId/sessions/:sessionId/spots',
     { preHandler: requireAuth },
@@ -302,7 +313,6 @@ export async function roomRoutes(app: FastifyInstance) {
 
       if (!session) return reply.code(404).send({ error: 'Session not found' })
 
-      // If no layout snapshot, use the room's active layout
       let layout = session.layout
       if (!layout) {
         layout = await prisma.roomLayout.findFirst({
@@ -321,7 +331,6 @@ export async function roomRoutes(app: FastifyInstance) {
         membershipStatus: b.member.memberships[0]?.status ?? null,
       }))
 
-      // Identify the caller's own booking so the client doesn't need to rely on stale params
       const myMember = user.id
         ? await prisma.member.findUnique({ where: { userId: user.id }, select: { id: true } })
         : null
@@ -338,7 +347,6 @@ export async function roomRoutes(app: FastifyInstance) {
     },
   )
 
-  // POST /rooms/:roomId/sessions/:sessionId/spots — assign member to station
   app.post<{
     Params: { roomId: string; sessionId: string }
     Body: { bookingId: string; stationId: string | null }
@@ -352,14 +360,12 @@ export async function roomRoutes(app: FastifyInstance) {
 
       if (!await assertRoomAccess(user.id, user.role, roomId, reply, user.studioIds)) return
 
-      // Verify the booking belongs to this session (prevent cross-session reassignment)
       const booking = await prisma.booking.findUnique({ where: { id: bookingId }, select: { sessionId: true } })
       if (!booking || booking.sessionId !== sessionId) return reply.notFound('Booking not found in this session')
 
       const updated = await prisma.$transaction(async (tx) => {
         if (stationId) {
           await snapshotLayoutIfNeeded(tx, sessionId, roomId)
-          // Atomically evict any existing occupant then assign
           await tx.booking.updateMany({
             where: { sessionId, stationId, id: { not: bookingId } },
             data: { stationId: null },
@@ -372,7 +378,6 @@ export async function roomRoutes(app: FastifyInstance) {
     },
   )
 
-  // POST /rooms/:roomId/sessions/:sessionId/my-spot — member picks their own spot
   app.post<{
     Params: { roomId: string; sessionId: string }
     Body: { stationId: string | null }

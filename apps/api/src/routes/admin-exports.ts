@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { assertStudioAccess, validateSelectQuery } from './admin-shared.js'
+import { StudioIdQuery, DateString } from '../schemas.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 
@@ -24,7 +26,16 @@ export async function adminExportsRoutes(app: FastifyInstance) {
   // Rate-limited to 10/min per IP — queries can be expensive and block the DB.
   app.post<{ Body: { sql: string; studioId: string } }>(
     '/query',
-    { preHandler: requireStudioAdmin, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    {
+      preHandler: requireStudioAdmin,
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+      schema: {
+        body: z.object({
+          sql:     z.string().min(1),
+          studioId: z.string().min(1),
+        }),
+      },
+    },
     async (request, reply) => {
       const { sql, studioId } = request.body
       if (!studioId) return reply.badRequest('studioId is required')
@@ -66,7 +77,10 @@ export async function adminExportsRoutes(app: FastifyInstance) {
   // GET /admin/export/members?studioId=
   app.get<{ Querystring: { studioId: string } }>(
     '/export/members',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: { querystring: StudioIdQuery },
+    },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
@@ -109,7 +123,15 @@ export async function adminExportsRoutes(app: FastifyInstance) {
   // GET /admin/export/attendance?studioId=&from=&to=
   app.get<{ Querystring: { studioId: string; from?: string; to?: string } }>(
     '/export/attendance',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        querystring: StudioIdQuery.extend({
+          from: DateString.optional(),
+          to:   DateString.optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, from, to } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
@@ -149,7 +171,15 @@ export async function adminExportsRoutes(app: FastifyInstance) {
   // GET /admin/export/revenue?studioId=&from=&to=
   app.get<{ Querystring: { studioId: string; from?: string; to?: string } }>(
     '/export/revenue',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        querystring: StudioIdQuery.extend({
+          from: DateString.optional(),
+          to:   DateString.optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, from, to } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
@@ -183,7 +213,15 @@ export async function adminExportsRoutes(app: FastifyInstance) {
   // GET /admin/export/instructor-pay?studioId=&from=&to=
   app.get<{ Querystring: { studioId: string; from?: string; to?: string } }>(
     '/export/instructor-pay',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        querystring: StudioIdQuery.extend({
+          from: DateString.optional(),
+          to:   DateString.optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, from, to } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
@@ -240,7 +278,15 @@ export async function adminExportsRoutes(app: FastifyInstance) {
   // Combined payroll for all staff: instructor per-head + fronthost hourly shifts.
   app.get<{ Querystring: { studioId: string; from?: string; to?: string } }>(
     '/export/staff-pay',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        querystring: StudioIdQuery.extend({
+          from: DateString.optional(),
+          to:   DateString.optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, from, to } = request.query
       if (!studioId) return reply.badRequest('studioId is required')

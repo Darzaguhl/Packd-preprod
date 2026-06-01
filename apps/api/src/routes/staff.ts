@@ -1,11 +1,32 @@
 import type { FastifyInstance } from 'fastify'
 import { createHmac, timingSafeEqual } from 'crypto'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireRole, requireAuth, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
 import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole } from '../lib/supabase-admin.js'
 import { sendStaffInvite } from '../lib/email.js'
 import { assertStudioAccess } from './admin-shared.js'
+import { Id, MemberIdParam } from '../schemas.js'
+
+// ── Route validation schemas ──────────────────────────────────────────────────
+const StaffListQuery = z.object({ studioId: Id })
+const InviteBody = z.object({
+  email: z.string().email(),
+  firstName: z.string().min(1),
+  role: z.enum(['fronthost', 'instructor', 'studio_admin']),
+  studioId: Id,
+  studioName: z.string().optional(),
+})
+const AcceptInviteBody = z.object({
+  studioId: Id,
+  role: z.string().min(1),
+  invitedEmail: z.string().email(),
+  token: z.string().min(1),
+})
+const InstructorPayParams = z.object({ instructorId: Id })
+const InstructorPayBody = z.object({ payRatePerHeadCents: z.number().int().min(0).nullable().optional() })
+const HourlyPayBody = z.object({ payRateHourlyCents: z.number().int().min(0).nullable() })
 
 // ── Invite token helpers ─────────────────────────────────────────────────────
 
@@ -70,7 +91,10 @@ export async function staffRoutes(app: FastifyInstance) {
   // GET /staff?studioId= — list all staff members for a studio
   app.get<{ Querystring: { studioId: string } }>(
     '/',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: { querystring: StaffListQuery },
+    },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
@@ -252,7 +276,11 @@ export async function staffRoutes(app: FastifyInstance) {
   // Body: { email, firstName, role: 'fronthost' | 'instructor', studioId }
   app.post<{ Body: { email: string; firstName: string; role: string; studioId: string } }>(
     '/invite',
-    { preHandler: requireStudioAdmin, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    {
+      preHandler: requireStudioAdmin,
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      schema: { body: InviteBody },
+    },
     async (request, reply) => {
       const { email, firstName, role, studioId } = request.body
       const user = getUser(request)
@@ -291,7 +319,10 @@ export async function staffRoutes(app: FastifyInstance) {
   // Called client-side immediately after signup/login on the /accept-invite page.
   app.post<{ Body: { studioId: string; role: string; invitedEmail: string; token: string } }>(
     '/accept-invite',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: { body: AcceptInviteBody },
+    },
     async (request, reply) => {
       const { studioId, role, invitedEmail, token } = request.body
       const user = getUser(request)
@@ -347,7 +378,10 @@ export async function staffRoutes(app: FastifyInstance) {
     Body: { payRatePerHeadCents?: number | null }
   }>(
     '/instructors/:instructorId',
-    { preHandler: requireRole('franchise_admin') },
+    {
+      preHandler: requireRole('franchise_admin'),
+      schema: { params: InstructorPayParams, body: InstructorPayBody },
+    },
     async (request, reply) => {
       const { instructorId } = request.params
       const { payRatePerHeadCents } = request.body
@@ -377,7 +411,10 @@ export async function staffRoutes(app: FastifyInstance) {
     Body: { payRateHourlyCents: number | null }
   }>(
     '/:memberId/hourly-pay',
-    { preHandler: requireRole('franchise_admin') },
+    {
+      preHandler: requireRole('franchise_admin'),
+      schema: { params: MemberIdParam, body: HourlyPayBody },
+    },
     async (request, reply) => {
       const { memberId } = request.params
       const { payRateHourlyCents } = request.body

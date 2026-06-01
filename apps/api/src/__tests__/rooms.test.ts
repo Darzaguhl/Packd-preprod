@@ -40,12 +40,15 @@ vi.mock('../lib/auth.js', () => ({
 // ─── imports ──────────────────────────────────────────────────────────────────
 import Fastify from 'fastify'
 import sensible from '@fastify/sensible'
+import { serializerCompiler, validatorCompiler } from '@fastify/type-provider-zod'
 import { roomRoutes } from '../routes/rooms.js'
 import { prisma } from '@packd/db'
 import { getUser } from '../lib/auth.js'
 
 async function buildApp() {
   const app = Fastify()
+  app.setValidatorCompiler(validatorCompiler)
+  app.setSerializerCompiler(serializerCompiler)
   await app.register(sensible)
   await app.register(roomRoutes, { prefix: '/rooms' })
   return app

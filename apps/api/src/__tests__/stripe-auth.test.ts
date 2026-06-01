@@ -63,12 +63,15 @@ vi.mock('../routes/admin-shared.js', () => ({
 
 import Fastify from 'fastify'
 import sensible from '@fastify/sensible'
+import { serializerCompiler, validatorCompiler } from '@fastify/type-provider-zod'
 import { stripeRoutes } from '../routes/stripe.js'
 import { prisma } from '@packd/db'
 import { getUser } from '../lib/auth.js'
 
 async function buildApp() {
   const app = Fastify()
+  app.setValidatorCompiler(validatorCompiler)
+  app.setSerializerCompiler(serializerCompiler)
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req, body, done) => {
     ;(req as unknown as { rawBody: Buffer }).rawBody = body as Buffer
     try { done(null, JSON.parse((body as Buffer).toString())) } catch (e) { done(e as Error) }

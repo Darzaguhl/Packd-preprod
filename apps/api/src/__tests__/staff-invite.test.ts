@@ -39,12 +39,15 @@ vi.mock('../lib/supabase-admin.js', () => ({
 
 import Fastify from 'fastify'
 import sensible from '@fastify/sensible'
+import { serializerCompiler, validatorCompiler } from '@fastify/type-provider-zod'
 import { staffRoutes } from '../routes/staff.js'
 import { prisma } from '@packd/db'
 import { sendStaffInvite } from '../lib/email.js'
 
 async function buildApp() {
   const app = Fastify()
+  app.setValidatorCompiler(validatorCompiler)
+  app.setSerializerCompiler(serializerCompiler)
   await app.register(sensible)
   await app.register(staffRoutes, { prefix: '/staff' })
   return app

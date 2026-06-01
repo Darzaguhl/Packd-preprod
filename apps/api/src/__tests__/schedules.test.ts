@@ -24,11 +24,14 @@ vi.mock('../lib/auth.js', () => ({
 
 import Fastify from 'fastify'
 import sensible from '@fastify/sensible'
+import { serializerCompiler, validatorCompiler } from '@fastify/type-provider-zod'
 import { classScheduleRoutes } from '../routes/schedules.js'
 import { prisma } from '@packd/db'
 
 async function buildApp() {
   const app = Fastify()
+  app.setValidatorCompiler(validatorCompiler)
+  app.setSerializerCompiler(serializerCompiler)
   await app.register(sensible)
   await app.register(classScheduleRoutes, { prefix: '/schedules' })
   return app

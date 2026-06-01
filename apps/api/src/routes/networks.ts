@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, getUser, requireRole } from '../lib/auth.js'
+import { Id } from '../schemas.js'
 
 export async function networkRoutes(app: FastifyInstance) {
   // GET /networks — list all networks (franchise_admin+)
@@ -20,7 +22,16 @@ export async function networkRoutes(app: FastifyInstance) {
   // POST /networks — create network (franchise_admin+)
   app.post<{ Body: { name: string; slug: string } }>(
     '/',
-    { preHandler: requireRole('franchise_admin') },
+    {
+      preHandler: requireRole('franchise_admin'),
+      schema: {
+        body: z.object({
+          name: z.string().min(1),
+          slug: z.string().min(1),
+          franchiseId: z.string().min(1).optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { name, slug } = request.body
       if (!name || !slug) return reply.badRequest('name and slug are required')
@@ -32,7 +43,16 @@ export async function networkRoutes(app: FastifyInstance) {
   // PATCH /networks/:id — update network (franchise_admin+)
   app.patch<{ Params: { id: string }; Body: { name?: string; slug?: string } }>(
     '/:id',
-    { preHandler: requireRole('franchise_admin') },
+    {
+      preHandler: requireRole('franchise_admin'),
+      schema: {
+        params: z.object({ id: Id }),
+        body: z.object({
+          name: z.string().min(1).optional(),
+          slug: z.string().min(1).optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { id } = request.params
       const { name, slug } = request.body
@@ -47,7 +67,10 @@ export async function networkRoutes(app: FastifyInstance) {
   // DELETE /networks/:id — delete network (franchise_admin+)
   app.delete<{ Params: { id: string } }>(
     '/:id',
-    { preHandler: requireRole('franchise_admin') },
+    {
+      preHandler: requireRole('franchise_admin'),
+      schema: { params: z.object({ id: Id }) },
+    },
     async (request, reply) => {
       await prisma.studioNetwork.delete({ where: { id: request.params.id } })
       return reply.send({ success: true })
@@ -57,7 +80,13 @@ export async function networkRoutes(app: FastifyInstance) {
   // POST /networks/:id/studios — add studio to network (franchise_admin+)
   app.post<{ Params: { id: string }; Body: { studioId: string } }>(
     '/:id/studios',
-    { preHandler: requireRole('franchise_admin') },
+    {
+      preHandler: requireRole('franchise_admin'),
+      schema: {
+        params: z.object({ id: Id }),
+        body: z.object({ studioId: z.string().min(1) }),
+      },
+    },
     async (request, reply) => {
       const { id: networkId } = request.params
       const { studioId } = request.body
@@ -73,7 +102,10 @@ export async function networkRoutes(app: FastifyInstance) {
   // DELETE /networks/:id/studios/:studioId — remove studio from network (franchise_admin+)
   app.delete<{ Params: { id: string; studioId: string } }>(
     '/:id/studios/:studioId',
-    { preHandler: requireRole('franchise_admin') },
+    {
+      preHandler: requireRole('franchise_admin'),
+      schema: { params: z.object({ id: Id, studioId: Id }) },
+    },
     async (request, reply) => {
       const { id: networkId, studioId } = request.params
       await prisma.studioNetworkMembership.delete({

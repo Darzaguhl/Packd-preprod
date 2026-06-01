@@ -22,6 +22,7 @@ vi.mock('../lib/auth.js', () => ({
 
 import Fastify from 'fastify'
 import sensible from '@fastify/sensible'
+import { serializerCompiler, validatorCompiler } from '@fastify/type-provider-zod'
 import { icalRoutes } from '../routes/ical.js'
 import { prisma } from '@packd/db'
 import { getUser } from '../lib/auth.js'
@@ -34,6 +35,8 @@ const makeToken = (userId: string) =>
 
 async function buildApp() {
   const app = Fastify()
+  app.setValidatorCompiler(validatorCompiler)
+  app.setSerializerCompiler(serializerCompiler)
   await app.register(sensible)
   await app.register(icalRoutes, { prefix: '/ical' })
   return app

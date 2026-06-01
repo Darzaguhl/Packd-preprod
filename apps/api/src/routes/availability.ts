@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
+import { Id } from '../schemas.js'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -31,7 +33,16 @@ export async function availabilityRoutes(app: FastifyInstance) {
   // List all availability blocks for a studio in a date range.
   app.get<{ Querystring: { studioId: string; from?: string; to?: string } }>(
     '/',
-    requireStudioAdmin,
+    {
+      ...requireStudioAdmin,
+      schema: {
+        querystring: z.object({
+          studioId: z.string().min(1),
+          from: z.string().optional(),
+          to: z.string().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, from, to } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
@@ -69,7 +80,16 @@ export async function availabilityRoutes(app: FastifyInstance) {
   // Blocks for a single instructor (manager or owner).
   app.get<{ Params: { instructorId: string }; Querystring: { from?: string; to?: string } }>(
     '/instructor/:instructorId',
-    requireStudioAdmin,
+    {
+      ...requireStudioAdmin,
+      schema: {
+        params: z.object({ instructorId: Id }),
+        querystring: z.object({
+          from: z.string().optional(),
+          to: z.string().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { instructorId } = request.params
       const { from, to } = request.query
@@ -106,7 +126,19 @@ export async function availabilityRoutes(app: FastifyInstance) {
     Body: { instructorId: string; studioId: string; title: string; startDate: string; endDate: string }
   }>(
     '/',
-    requireStudioAdmin,
+    {
+      ...requireStudioAdmin,
+      schema: {
+        body: z.object({
+          instructorId: z.string().min(1),
+          studioId: z.string().min(1),
+          title: z.string().min(1),
+          startDate: z.string().min(1),
+          endDate: z.string().min(1),
+          note: z.string().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { instructorId, studioId, title, startDate, endDate } = request.body
       const user = getUser(request)
@@ -141,7 +173,17 @@ export async function availabilityRoutes(app: FastifyInstance) {
     Body: { title?: string; startDate?: string; endDate?: string }
   }>(
     '/:id',
-    requireStudioAdmin,
+    {
+      ...requireStudioAdmin,
+      schema: {
+        params: z.object({ id: Id }),
+        body: z.object({
+          title: z.string().min(1).optional(),
+          startDate: z.string().optional(),
+          endDate: z.string().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { id } = request.params
       const { title, startDate, endDate } = request.body
@@ -174,7 +216,10 @@ export async function availabilityRoutes(app: FastifyInstance) {
   // DELETE /availability/:id
   app.delete<{ Params: { id: string } }>(
     '/:id',
-    requireStudioAdmin,
+    {
+      ...requireStudioAdmin,
+      schema: { params: z.object({ id: Id }) },
+    },
     async (request, reply) => {
       const { id } = request.params
       const user = getUser(request)

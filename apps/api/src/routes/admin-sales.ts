@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
+import { Id, StudioIdQuery, DateString } from '../schemas.js'
 
 const requireInstructor = requireRole('instructor')
 
@@ -51,7 +53,14 @@ export async function adminSalesRoutes(app: FastifyInstance) {
   // GET /admin/product-sales?studioId=&date= — member IDs who had products charged today (fronthost+)
   app.get<{ Querystring: { studioId: string; date?: string } }>(
     '/product-sales',
-    { preHandler: requireInstructor },
+    {
+      preHandler: requireInstructor,
+      schema: {
+        querystring: StudioIdQuery.extend({
+          date: DateString.optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
@@ -75,7 +84,17 @@ export async function adminSalesRoutes(app: FastifyInstance) {
     Body: { memberId: string; guestName: string; sessionId?: string; studioId: string }
   }>(
     '/guest-checkin',
-    { preHandler: requireInstructor },
+    {
+      preHandler: requireInstructor,
+      schema: {
+        body: z.object({
+          memberId:  Id,
+          studioId:  z.string().min(1),
+          guestName: z.string().min(1),
+          sessionId: Id.optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()

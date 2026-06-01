@@ -1,9 +1,11 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { syncStripePrice, archiveStripeProduct } from '../lib/stripe-sync.js'
 import { logger } from '../lib/logger.js'
+import { Id, NonNegativeInt, StudioIdQuery } from '../schemas.js'
 
 function ownsStudio(user: ReturnType<typeof getUser>, studioId: string): boolean {
   return ROLE_RANK[user.role as keyof typeof ROLE_RANK] >= ROLE_RANK['franchise_admin'] ||
@@ -11,10 +13,14 @@ function ownsStudio(user: ReturnType<typeof getUser>, studioId: string): boolean
 }
 
 export async function productRoutes(app: FastifyInstance) {
-  // GET /products?studioId= — list products for a studio (all authenticated staff)
   app.get<{ Querystring: { studioId: string; all?: string } }>(
     '/',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: {
+        querystring: StudioIdQuery.extend({ all: z.string().optional() }),
+      },
+    },
     async (request, reply) => {
       const { studioId, all } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
@@ -30,7 +36,6 @@ export async function productRoutes(app: FastifyInstance) {
         orderBy: [{ category: 'asc' }, { name: 'asc' }],
       })
 
-      // Only studio_admin+ should see Stripe internal IDs; strip them for lower roles
       if (!isStudioAdmin) {
         return products.map(({ stripeProductId: _sp, stripePriceId: _spr, ...rest }) => rest)
       }
@@ -39,15 +44,25 @@ export async function productRoutes(app: FastifyInstance) {
     },
   )
 
-  // POST /products — create product (studio_admin+)
   app.post<{ Body: { studioId: string; name: string; category?: string; priceInCents: number; creditsRequired?: number; imageUrl?: string } }>(
     '/',
-    { preHandler: requireRole('studio_admin') },
+    {
+      preHandler: requireRole('studio_admin'),
+      schema: {
+        body: z.object({
+          studioId: Id,
+          name: z.string().min(1),
+          category: z.string().min(1).optional(),
+          priceInCents: NonNegativeInt,
+          creditsRequired: NonNegativeInt.optional(),
+          imageUrl: z.string().url().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, name, category, priceInCents, creditsRequired, imageUrl } = request.body
       if (!studioId || !name || priceInCents == null) return reply.badRequest('studioId, name and priceInCents are required')
 
-      // Auto-create Stripe product+price for cash products
       let stripeProductId: string | undefined
       let stripePriceId: string | undefined
       if (priceInCents > 0) {
@@ -81,20 +96,31 @@ export async function productRoutes(app: FastifyInstance) {
     },
   )
 
-  // PATCH /products/:id — update product (studio_admin+)
   app.patch<{
     Params: { id: string }
     Body: { name?: string; category?: string; priceInCents?: number; creditsRequired?: number; imageUrl?: string | null; inStock?: boolean }
   }>(
     '/:id',
-    { preHandler: requireRole('studio_admin') },
+    {
+      preHandler: requireRole('studio_admin'),
+      schema: {
+        params: z.object({ id: Id }),
+        body: z.object({
+          name: z.string().min(1).optional(),
+          category: z.string().min(1).optional(),
+          priceInCents: NonNegativeInt.optional(),
+          creditsRequired: NonNegativeInt.optional(),
+          imageUrl: z.string().url().nullable().optional(),
+          inStock: z.boolean().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { name, category, priceInCents, creditsRequired, imageUrl, inStock } = request.body
       const existing = await prisma.product.findUnique({ where: { id: request.params.id } })
       if (!existing) return reply.notFound()
       if (!ownsStudio(getUser(request), existing.studioId)) return reply.forbidden()
 
-      // Re-sync Stripe if name or price changed
       let stripeProductId = existing.stripeProductId ?? undefined
       let stripePriceId = existing.stripePriceId ?? undefined
       const newPrice = priceInCents ?? existing.priceInCents
@@ -132,10 +158,9 @@ export async function productRoutes(app: FastifyInstance) {
     },
   )
 
-  // DELETE /products/:id — delete product (studio_admin+)
   app.delete<{ Params: { id: string } }>(
     '/:id',
-    { preHandler: requireRole('studio_admin') },
+    { preHandler: requireRole('studio_admin'), schema: { params: z.object({ id: Id }) } },
     async (request, reply) => {
       const existing = await prisma.product.findUnique({ where: { id: request.params.id } })
       if (!existing) return reply.notFound()

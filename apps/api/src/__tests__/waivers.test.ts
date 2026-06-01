@@ -37,12 +37,15 @@ vi.mock('../routes/admin-shared.js', () => ({
 
 import Fastify from 'fastify'
 import sensible from '@fastify/sensible'
+import { serializerCompiler, validatorCompiler } from '@fastify/type-provider-zod'
 import { waiverRoutes } from '../routes/waivers.js'
 import { prisma } from '@packd/db'
 import { getUser } from '../lib/auth.js'
 
 async function buildApp() {
   const app = Fastify()
+  app.setValidatorCompiler(validatorCompiler)
+  app.setSerializerCompiler(serializerCompiler)
   await app.register(sensible)
   await app.register(waiverRoutes, { prefix: '/waivers' })
   return app

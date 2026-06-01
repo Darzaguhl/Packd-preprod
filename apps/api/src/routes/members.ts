@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library.js'
 import { requireAuth, getUser } from '../lib/auth.js'
@@ -82,7 +83,12 @@ export async function memberRoutes(app: FastifyInstance) {
   // promoted directly via Supabase and may never go through normal signup.
   app.post<{ Body: { studioId?: string } }>(
     '/ensure',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: {
+        body: z.object({ studioId: z.string().min(1).optional() }).nullish(),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       const studioId = request.body?.studioId ?? user.studioIds?.[0]
@@ -270,7 +276,18 @@ export async function memberRoutes(app: FastifyInstance) {
     }
   }>(
     '/me',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: {
+        body: z.object({
+          firstName: z.string().min(1).optional(),
+          lastName: z.string().min(1).optional(),
+          birthday: z.string().nullable().optional(),
+          emergencyContactName: z.string().nullable().optional(),
+          emergencyContactPhone: z.string().nullable().optional(),
+        }).nullish(),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       const { firstName, lastName, birthday, emergencyContactName, emergencyContactPhone } = request.body
@@ -407,7 +424,16 @@ export async function memberRoutes(app: FastifyInstance) {
   // PATCH /members/me/email-preferences
   app.patch<{ Body: { classReminder?: boolean; marketing?: boolean; waitlist?: boolean } }>(
     '/me/email-preferences',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: {
+        body: z.object({
+          classReminder: z.boolean().optional(),
+          marketing: z.boolean().optional(),
+          waitlist: z.boolean().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       const member = await prisma.member.findUnique({ where: { userId: user.id }, select: { id: true, emailPreferences: true } })
@@ -460,7 +486,12 @@ export async function memberRoutes(app: FastifyInstance) {
   // POST /members/referral/apply — apply a referral code
   app.post<{ Body: { code: string } }>(
     '/referral/apply',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: {
+        body: z.object({ code: z.string().min(1) }),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       const { code } = request.body

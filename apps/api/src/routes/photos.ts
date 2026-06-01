@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
+import { Id } from '../schemas.js'
 
 const SUPABASE_URL = process.env.SUPABASE_URL!
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -36,7 +38,10 @@ export async function photoRoutes(app: FastifyInstance) {
   // List all photos for an instructor (instructor sees own; managers see any)
   app.get<{ Params: { instructorId: string } }>(
     '/instructors/:instructorId',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: { params: z.object({ instructorId: Id }) },
+    },
     async (request, reply) => {
       const { instructorId } = request.params
       const user = getUser(request)
@@ -74,7 +79,18 @@ export async function photoRoutes(app: FastifyInstance) {
     Body: { base64: string; fileName: string; contentType: string }
   }>(
     '/instructors/:instructorId/upload',
-    { preHandler: requireAuth, bodyLimit: 15 * 1024 * 1024 },
+    {
+      preHandler: requireAuth,
+      bodyLimit: 15 * 1024 * 1024,
+      schema: {
+        params: z.object({ instructorId: Id }),
+        body: z.object({
+          base64: z.string().min(1),
+          fileName: z.string().min(1),
+          contentType: z.string().min(1),
+        }),
+      },
+    },
     async (request, reply) => {
       const { instructorId } = request.params
       const { base64, fileName, contentType } = request.body
@@ -147,7 +163,13 @@ export async function photoRoutes(app: FastifyInstance) {
     Body: { approvedForSocial: boolean }
   }>(
     '/instructors/:instructorId/:photoId',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: z.object({ instructorId: Id, photoId: Id }),
+        body: z.object({ approvedForSocial: z.boolean() }),
+      },
+    },
     async (request, reply) => {
       const { instructorId, photoId } = request.params
       const { approvedForSocial } = request.body
@@ -191,7 +213,10 @@ export async function photoRoutes(app: FastifyInstance) {
   // Only the instructor (owner) can delete — managers cannot
   app.delete<{ Params: { instructorId: string; photoId: string } }>(
     '/instructors/:instructorId/:photoId',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: { params: z.object({ instructorId: Id, photoId: Id }) },
+    },
     async (request, reply) => {
       const { instructorId, photoId } = request.params
       const user = getUser(request)
@@ -243,7 +268,10 @@ export async function photoRoutes(app: FastifyInstance) {
   // Accessible to any authenticated staff member assigned to the studio.
   app.get<{ Params: { studioId: string } }>(
     '/studios/:studioId/approved',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: { params: z.object({ studioId: Id }) },
+    },
     async (request, reply) => {
       const { studioId } = request.params
       const user = getUser(request)

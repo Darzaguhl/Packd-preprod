@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
+import { z } from 'zod'
 import { Prisma } from '@packd/db'
 import { prisma } from '@packd/db'
 import { ROLE_RANK } from '@packd/types'
@@ -6,8 +7,27 @@ import { requireRole, getUser } from '../lib/auth.js'
 import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole } from '../lib/supabase-admin.js'
 import { assertStudioAccess } from './admin-shared.js'
 import { enqueueBroadcast } from '../jobs/index.js'
+import { Id } from '../schemas.js'
 
 export { assertStudioAccess }
+
+// ── Route validation schemas ──────────────────────────────────────────────────
+const StaffListQuery = z.object({ cursor: z.string().optional(), take: z.string().optional() })
+const PromoBody = z.object({
+  code: z.string().min(1),
+  description: z.string().optional(),
+  type: z.string().min(1),
+  value: z.number(),
+  maxUses: z.number().int().positive().nullable().optional(),
+  validFrom: z.string().optional(),
+  validUntil: z.string().nullable().optional(),
+})
+const PromoParams = z.object({ code: z.string().min(1) })
+const BroadcastBody = z.object({
+  studioIds: z.array(Id).min(1),
+  subject: z.string().min(1),
+  message: z.string().min(1),
+})
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
@@ -647,7 +667,10 @@ export async function franchiseRoutes(app: FastifyInstance) {
   // GET /franchise/staff — all staff across all studios with studio memberships resolved
   app.get<{ Querystring: { cursor?: string; take?: string } }>(
     '/staff',
-    { preHandler: requireRole('franchise_admin') },
+    {
+      preHandler: requireRole('franchise_admin'),
+      schema: { querystring: StaffListQuery },
+    },
     async (request, reply) => {
       const { cursor, take: takeStr } = request.query
       const take = Math.min(parseInt(takeStr ?? '100', 10) || 100, 200)
@@ -788,7 +811,10 @@ export async function franchiseRoutes(app: FastifyInstance) {
     }
   }>(
     '/promos',
-    { preHandler: requireRole('franchise_admin') },
+    {
+      preHandler: requireRole('franchise_admin'),
+      schema: { body: PromoBody },
+    },
     async (request, reply) => {
       const { code, description, type, value, maxUses, validFrom, validUntil } = request.body
       if (!code || !type) return reply.badRequest('code and type are required')
@@ -816,7 +842,10 @@ export async function franchiseRoutes(app: FastifyInstance) {
   // DELETE /franchise/promos/:code — remove a promo code from all studios
   app.delete<{ Params: { code: string } }>(
     '/promos/:code',
-    { preHandler: requireRole('franchise_admin') },
+    {
+      preHandler: requireRole('franchise_admin'),
+      schema: { params: PromoParams },
+    },
     async (request, reply) => {
       const { code } = request.params
       const user = getUser(request)
@@ -841,7 +870,11 @@ export async function franchiseRoutes(app: FastifyInstance) {
   // POST /franchise/broadcast — send an email to all members of selected studios
   app.post<{ Body: { studioIds: string[]; subject: string; message: string } }>(
     '/broadcast',
-    { preHandler: requireRole('franchise_admin'), config: { rateLimit: { max: 2, timeWindow: '1 minute' } } },
+    {
+      preHandler: requireRole('franchise_admin'),
+      config: { rateLimit: { max: 2, timeWindow: '1 minute' } },
+      schema: { body: BroadcastBody },
+    },
     async (request, reply) => {
       const { studioIds: rawStudioIds, subject, message } = request.body
       if (!rawStudioIds?.length) return reply.badRequest('studioIds is required')

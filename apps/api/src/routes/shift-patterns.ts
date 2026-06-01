@@ -1,9 +1,11 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
 import { assertStudioAccess } from './admin-shared.js'
 import { ROLE_RANK } from '@packd/types'
+import { Id, ISODateTime, StudioIdQuery } from '../schemas.js'
 
 const GENERATE_WEEKS = 12
 
@@ -11,7 +13,6 @@ function isAdmin(role: string) {
   return ROLE_RANK[role as keyof typeof ROLE_RANK] >= ROLE_RANK['studio_admin']
 }
 
-/** Generate all shift occurrences for a pattern within a date window. */
 function generateOccurrences(pattern: {
   daysOfWeek: number[]
   startTime: string
@@ -31,7 +32,6 @@ function generateOccurrences(pattern: {
     ? new Date(Math.min(pattern.validUntil.getTime(), from.getTime() + GENERATE_WEEKS * 7 * 86400000))
     : new Date(from.getTime() + GENERATE_WEEKS * 7 * 86400000)
 
-  // Find the Monday of the validFrom week — used as the week-interval reference point
   const epochMonday = new Date(from)
   epochMonday.setDate(from.getDate() - ((from.getDay() + 6) % 7))
 
@@ -58,10 +58,14 @@ function generateOccurrences(pattern: {
 
 export async function shiftPatternsRoutes(app: FastifyInstance) {
 
-  // GET /admin/shift-patterns?studioId=&memberId=
   app.get<{ Querystring: { studioId: string; memberId?: string } }>(
     '/',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: {
+        querystring: StudioIdQuery.extend({ memberId: z.string().min(1).optional() }),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       if (!isAdmin(user.role)) return reply.forbidden()
@@ -92,7 +96,6 @@ export async function shiftPatternsRoutes(app: FastifyInstance) {
     },
   )
 
-  // POST /admin/shift-patterns — create pattern and generate shifts
   app.post<{
     Body: {
       studioId: string
@@ -107,7 +110,22 @@ export async function shiftPatternsRoutes(app: FastifyInstance) {
     }
   }>(
     '/',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: {
+        body: z.object({
+          studioId: Id,
+          memberId: Id,
+          daysOfWeek: z.array(z.number().int().min(0).max(6)).min(1),
+          startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Must be HH:MM'),
+          endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Must be HH:MM'),
+          intervalWeeks: z.number().int().min(1).max(4).optional(),
+          validFrom: ISODateTime,
+          validUntil: ISODateTime.optional(),
+          note: z.string().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       if (!isAdmin(user.role)) return reply.forbidden()
@@ -136,7 +154,6 @@ export async function shiftPatternsRoutes(app: FastifyInstance) {
         },
       })
 
-      // Generate individual shift instances
       const occurrences = generateOccurrences({
         daysOfWeek,
         startTime,
@@ -170,7 +187,6 @@ export async function shiftPatternsRoutes(app: FastifyInstance) {
     },
   )
 
-  // PATCH /admin/shift-patterns/:id — update pattern, drop future shifts, regenerate
   app.patch<{
     Params: { id: string }
     Body: {
@@ -184,7 +200,21 @@ export async function shiftPatternsRoutes(app: FastifyInstance) {
     }
   }>(
     '/:id',
-    { preHandler: requireAuth },
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: z.object({ id: Id }),
+        body: z.object({
+          daysOfWeek: z.array(z.number().int().min(0).max(6)).min(1).optional(),
+          startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Must be HH:MM').optional(),
+          endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Must be HH:MM').optional(),
+          intervalWeeks: z.number().int().min(1).max(4).optional(),
+          validFrom: ISODateTime.optional(),
+          validUntil: ISODateTime.nullable().optional(),
+          note: z.string().nullable().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const user = getUser(request)
       if (!isAdmin(user.role)) return reply.forbidden()
@@ -220,7 +250,6 @@ export async function shiftPatternsRoutes(app: FastifyInstance) {
         },
       })
 
-      // Drop all future generated shifts and regenerate
       const now = new Date()
       await prisma.staffShift.deleteMany({ where: { patternId: id, startsAt: { gte: now } } })
 
@@ -257,10 +286,9 @@ export async function shiftPatternsRoutes(app: FastifyInstance) {
     },
   )
 
-  // DELETE /admin/shift-patterns/:id — delete pattern and all future shifts from it
   app.delete<{ Params: { id: string } }>(
     '/:id',
-    { preHandler: requireAuth },
+    { preHandler: requireAuth, schema: { params: z.object({ id: Id }) } },
     async (request, reply) => {
       const user = getUser(request)
       if (!isAdmin(user.role)) return reply.forbidden()
@@ -273,7 +301,6 @@ export async function shiftPatternsRoutes(app: FastifyInstance) {
       if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['franchise_admin'] &&
           !user.studioIds?.includes(pattern.studioId)) return reply.forbidden()
 
-      // Delete future shifts generated from this pattern
       const now = new Date()
       const { count } = await prisma.staffShift.deleteMany({
         where: { patternId: pattern.id, startsAt: { gte: now } },

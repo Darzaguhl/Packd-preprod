@@ -1,14 +1,15 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { assertStudioAccess } from './admin-shared.js'
+import { Id, StudioIdParam } from '../schemas.js'
 
 const requireFranchiseAdmin = requireRole('franchise_admin')
 const requireStudioAdmin = requireRole('studio_admin')
 
 export async function studioRoutes(app: FastifyInstance) {
-  // GET /studios — list all studios (franchise_admin+)
   app.get(
     '/',
     { preHandler: requireFranchiseAdmin },
@@ -24,7 +25,6 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
-  // POST /studios — create studio (franchise_admin+)
   app.post<{
     Body: {
       name: string
@@ -59,11 +59,10 @@ export async function studioRoutes(app: FastifyInstance) {
             timezone,
           },
         })
-        // Auto-link to franchise if the creating user has franchiseId in their JWT
         if (creator.franchiseId) {
           await tx.franchiseStudio.create({
             data: { franchiseId: creator.franchiseId, studioId: s.id },
-          }).catch(() => {}) // ignore if already linked
+          }).catch(() => {})
         }
         return s
       })
@@ -72,7 +71,6 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /studios/:studioId — single studio with locations (studio_admin+)
   app.get<{ Params: { studioId: string } }>(
     '/:studioId',
     { preHandler: requireStudioAdmin },
@@ -90,7 +88,6 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
-  // PATCH /studios/:studioId — update studio details (studio_admin+)
   app.patch<{
     Params: { studioId: string }
     Body: {
@@ -117,7 +114,40 @@ export async function studioRoutes(app: FastifyInstance) {
     }
   }>(
     '/:studioId',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        params: StudioIdParam,
+        body: z.object({
+          name: z.string().min(1).optional(),
+          slug: z.string().min(1).optional(),
+          timezone: z.string().min(1).optional(),
+          currency: z.string().min(1).optional(),
+          timeFormat: z.string().min(1).optional(),
+          websiteUrl: z.string().url().nullable().optional(),
+          supportEmail: z.string().email().nullable().optional(),
+          bookingWindowDays: z.number().int().min(1).optional(),
+          bookingCloseHours: z.number().int().min(0).optional(),
+          waitlistEnabled: z.boolean().optional(),
+          guestCheckInEnabled: z.boolean().optional(),
+          creditPurchaseEnabled: z.boolean().optional(),
+          selfCheckInEnabled: z.boolean().optional(),
+          classReminderHours: z.number().int().min(0).nullable().optional(),
+          maxPauseDays: z.number().int().min(0).optional(),
+          maxPausesPerYear: z.number().int().min(0).optional(),
+          allowMemberPause: z.boolean().optional(),
+          taxRatePct: z.number().min(0).max(100).optional(),
+          referralRewardCredits: z.number().int().min(0).optional(),
+          location: z.object({
+            id: Id,
+            name: z.string().min(1).optional(),
+            address: z.string().min(1).optional(),
+            city: z.string().min(1).optional(),
+            country: z.string().min(1).optional(),
+          }).optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId } = request.params
       const {
@@ -175,7 +205,6 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
-  // DELETE /studios/:studioId — delete studio (franchise_admin+)
   app.delete<{ Params: { studioId: string } }>(
     '/:studioId',
     { preHandler: requireFranchiseAdmin },
@@ -188,7 +217,6 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /studios/:studioId/policy — fetch cancellation policy (studio_admin+)
   app.get<{ Params: { studioId: string } }>(
     '/:studioId/policy',
     { preHandler: requireStudioAdmin },
@@ -198,7 +226,6 @@ export async function studioRoutes(app: FastifyInstance) {
       if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const policy = await prisma.cancellationPolicy.findUnique({ where: { studioId } })
-      // Return current values or schema defaults
       return reply.send({
         lateCancelWindowHours:  policy?.lateCancelWindowHours  ?? 12,
         lateCancelFeeCredits:   policy?.lateCancelFeeCredits   ?? 1,
@@ -208,7 +235,6 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
-  // PATCH /studios/:studioId/policy — upsert cancellation policy (studio_admin+)
   app.patch<{
     Params: { studioId: string }
     Body: {
@@ -227,7 +253,6 @@ export async function studioRoutes(app: FastifyInstance) {
 
       const { lateCancelWindowHours, lateCancelFeeCredits, noShowFeeCredits, waitlistWindowMinutes } = request.body
 
-      // Validate: all values must be non-negative integers when provided
       const numFields = { lateCancelWindowHours, lateCancelFeeCredits, noShowFeeCredits, waitlistWindowMinutes }
       for (const [key, val] of Object.entries(numFields)) {
         if (val !== undefined && (!Number.isInteger(val) || val < 0)) {
@@ -261,7 +286,6 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /studios/:studioId/rooms — list rooms for a studio
   app.get<{ Params: { studioId: string } }>(
     '/:studioId/rooms',
     { preHandler: requireStudioAdmin },
@@ -296,7 +320,6 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
-  // POST /studios/:studioId/rooms — create room
   app.post<{
     Params: { studioId: string }
     Body: { name: string; capacity: number; locationId?: string }
@@ -310,14 +333,13 @@ export async function studioRoutes(app: FastifyInstance) {
       if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       if (!name || !capacity || capacity < 1) {
-        return reply.badRequest('name and capacity (≥1) are required')
+        return reply.badRequest('name and capacity (>=1) are required')
       }
 
-      // Use provided locationId or fall back to first location of the studio
       let locId = locationId
       if (!locId) {
         const loc = await prisma.location.findFirst({ where: { studioId } })
-        if (!loc) return reply.badRequest('Studio has no locations — create a location first')
+        if (!loc) return reply.badRequest('Studio has no locations -- create a location first')
         locId = loc.id
       }
 
@@ -329,7 +351,6 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
-  // DELETE /studios/:studioId/rooms/:roomId — delete room
   app.delete<{ Params: { studioId: string; roomId: string } }>(
     '/:studioId/rooms/:roomId',
     { preHandler: requireStudioAdmin },
@@ -343,12 +364,11 @@ export async function studioRoutes(app: FastifyInstance) {
       })
       if (!room) return reply.notFound('Room not found')
 
-      // Prevent deleting rooms still used by upcoming sessions
       const futureSession = await prisma.classSession.findFirst({
         where: { roomId, startsAt: { gte: new Date() }, status: { not: 'CANCELLED' } },
       })
       if (futureSession) {
-        return reply.code(409).send({ error: 'Room has upcoming classes — reassign them before deleting' })
+        return reply.code(409).send({ error: 'Room has upcoming classes -- reassign them before deleting' })
       }
 
       await prisma.room.delete({ where: { id: roomId } })
@@ -356,7 +376,6 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /studios/:slug/public — public studio info (kept for onboarding)
   app.get<{ Params: { slug: string } }>(
     '/by-slug/:slug',
     { preHandler: requireAuth },
@@ -397,7 +416,6 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
-  // POST /studios/onboard — full studio setup in one transaction (franchise_admin only)
   app.post<{
     Body: {
       name: string
@@ -431,13 +449,20 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
-  // POST /studios/:studioId/copy-from/:sourceStudioId — copy resources from an existing studio (franchise_admin+)
   app.post<{
     Params: { studioId: string; sourceStudioId: string }
     Body: { copy: ('plans' | 'products' | 'templates' | 'policy')[] }
   }>(
     '/:studioId/copy-from/:sourceStudioId',
-    { preHandler: requireFranchiseAdmin },
+    {
+      preHandler: requireFranchiseAdmin,
+      schema: {
+        params: z.object({ studioId: Id, sourceStudioId: Id }),
+        body: z.object({
+          copy: z.array(z.enum(['plans', 'products', 'templates', 'policy'])).default([]),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, sourceStudioId } = request.params
       const { copy = [] } = request.body
@@ -496,8 +521,6 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /studios/:studioId/layouts — all active room layouts (with stations) for the studio
-  // Used by the room editor to populate the "load template" picker
   app.get<{ Params: { studioId: string } }>(
     '/:studioId/layouts',
     { preHandler: requireRole('instructor') },
@@ -526,10 +549,9 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /studios/:studioId/membership-plans — authenticated; stripePriceId is not exposed
   app.get<{ Params: { studioId: string } }>(
     '/:studioId/membership-plans',
-    { preHandler: requireAuth },
+    { preHandler: requireAuth, schema: { params: StudioIdParam } },
     async (request, reply) => {
       const plans = await prisma.membershipPlan.findMany({
         where: { studioId: request.params.studioId },
@@ -539,7 +561,6 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /studios/:studioId/ai — get AI settings (studio_admin+)
   app.get<{ Params: { studioId: string } }>(
     '/:studioId/ai',
     { preHandler: requireStudioAdmin },
@@ -554,13 +575,11 @@ export async function studioRoutes(app: FastifyInstance) {
       return {
         aiEnabled: studio.aiEnabled,
         hasKey: !!studio.anthropicApiKey,
-        // Return masked key suffix so user can recognise which key is set
         keySuffix: studio.anthropicApiKey ? `...${studio.anthropicApiKey.slice(-4)}` : null,
       }
     },
   )
 
-  // PATCH /studios/:studioId/ai — update AI settings (studio_admin+)
   app.patch<{
     Params: { studioId: string }
     Body: { aiEnabled?: boolean; anthropicApiKey?: string | null }

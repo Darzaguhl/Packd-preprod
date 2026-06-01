@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
+import { Id, StudioIdQuery } from '../schemas.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 
@@ -15,10 +17,9 @@ type PromoType = typeof VALID_TYPES[number]
 
 export async function promoRoutes(app: FastifyInstance) {
 
-  // GET /promos?studioId= — list all promo codes for a studio (studio_admin+)
   app.get<{ Querystring: { studioId: string } }>(
     '/',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireStudioAdmin, schema: { querystring: StudioIdQuery } },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
@@ -45,7 +46,6 @@ export async function promoRoutes(app: FastifyInstance) {
     },
   )
 
-  // POST /promos — create a promo code (studio_admin+)
   app.post<{
     Body: {
       studioId: string
@@ -59,7 +59,21 @@ export async function promoRoutes(app: FastifyInstance) {
     }
   }>(
     '/',
-    { preHandler: requireStudioAdmin },
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        body: z.object({
+          studioId: Id,
+          code: z.string().min(3),
+          description: z.string().min(1).optional(),
+          type: z.enum(['CREDIT_GRANT', 'FREE_CLASS', 'MEMBERSHIP_PCT', 'MEMBERSHIP_FLAT']),
+          value: z.number(),
+          maxUses: z.number().int().positive().nullable().optional(),
+          validFrom: z.string().datetime({ offset: true }).optional(),
+          validUntil: z.string().datetime({ offset: true }).nullable().optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { studioId, code, description, type, value, maxUses, validFrom, validUntil } = request.body
 
@@ -106,7 +120,6 @@ export async function promoRoutes(app: FastifyInstance) {
     },
   )
 
-  // PATCH /promos/:id — update or disable (studio_admin+)
   app.patch<{
     Params: { id: string }
     Body: {
@@ -154,10 +167,9 @@ export async function promoRoutes(app: FastifyInstance) {
     },
   )
 
-  // DELETE /promos/:id (studio_admin+)
   app.delete<{ Params: { id: string } }>(
     '/:id',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireStudioAdmin, schema: { params: z.object({ id: Id }) } },
     async (request, reply) => {
       const promo = await prisma.promoCode.findUnique({ where: { id: request.params.id } })
       if (!promo) return reply.notFound()
@@ -167,18 +179,25 @@ export async function promoRoutes(app: FastifyInstance) {
     },
   )
 
-  // POST /promos/redeem — member or fronthost redeems a code
-  // Body: { code, studioId }
   app.post<{ Body: { code: string; studioId: string; memberId?: string } }>(
     '/redeem',
-    { preHandler: requireAuth, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    {
+      preHandler: requireAuth,
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+      schema: {
+        body: z.object({
+          code: z.string().min(1),
+          studioId: Id,
+          memberId: Id.optional(),
+        }),
+      },
+    },
     async (request, reply) => {
       const { code, studioId, memberId: bodyMemberId } = request.body
       const user = getUser(request)
 
       if (!code || !studioId) return reply.badRequest('code and studioId are required')
 
-      // Resolve the member being redeemed for
       let member = await prisma.member.findFirst({
         where: bodyMemberId
           ? { id: bodyMemberId, studioId }
@@ -208,7 +227,6 @@ export async function promoRoutes(app: FastifyInstance) {
         return reply.status(422).send({ error: 'This promo code has reached its usage limit' })
       }
 
-      // Check if already redeemed by this member
       const existing = await prisma.promoCodeRedemption.findUnique({
         where: { promoCodeId_memberId: { promoCodeId: promo.id, memberId: member.id } },
       })
@@ -220,10 +238,6 @@ export async function promoRoutes(app: FastifyInstance) {
       let discount: { type: string; value: number; promoCodeId: string } | null = null
 
       if (promo.type === 'MEMBERSHIP_PCT' || promo.type === 'MEMBERSHIP_FLAT') {
-        // Write a provisional redemption immediately to prevent the member from using
-        // the same discount code in multiple concurrent Stripe checkout sessions.
-        // The webhook's own redemption write (stripe.ts) has an !alreadyRedeemed guard
-        // so it will safely skip if this record already exists.
         await prisma.$transaction(async (tx) => {
           await tx.promoCodeRedemption.create({
             data: { promoCodeId: promo.id, memberId: member!.id },
@@ -235,7 +249,6 @@ export async function promoRoutes(app: FastifyInstance) {
         })
         discount = { type: promo.type, value: promo.value, promoCodeId: promo.id }
       } else {
-        // CREDIT_GRANT / FREE_CLASS — consume immediately
         await prisma.$transaction(async (tx) => {
           await tx.promoCodeRedemption.create({
             data: { promoCodeId: promo.id, memberId: member!.id },

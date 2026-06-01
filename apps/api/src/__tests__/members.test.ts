@@ -30,6 +30,7 @@ vi.mock('stripe', () => ({
 
 import Fastify from 'fastify'
 import sensible from '@fastify/sensible'
+import { serializerCompiler, validatorCompiler } from '@fastify/type-provider-zod'
 import { memberRoutes } from '../routes/members.js'
 import { prisma } from '@packd/db'
 import { getUser } from '../lib/auth.js'
@@ -37,6 +38,8 @@ import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library.js
 
 async function buildApp() {
   const app = Fastify()
+  app.setValidatorCompiler(validatorCompiler)
+  app.setSerializerCompiler(serializerCompiler)
   await app.register(sensible)
   await app.register(memberRoutes, { prefix: '/members' })
   return app
