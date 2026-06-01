@@ -17,7 +17,8 @@ test.describe('Schedule view', () => {
   })
 
   test('each class card has a capacity bar', async ({ authedPage: page }) => {
-    const cards = page.locator('[data-testid="class-card"]')
+    // Past cards (data-past="true") don't render a capacity bar — target future cards only
+    const cards = page.locator('[data-testid="class-card"][data-past="false"]')
     const count = await cards.count()
     if (count === 0) { test.skip(); return }
     await expect(cards.first().locator('[data-testid="capacity-bar"]')).toBeVisible()
