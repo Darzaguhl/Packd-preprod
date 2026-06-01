@@ -365,7 +365,6 @@ For each file in `apps/api/src/routes/`, check:
 ## Backlog
 
 ### Product
-- [ ] E2E tests in CI — specs written and CI job active. Needs 6 GitHub secrets configured: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `PGBOSS_DATABASE_URL`, `STUDIO_ID`.
 - [ ] Conflict detection on bulk schedule creation — skipped by design; only applied on single-session edits and substitute assignment.
 - [ ] Minimum class threshold / auto-cancel — no `minCapacity` field or automated cancellation if bookings fall below threshold before class.
 - [ ] Class series / multi-session bookings — no concept of booking a 6-week course as a unit.
