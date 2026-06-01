@@ -6,7 +6,6 @@ import { requireAuth, getUser } from '../lib/auth.js'
 import { sendWelcome, sendPaymentFailed } from '../lib/email.js'
 import { ROLE_RANK } from '@packd/types'
 import { audit, AUDIT } from '../lib/audit.js'
-import { assertStudioAccess } from './admin-shared.js'
 import { Id } from '../schemas.js'
 
 // ── Route validation schemas ──────────────────────────────────────────────────
@@ -226,6 +225,7 @@ export async function stripeRoutes(app: FastifyInstance) {
     '/charge-member',
     {
       preHandler: requireAuth,
+      config: { studioIdFrom: 'body' },
       schema: { body: ChargeMemberBody },
     },
     async (request, reply) => {
@@ -234,9 +234,6 @@ export async function stripeRoutes(app: FastifyInstance) {
       if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['fronthost']) {
         return reply.forbidden()
       }
-
-      // Verify the caller has access to the target studio
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const member = await prisma.member.findUnique({
         where: { id: memberId },

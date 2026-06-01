@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireRole, requireAuth, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
-import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole } from '../lib/supabase-admin.js'
+import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole, revokeUserSessions } from '../lib/supabase-admin.js'
 import { sendStaffInvite } from '../lib/email.js'
 import { assertStudioAccess } from './admin-shared.js'
 import { Id, MemberIdParam } from '../schemas.js'
@@ -266,6 +266,12 @@ export async function staffRoutes(app: FastifyInstance) {
         }
         // If instructor role is kept, the per-studio Instructor record stays as-is
       }
+
+      // Revoke all active sessions so the user must re-authenticate with their new
+      // (reduced) role. Non-fatal — role change in app_metadata is authoritative.
+      revokeUserSessions(member.user.id).catch(err =>
+        console.warn('[staff] session revocation failed:', err),
+      )
 
       audit({ actorId: user.id, actorRole: user.role, action: AUDIT.STAFF_ROLE_REMOVE, targetId: memberId, studioId: studioToRemove, meta: { roleRemoved: roleToRemove ?? 'all', remainingRoles } })
       return reply.send({ success: true, remainingRoles, remainingStudios: remainingStudios.length })

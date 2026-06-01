@@ -42,6 +42,7 @@ export async function adminSessionRoutes(app: FastifyInstance) {
     '/sessions',
     {
       preHandler: requireInstructor,
+      config: { studioIdFrom: 'querystring' },
       schema: {
         querystring: StudioIdQuery.extend({
           locationId:   z.string().min(1).optional(),
@@ -53,9 +54,6 @@ export async function adminSessionRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId, date } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
-
-      const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const day = date ? new Date(date) : new Date()
       const from = new Date(day); from.setHours(0, 0, 0, 0)
@@ -98,13 +96,10 @@ export async function adminSessionRoutes(app: FastifyInstance) {
   // GET /admin/sessions/bulk?studioId=&from=&to=&instructorId=&templateId= — preview (dry-run)
   app.get<{ Querystring: { studioId: string; from: string; to: string; instructorId?: string; templateId?: string } }>(
     '/sessions/bulk',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireStudioAdmin, config: { studioIdFrom: 'querystring' } },
     async (request, reply) => {
       const { studioId, from, to, instructorId, templateId } = request.query
       if (!studioId || !from || !to) return reply.badRequest('studioId, from and to are required')
-
-      const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const sessions = await prisma.classSession.findMany({
         where: {
@@ -355,6 +350,7 @@ export async function adminSessionRoutes(app: FastifyInstance) {
     '/sessions/bulk',
     {
       preHandler: requireStudioAdmin,
+      config: { studioIdFrom: 'body' },
       schema: {
         body: z.object({
           studioId:               z.string().min(1),
@@ -373,7 +369,6 @@ export async function adminSessionRoutes(app: FastifyInstance) {
       if (action === 'SUBSTITUTE' && !substituteInstructorId) return reply.badRequest('substituteInstructorId is required for SUBSTITUTE action')
 
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const sessions = await prisma.classSession.findMany({
         where: {

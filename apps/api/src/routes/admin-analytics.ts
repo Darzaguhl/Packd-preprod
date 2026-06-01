@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { prisma, Prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
-import { assertStudioAccess } from './admin-shared.js'
 import { StudioIdQuery } from '../schemas.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
@@ -15,14 +14,12 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
     '/stats',
     {
       preHandler: requireInstructor,
+      config: { studioIdFrom: 'querystring' },
       schema: { querystring: StudioIdQuery },
     },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
-
-      const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const today = new Date(); today.setHours(0, 0, 0, 0)
       const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
@@ -63,6 +60,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
     '/leaderboard',
     {
       preHandler: requireStudioAdmin,
+      config: { studioIdFrom: 'querystring' },
       schema: {
         querystring: StudioIdQuery.extend({
           period: z.enum(['week', 'month', 'alltime']).optional(),
@@ -73,9 +71,6 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId, period = 'month' } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
-
-      const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const now = new Date()
       let from: Date | undefined

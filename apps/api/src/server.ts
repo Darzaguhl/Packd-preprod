@@ -16,7 +16,8 @@ import sensible from '@fastify/sensible'
 import rateLimit from '@fastify/rate-limit'
 import swagger from '@fastify/swagger'
 import swaggerUi from '@fastify/swagger-ui'
-import { serializerCompiler, validatorCompiler } from '@fastify/type-provider-zod'
+import { serializerCompiler, validatorCompiler, jsonSchemaTransform } from '@fastify/type-provider-zod'
+import { studioAccessPlugin } from './lib/studio-access-plugin.js'
 
 import { scheduleRoutes } from './routes/schedule.js'
 import { classScheduleRoutes } from './routes/schedules.js'
@@ -58,6 +59,7 @@ const app = Fastify({
 
 app.setValidatorCompiler(validatorCompiler)
 app.setSerializerCompiler(serializerCompiler)
+await app.register(studioAccessPlugin)
 
 await app.register(swagger, {
   openapi: {

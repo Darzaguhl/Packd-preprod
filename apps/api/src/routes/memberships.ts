@@ -153,13 +153,12 @@ export async function membershipRoutes(app: FastifyInstance) {
   // GET /memberships/plans?studioId= — list plans for a studio (studio_admin+)
   app.get<{ Querystring: { studioId: string } }>(
     '/plans',
-    { preHandler: requireStudioAdmin, schema: { querystring: StudioIdQuery } },
+    { preHandler: requireStudioAdmin, config: { studioIdFrom: 'querystring' }, schema: { querystring: StudioIdQuery } },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
 
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const plans = await prisma.membershipPlan.findMany({
         where: { studioId },
@@ -196,7 +195,7 @@ export async function membershipRoutes(app: FastifyInstance) {
     }
   }>(
     '/plans',
-    { preHandler: requireStudioAdmin, schema: { querystring: StudioIdQuery } },
+    { preHandler: requireStudioAdmin, config: { studioIdFrom: 'body' }, schema: { querystring: StudioIdQuery } },
     async (request, reply) => {
       const { studioId, name, description, priceInCents, intervalMonths = 1, creditsPerCycle, guestPassesPerCycle = 0 } = request.body
       if (!studioId || !name || priceInCents === undefined) {
@@ -211,7 +210,6 @@ export async function membershipRoutes(app: FastifyInstance) {
       }
 
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       // Sync with Stripe (fire-and-forget on failure — don't block plan creation)
       let stripeProductId: string | undefined

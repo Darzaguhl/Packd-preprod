@@ -2,7 +2,6 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
-import { assertStudioAccess } from './admin-shared.js'
 import { Id, StudioIdQuery } from '../schemas.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
@@ -69,13 +68,12 @@ export async function waiverRoutes(app: FastifyInstance) {
     '/admin',
     {
       preHandler: requireStudioAdmin,
+      config: { studioIdFrom: 'querystring' },
       schema: { querystring: StudioIdQuery },
     },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
-      const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const waiver = await prisma.waiver.findFirst({
         where: { studioId, isActive: true },
@@ -92,6 +90,7 @@ export async function waiverRoutes(app: FastifyInstance) {
     '/admin',
     {
       preHandler: requireStudioAdmin,
+      config: { studioIdFrom: 'body' },
       schema: {
         body: z.object({
           studioId: z.string().min(1),
@@ -104,8 +103,6 @@ export async function waiverRoutes(app: FastifyInstance) {
       const { studioId, title, body } = request.body
       if (!studioId) return reply.badRequest('studioId is required')
       if (!title?.trim() || !body?.trim()) return reply.badRequest('title and body are required')
-      const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const existing = await prisma.waiver.findFirst({
         where: { studioId, isActive: true },
@@ -133,13 +130,12 @@ export async function waiverRoutes(app: FastifyInstance) {
     '/admin',
     {
       preHandler: requireStudioAdmin,
+      config: { studioIdFrom: 'querystring' },
       schema: { querystring: StudioIdQuery },
     },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
-      const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       await prisma.waiver.updateMany({ where: { studioId, isActive: true }, data: { isActive: false } })
       return reply.send({ success: true })

@@ -68,6 +68,27 @@ export async function setSupabaseAppMeta(userId: string, meta: SupabaseAppMeta):
 }
 
 /**
+ * Revoke all active sessions for a Supabase user.
+ *
+ * Call this immediately after modifying app_metadata (role changes, removals)
+ * so the user's current JWT is invalidated and they must re-authenticate to
+ * receive a token that reflects the updated role. Failure is non-fatal — the
+ * role change in app_metadata is the authoritative truth; at worst the old
+ * session persists until the JWT naturally expires (~1 hour).
+ */
+export async function revokeUserSessions(userId: string): Promise<void> {
+  // Supabase Admin API: DELETE /auth/v1/admin/users/:id/logout
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}/logout`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${SERVICE_ROLE_KEY}`, apikey: SERVICE_ROLE_KEY },
+  })
+  // 404 = no active sessions, still fine
+  if (!res.ok && res.status !== 404) {
+    console.warn(`[supabase-admin] revokeUserSessions failed for ${userId}: ${res.status}`)
+  }
+}
+
+/**
  * Derive the primary role from a set of roles.
  * Highest-rank role wins: franchise_admin > studio_admin > instructor > fronthost > member
  */

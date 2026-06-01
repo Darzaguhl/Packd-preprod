@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
-import { assertStudioAccess } from './admin-shared.js'
 import { Id, StudioIdParam } from '../schemas.js'
 
 const requireFranchiseAdmin = requireRole('franchise_admin')
@@ -73,11 +72,10 @@ export async function studioRoutes(app: FastifyInstance) {
 
   app.get<{ Params: { studioId: string } }>(
     '/:studioId',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireStudioAdmin, config: { studioIdFrom: 'params' } },
     async (request, reply) => {
       const { studioId } = request.params
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const studio = await prisma.studio.findUnique({
         where: { id: studioId },
@@ -116,6 +114,7 @@ export async function studioRoutes(app: FastifyInstance) {
     '/:studioId',
     {
       preHandler: requireStudioAdmin,
+      config: { studioIdFrom: 'params' },
       schema: {
         params: StudioIdParam,
         body: z.object({
@@ -160,7 +159,6 @@ export async function studioRoutes(app: FastifyInstance) {
         location,
       } = request.body
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       if (slug) {
         const conflict = await prisma.studio.findFirst({ where: { slug, id: { not: studioId } } })
@@ -219,11 +217,10 @@ export async function studioRoutes(app: FastifyInstance) {
 
   app.get<{ Params: { studioId: string } }>(
     '/:studioId/policy',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireStudioAdmin, config: { studioIdFrom: 'params' } },
     async (request, reply) => {
       const { studioId } = request.params
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const policy = await prisma.cancellationPolicy.findUnique({ where: { studioId } })
       return reply.send({
@@ -245,11 +242,10 @@ export async function studioRoutes(app: FastifyInstance) {
     }
   }>(
     '/:studioId/policy',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireStudioAdmin, config: { studioIdFrom: 'params' } },
     async (request, reply) => {
       const { studioId } = request.params
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const { lateCancelWindowHours, lateCancelFeeCredits, noShowFeeCredits, waitlistWindowMinutes } = request.body
 
@@ -288,11 +284,10 @@ export async function studioRoutes(app: FastifyInstance) {
 
   app.get<{ Params: { studioId: string } }>(
     '/:studioId/rooms',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireStudioAdmin, config: { studioIdFrom: 'params' } },
     async (request, reply) => {
       const { studioId } = request.params
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const locations = await prisma.location.findMany({
         where: { studioId },
@@ -325,12 +320,11 @@ export async function studioRoutes(app: FastifyInstance) {
     Body: { name: string; capacity: number; locationId?: string }
   }>(
     '/:studioId/rooms',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireStudioAdmin, config: { studioIdFrom: 'params' } },
     async (request, reply) => {
       const { studioId } = request.params
       const { name, capacity, locationId } = request.body
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       if (!name || !capacity || capacity < 1) {
         return reply.badRequest('name and capacity (>=1) are required')
@@ -353,11 +347,10 @@ export async function studioRoutes(app: FastifyInstance) {
 
   app.delete<{ Params: { studioId: string; roomId: string } }>(
     '/:studioId/rooms/:roomId',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireStudioAdmin, config: { studioIdFrom: 'params' } },
     async (request, reply) => {
       const { studioId, roomId } = request.params
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const room = await prisma.room.findFirst({
         where: { id: roomId, location: { studioId } },
@@ -523,11 +516,10 @@ export async function studioRoutes(app: FastifyInstance) {
 
   app.get<{ Params: { studioId: string } }>(
     '/:studioId/layouts',
-    { preHandler: requireRole('instructor') },
+    { preHandler: requireRole('instructor'), config: { studioIdFrom: 'params' } },
     async (request, reply) => {
       const { studioId } = request.params
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const rooms = await prisma.room.findMany({
         where: { location: { studioId } },
@@ -563,7 +555,7 @@ export async function studioRoutes(app: FastifyInstance) {
 
   app.get<{ Params: { studioId: string } }>(
     '/:studioId/ai',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireStudioAdmin, config: { studioIdFrom: 'params' } },
     async (request, reply) => {
       const user = getUser(request)
       const studio = await prisma.studio.findUnique({
@@ -571,7 +563,6 @@ export async function studioRoutes(app: FastifyInstance) {
         select: { aiEnabled: true, anthropicApiKey: true },
       })
       if (!studio) return reply.notFound()
-      if (!await assertStudioAccess(user.id, user.role, request.params.studioId, reply, user.studioIds)) return
       return {
         aiEnabled: studio.aiEnabled,
         hasKey: !!studio.anthropicApiKey,
@@ -585,10 +576,9 @@ export async function studioRoutes(app: FastifyInstance) {
     Body: { aiEnabled?: boolean; anthropicApiKey?: string | null }
   }>(
     '/:studioId/ai',
-    { preHandler: requireStudioAdmin },
+    { preHandler: requireStudioAdmin, config: { studioIdFrom: 'params' } },
     async (request, reply) => {
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, request.params.studioId, reply, user.studioIds)) return
       const { aiEnabled, anthropicApiKey } = request.body
       const studio = await prisma.studio.update({
         where: { id: request.params.studioId },

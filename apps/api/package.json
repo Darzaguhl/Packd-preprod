@@ -19,6 +19,7 @@
     "@packd/db": "*",
     "@packd/types": "*",
     "fastify": "^5.2.1",
+    "fastify-plugin": "^5.1.0",
     "jose": "^5.9.6",
     "pg-boss": "^10.1.4",
     "pino": "^10.3.1",

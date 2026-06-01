@@ -28,7 +28,7 @@ export async function adminExportsRoutes(app: FastifyInstance) {
     '/query',
     {
       preHandler: requireStudioAdmin,
-      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' }, studioIdFrom: 'body' },
       schema: {
         body: z.object({
           sql:     z.string().min(1),
@@ -40,9 +40,6 @@ export async function adminExportsRoutes(app: FastifyInstance) {
       const { sql, studioId } = request.body
       if (!studioId) return reply.badRequest('studioId is required')
       if (!sql || typeof sql !== 'string') return reply.badRequest('sql is required')
-
-      const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const err = validateSelectQuery(sql)
       if (err) return reply.badRequest(err)
@@ -79,13 +76,12 @@ export async function adminExportsRoutes(app: FastifyInstance) {
     '/export/members',
     {
       preHandler: requireStudioAdmin,
+      config: { studioIdFrom: 'querystring' },
       schema: { querystring: StudioIdQuery },
     },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
-      const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const members = await prisma.member.findMany({
         where: { studioId, staffRoles: { isEmpty: true } },
@@ -125,6 +121,7 @@ export async function adminExportsRoutes(app: FastifyInstance) {
     '/export/attendance',
     {
       preHandler: requireStudioAdmin,
+      config: { studioIdFrom: 'querystring' },
       schema: {
         querystring: StudioIdQuery.extend({
           from: DateString.optional(),
@@ -135,8 +132,6 @@ export async function adminExportsRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId, from, to } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
-      const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       const toDate   = to   ? new Date(to)   : new Date()
@@ -173,6 +168,7 @@ export async function adminExportsRoutes(app: FastifyInstance) {
     '/export/revenue',
     {
       preHandler: requireStudioAdmin,
+      config: { studioIdFrom: 'querystring' },
       schema: {
         querystring: StudioIdQuery.extend({
           from: DateString.optional(),
@@ -183,8 +179,6 @@ export async function adminExportsRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId, from, to } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
-      const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       const toDate   = to   ? new Date(to)   : new Date()
@@ -215,6 +209,7 @@ export async function adminExportsRoutes(app: FastifyInstance) {
     '/export/instructor-pay',
     {
       preHandler: requireStudioAdmin,
+      config: { studioIdFrom: 'querystring' },
       schema: {
         querystring: StudioIdQuery.extend({
           from: DateString.optional(),
@@ -225,8 +220,6 @@ export async function adminExportsRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId, from, to } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
-      const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       const toDate   = to   ? new Date(to)   : new Date()

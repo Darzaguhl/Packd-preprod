@@ -61,6 +61,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
     '/members',
     {
       preHandler: requireInstructor,
+      config: { studioIdFrom: 'querystring' },
       schema: {
         querystring: StudioIdQuery.merge(CursorQuery).extend({
           q: z.string().optional(),
@@ -71,7 +72,6 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       const { studioId, q, cursor, take: takeStr } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const take = Math.min(parseInt(takeStr ?? '50', 10) || 50, 200)
 
@@ -119,6 +119,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
     '/members/search',
     {
       preHandler: requireInstructor,
+      config: { studioIdFrom: 'querystring' },
       schema: {
         querystring: StudioIdQuery.extend({
           q: z.string().min(1),
@@ -130,7 +131,6 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       if (!q || q.trim().length < 2) return reply.badRequest('q must be at least 2 characters')
 
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const term = q.trim()
       const members = await prisma.member.findMany({
@@ -674,6 +674,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
     '/audit-log',
     {
       preHandler: requireStudioAdmin,
+      config: { studioIdFrom: 'querystring' },
       schema: {
         querystring: StudioIdQuery.merge(CursorQuery).extend({
           targetId: z.string().optional(),
@@ -685,7 +686,6 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       if (!studioId) return reply.badRequest('studioId is required')
 
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const limit = Math.min(parseInt(limitStr ?? '50', 10) || 50, 200)
 

@@ -23,13 +23,12 @@ export async function templateRoutes(app: FastifyInstance) {
     '/',
     {
       preHandler: requireRole('instructor'),
+      config: { studioIdFrom: 'querystring' },
       schema: { querystring: StudioIdQuery },
     },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId required')
-      const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
 
       const templates = await prisma.classTemplate.findMany({
         where: { studioId },
@@ -54,6 +53,7 @@ export async function templateRoutes(app: FastifyInstance) {
     '/',
     {
       preHandler: requireRole('studio_admin'),
+      config: { studioIdFrom: 'body' },
       schema: {
         body: z.object({
           studioId: z.string().min(1),
@@ -81,8 +81,6 @@ export async function templateRoutes(app: FastifyInstance) {
         defaultStartTime, defaultStartTime2, defaultDaysOfWeek, defaultIntervalWeeks,
       } = request.body
       if (!studioId || !name || !sport || !durationMin) return reply.badRequest('studioId, name, sport and durationMin are required')
-      const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply)) return
 
       const template = await prisma.classTemplate.create({
         data: {

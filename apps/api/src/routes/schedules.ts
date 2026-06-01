@@ -4,7 +4,6 @@ import { prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
 import { ROLE_RANK } from '@packd/types'
-import { assertStudioAccess } from './admin-shared.js'
 import { sendSubstituteNotification } from '../lib/email.js'
 import { IdParam, StudioIdQuery } from '../schemas.js'
 
@@ -103,6 +102,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     '/',
     {
       preHandler: requireInstructor,
+      config: { studioIdFrom: 'querystring' },
       schema: {
         querystring: z.object({
           studioId: z.string().min(1),
@@ -114,7 +114,6 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       const { studioId, weekStart } = request.query
       if (!studioId) return reply.badRequest('studioId required')
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       // Default weekStart = today
       const base = weekStart ? new Date(weekStart) : new Date()
@@ -211,13 +210,13 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     '/all',
     {
       preHandler: requireInstructor,
+      config: { studioIdFrom: 'querystring' },
       schema: { querystring: StudioIdQuery },
     },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId required')
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const schedules = await prisma.classSchedule.findMany({
         where: { studioId, isActive: true },
@@ -272,6 +271,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     '/',
     {
       preHandler: requireStudioAdmin,
+      config: { studioIdFrom: 'body' },
       schema: {
         body: z.object({
           studioId: z.string().min(1),
@@ -299,7 +299,6 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       } = request.body
 
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       if (!daysOfWeek?.length) return reply.badRequest('daysOfWeek must be non-empty')
       if (!/^\d{2}:\d{2}$/.test(startTime)) return reply.badRequest('startTime must be HH:MM')
@@ -357,6 +356,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     '/:id',
     {
       preHandler: requireStudioAdmin,
+      config: { studioIdFrom: 'body' },
       schema: {
         params: IdParam,
         body: z.object({
@@ -378,7 +378,6 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       const { id } = request.params
       const { studioId, ...fields } = request.body
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const existing = await prisma.classSchedule.findFirst({ where: { id, studioId } })
       if (!existing) return reply.notFound('Schedule not found')
@@ -437,6 +436,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     '/:id',
     {
       preHandler: requireStudioAdmin,
+      config: { studioIdFrom: 'querystring' },
       schema: {
         params: IdParam,
         querystring: StudioIdQuery,
@@ -446,7 +446,6 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       const { id } = request.params
       const { studioId } = request.query
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const existing = await prisma.classSchedule.findFirst({ where: { id, studioId } })
       if (!existing) return reply.notFound('Schedule not found')
@@ -475,6 +474,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     '/sessions/:sessionId/substitute',
     {
       preHandler: requireInstructor,
+      config: { studioIdFrom: 'body' },
       schema: {
         params: z.object({ sessionId: z.string().min(1) }),
         body: z.object({
@@ -487,7 +487,6 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       const { sessionId } = request.params
       const { substituteInstructorId, studioId } = request.body
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       // Instructors need the canEditSessionDetails permission; studio_admin+ always allowed
       if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['studio_admin']) {
@@ -570,6 +569,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     '/orphaned',
     {
       preHandler: requireStudioAdmin,
+      config: { studioIdFrom: 'querystring' },
       schema: {
         querystring: z.object({
           studioId: z.string().min(1),
@@ -585,7 +585,6 @@ export async function classScheduleRoutes(app: FastifyInstance) {
         return reply.badRequest('studioId, templateId, instructorId and startTime are required')
       }
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const [hh, mm] = startTime.split(':').map(Number)
       const now = new Date()
@@ -620,6 +619,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     '/month',
     {
       preHandler: requireInstructor,
+      config: { studioIdFrom: 'querystring' },
       schema: {
         querystring: z.object({
           studioId: z.string().min(1),
@@ -633,7 +633,6 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       const { studioId, year, month, instructorId } = request.query
       if (!studioId) return reply.badRequest('studioId required')
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const y = Number(year ?? new Date().getFullYear())
       const m = Number(month ?? new Date().getMonth() + 1)
@@ -688,13 +687,13 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     '/orphaned',
     {
       preHandler: requireInstructor,
+      config: { studioIdFrom: 'querystring' },
       schema: { querystring: StudioIdQuery },
     },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId required')
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const now = new Date()
       const future = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000) // 60 days ahead

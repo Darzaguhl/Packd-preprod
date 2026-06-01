@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
-import { assertStudioAccess } from './admin-shared.js'
 import { ROLE_RANK } from '@packd/types'
 import { Id, ISODateTime, StudioIdQuery } from '../schemas.js'
 
@@ -53,6 +52,7 @@ export async function shiftsRoutes(app: FastifyInstance) {
     '/',
     {
       preHandler: requireAuth,
+      config: { studioIdFrom: 'querystring' },
       schema: {
         querystring: StudioIdQuery.extend({
           memberId: z.string().min(1).optional(),
@@ -67,7 +67,6 @@ export async function shiftsRoutes(app: FastifyInstance) {
 
       const { studioId, from, to } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const shifts = await prisma.staffShift.findMany({
         where: {
@@ -117,6 +116,7 @@ export async function shiftsRoutes(app: FastifyInstance) {
     '/',
     {
       preHandler: requireAuth,
+      config: { studioIdFrom: 'body' },
       schema: {
         body: z.object({
           studioId: Id,
@@ -135,7 +135,6 @@ export async function shiftsRoutes(app: FastifyInstance) {
       if (!studioId || !memberId || !startsAt || !endsAt) {
         return reply.badRequest('studioId, memberId, startsAt and endsAt are required')
       }
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const start = new Date(startsAt)
       const end = new Date(endsAt)

@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
-import { assertStudioAccess } from './admin-shared.js'
 import { ROLE_RANK } from '@packd/types'
 import { Id, ISODateTime, StudioIdQuery } from '../schemas.js'
 
@@ -62,6 +61,7 @@ export async function shiftPatternsRoutes(app: FastifyInstance) {
     '/',
     {
       preHandler: requireAuth,
+      config: { studioIdFrom: 'querystring' },
       schema: {
         querystring: StudioIdQuery.extend({ memberId: z.string().min(1).optional() }),
       },
@@ -71,7 +71,6 @@ export async function shiftPatternsRoutes(app: FastifyInstance) {
       if (!isAdmin(user.role)) return reply.forbidden()
       const { studioId, memberId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const patterns = await prisma.staffShiftPattern.findMany({
         where: { studioId, ...(memberId ? { memberId } : {}) },
@@ -112,6 +111,7 @@ export async function shiftPatternsRoutes(app: FastifyInstance) {
     '/',
     {
       preHandler: requireAuth,
+      config: { studioIdFrom: 'body' },
       schema: {
         body: z.object({
           studioId: Id,
@@ -134,7 +134,6 @@ export async function shiftPatternsRoutes(app: FastifyInstance) {
       if (!studioId || !memberId || !daysOfWeek?.length || !startTime || !endTime || !validFrom) {
         return reply.badRequest('studioId, memberId, daysOfWeek, startTime, endTime, validFrom are required')
       }
-      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
       if (endTime <= startTime) return reply.badRequest('endTime must be after startTime')
 
       const member = await prisma.member.findFirst({ where: { id: memberId, studioId }, select: { id: true } })
