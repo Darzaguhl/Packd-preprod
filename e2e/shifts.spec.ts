@@ -31,12 +31,21 @@ async function openFronthostDrawer(page: import('@playwright/test').Page) {
   await expect(page.getByTestId('add-shift-btn')).toBeVisible({ timeout: 5_000 })
 }
 
+// Delete all leftover shifts so retries start from a clean state
+async function deleteAllShifts(page: import('@playwright/test').Page) {
+  while (await page.getByTestId('delete-shift-btn').first().isVisible().catch(() => false)) {
+    await page.getByTestId('delete-shift-btn').first().click()
+    await expect(page.getByTestId('delete-shift-btn').first()).not.toBeVisible({ timeout: 3_000 }).catch(() => {})
+  }
+}
+
 test.describe('Staff shifts — one-off', () => {
   test.use({ testIdAttribute: 'data-testid' })
 
   test('adds a shift, edits its time, then deletes it', async ({ adminPage: page }) => {
     await goToStaffTab(page)
     await openFronthostDrawer(page)
+    await deleteAllShifts(page)
 
     // ── Add shift ──────────────────────────────────────────────────────────
     await page.getByTestId('add-shift-btn').click()
@@ -48,10 +57,8 @@ test.describe('Staff shifts — one-off', () => {
     await page.locator('input[type="time"]').nth(1).fill('17:00')
     await page.getByTestId('shift-save-btn').click()
 
-    // Shift row should appear
-    await expect(page.getByTestId('shift-row').first()).toBeVisible({ timeout: 6_000 })
-    const timeText = await page.getByTestId('shift-time').first().textContent()
-    expect(timeText).toMatch(/9.*(am|:00).*5.*(pm|:00)/i)
+    // Wait for the shift row to show the expected time (retries until UI refreshes)
+    await expect(page.getByTestId('shift-time').first()).toHaveText(/9.*(am|:00).*5.*(pm|:00)/i, { timeout: 6_000 })
 
     // ── Edit shift ─────────────────────────────────────────────────────────
     await page.getByTestId('edit-shift-btn').first().click()
@@ -60,9 +67,8 @@ test.describe('Staff shifts — one-off', () => {
     await page.locator('input[type="time"]').nth(1).fill('18:00')
     await page.getByTestId('shift-save-btn').click()
 
-    await expect(page.getByTestId('shift-row').first()).toBeVisible({ timeout: 5_000 })
-    const updatedTime = await page.getByTestId('shift-time').first().textContent()
-    expect(updatedTime).toMatch(/6.*(pm|:00)/i)
+    // Wait for the time to update to 6 PM (retries until UI refreshes)
+    await expect(page.getByTestId('shift-time').first()).toHaveText(/6.*(pm|:00)/i, { timeout: 5_000 })
 
     // ── Delete shift ───────────────────────────────────────────────────────
     await page.getByTestId('delete-shift-btn').first().click()
