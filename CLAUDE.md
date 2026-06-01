@@ -32,7 +32,7 @@ npm install              # also runs prisma generate via postinstall
 cd apps/api && npm run dev           # API on :4000
 cd apps/web && npm run dev           # Web on :3000
 
-npm test                             # Vitest unit tests (197 passing across 22 files — kept green throughout)
+npm test                             # Vitest unit tests (205 passing | 7 skipped across 23 files)
 npm run test:e2e                     # Playwright (needs both servers + .auth/ state files)
 
 npm run db:migrate                   # create + apply migration locally (interactive)
@@ -256,7 +256,9 @@ apps/
       brand/               # BrandDashboard — franchise creation, franchise admin assignment,
                            # cross-franchise analytics, members, classes
     lib/
-      api.ts               # Typed API client
+      api.ts               # Typed API client (hand-written; types from api-types.generated.ts)
+      api-types.generated.ts  # Auto-generated from openapi.json via openapi-typescript; run
+                              # `npm run generate:types` after any route schema change
       supabase/            # client.ts + server.ts
       audit.ts             # (frontend) audit log display helpers
     middleware.ts          # Session refresh
@@ -268,12 +270,18 @@ e2e/
   global-setup.ts          # Creates test users in Supabase, seeds credits, saves auth state
   fixtures.ts              # authedPage + adminPage fixtures (load .auth/ saved state)
   auth.spec.ts             # Auth flow tests
-  booking.spec.ts          # Book → verify booked → cancel → verify unbooked
+  booking.spec.ts          # Book → verify booked → cancel → verify unbooked; credit balance deduct/restore
   schedule.spec.ts         # Schedule structure tests
   frontdesk.spec.ts        # Admin dashboard, member search, check-in
+  waiver.spec.ts           # Waiver gate: unsigned → modal → sign → book; pre-signed → book directly
   performance.spec.ts      # LCP, CLS, API latency benchmarks
-.github/workflows/ci.yml   # Unit tests + typecheck on every push; E2E on PRs (disabled
-                           # until GitHub secrets configured)
+.github/workflows/ci.yml   # Unit tests + typecheck + OpenAPI drift check on every push;
+                           # E2E on PRs (needs 6 GitHub secrets: SUPABASE_URL, SUPABASE_ANON_KEY,
+                           # SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL, PGBOSS_DATABASE_URL, STUDIO_ID)
+docs/
+  deploy-runbook.md        # Zero-downtime deploy strategy + expand/contract migration pattern
+  secret-rotation.md       # Rotation procedures for ICAL_SECRET, INVITE_SECRET, Stripe, Supabase
+  soc2-controls.md         # SOC 2 TSC control mapping + gap list for formal audit
 ```
 
 ## Key patterns
@@ -309,6 +317,10 @@ e2e/
 - **Studio-access middleware**: `lib/studio-access-plugin.ts` — add `config: { studioIdFrom: 'querystring' | 'params' | 'body' }` to a route and studio access is enforced automatically as a `preHandler`. Only use manual `assertStudioAccess` when studioId must be resolved from a DB record (e.g. per-member endpoints, sale ownership checks).
 - **Session revocation**: `revokeUserSessions(userId)` in `supabase-admin.ts` — call after any role change (staff removal, role downgrade) so the user's JWT is immediately invalidated. Fire-and-forget, non-fatal.
 - **Connection pooling**: `DATABASE_URL` → Supabase pgBouncer pooler (port 6543, `?pgbouncer=true`). `PGBOSS_DATABASE_URL` → direct connection (port 5432, no pgBouncer) — pg-boss uses advisory locks + LISTEN/NOTIFY which break with transaction-mode pooling. `DIRECT_URL` → direct connection used by Prisma for migrations only.
+- **Ops alerting**: `sendOpsAlert(subject, body)` in `lib/email.ts` — fires to `OPS_EMAIL` via Resend. All pg-boss job handlers wrapped with `work(name, handler)` in `jobs/index.ts` which auto-alerts on failure. Stripe webhook handler also wrapped with try/catch that alerts.
+- **iCal token rotation**: set `ICAL_SECRET_PREVIOUS=<old>` + `ICAL_SECRET=<new>` — tokens signed with either key are accepted. Drop PREVIOUS after ~30 days. Token verification uses `timingSafeEqual` on both keys. See `docs/secret-rotation.md`.
+- **OpenAPI spec + typed client**: `npm run generate:types` runs `apps/api/src/generate-openapi.ts` (builds Fastify app without `listen()`, writes `apps/api/openapi.json`) then `openapi-typescript` (writes `apps/web/src/lib/api-types.generated.ts`). CI checks both files are up to date on every push.
+- **Session revocation**: `revokeUserSessions(userId)` called after every role change — grant (`POST /staff`), accept-invite, and removal (`DELETE /staff/:memberId`). Forces re-auth so the new JWT reflects the updated role immediately.
 
 ## Security and architecture review protocol
 
@@ -353,22 +365,19 @@ For each file in `apps/api/src/routes/`, check:
 ## Backlog
 
 ### Product
-- [ ] E2E tests in CI — specs written; CI job exists but disabled. Needs 5 GitHub secrets: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `PGBOSS_DATABASE_URL`, `STUDIO_ID`. Remove `if: false` from `.github/workflows/ci.yml` once set.
-- [ ] Conflict detection on bulk schedule creation — skipped by design (computing all occurrences upfront is complex); applied only on single-session edits and substitute assignment.
-- [ ] Minimum class threshold / auto-cancel — no `minCapacity` field or automated cancellation if bookings fall below threshold.
+- [ ] E2E tests in CI — specs written and CI job active. Needs 6 GitHub secrets configured: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `PGBOSS_DATABASE_URL`, `STUDIO_ID`.
+- [ ] Conflict detection on bulk schedule creation — skipped by design; only applied on single-session edits and substitute assignment.
+- [ ] Minimum class threshold / auto-cancel — no `minCapacity` field or automated cancellation if bookings fall below threshold before class.
 - [ ] Class series / multi-session bookings — no concept of booking a 6-week course as a unit.
 - [ ] Platform admin panel — creating Brands + assigning `brand_admin` still requires direct Supabase API access.
 - [ ] Receipt PDF generation — currently exposes Stripe's hosted receipt URL; no first-party PDF.
 - [ ] SMS notifications — email only; no SMS channel.
-- [ ] FranchiseDashboard split — component is large; each tab should be its own file (StudiosTab, AnalyticsTab, PromoTab, BroadcastTab, NetworksTab). No behaviour change.
 - [ ] Pagination on remaining high-volume endpoints — `GET /franchise/all-admins`, `GET /franchise/promos`, brand member lists.
 
 ### Enterprise / operational
-- [ ] Zero-downtime deploy strategy — no coordinated migration + API deploy process exists.
-- [ ] Alerting — Sentry captures errors but no alerting on pg-boss job failures, payment failures, or high error rates.
-- [ ] Session revocation on role _upgrade_ — currently only fires on removal. Role grants don't need it (new JWT picks up higher role on next auth refresh), but worth noting.
-- [ ] Cross-tenant isolation test suite — one Vitest test per sensitive table asserting a cross-tenant query returns 0 rows when RLS context is set to a different studio.
-- [ ] API versioning — no strategy. Breaking changes will be painful for mobile / third-party integrations.
-- [ ] E2E coverage for booking + payment flows — only shifts/frontdesk/schedule/auth covered; booking happy path, credit purchase, and waiver signing have no E2E tests.
-- [ ] SOC 2 documentation — audit logs and RLS in place; needs log retention policies, access reviews, and incident response runbooks.
-- [ ] Secret rotation mechanism — `ICAL_SECRET`, `INVITE_SECRET`, Stripe keys are static with no rotation path.
+- [ ] RLS integration tests activated — `rls-isolation.test.ts` has 7 integration tests that prove row-level isolation works end-to-end. Currently skipped (`INTEGRATION=true` required). Add RLS SQL + `packd_api` role setup to CI postgres service to enable.
+- [ ] Access review schedule — quarterly review of who has `studio_admin` and `franchise_admin` access (SOC 2 CC6.3 requirement).
+- [ ] Log retention policy — `AuditLog` entries currently kept indefinitely; define and enforce a retention window.
+- [ ] Backup restore test — Supabase PITR enabled but restore procedure untested. Run a restore drill against a staging environment.
+- [ ] Business continuity plan — define what happens if Supabase, Stripe, or Resend are unavailable.
+- [ ] External penetration test — internal audit found 30 issues (all fixed). Schedule a third-party pen test before enterprise launch.
