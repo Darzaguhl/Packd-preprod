@@ -75,7 +75,11 @@ test.describe('Credit balance', () => {
 
     for (let dayIdx = 0; dayIdx < 7 && !booked; dayIdx++) {
       await tabs.nth(dayIdx).click()
-      await page.waitForTimeout(400)
+      // Wait for schedule to settle (skeleton gone or cards/empty-state visible)
+      await expect(
+        page.locator('[data-testid="class-card"]').first()
+          .or(page.locator('text=/no classes/i'))
+      ).toBeVisible({ timeout: 6000 }).catch(() => {})
       const cards = page.locator('[data-testid="class-card"][data-past="false"]')
       const count = await cards.count()
 

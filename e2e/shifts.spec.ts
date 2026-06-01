@@ -58,6 +58,8 @@ test.describe('Staff shifts — one-off', () => {
     await page.locator('input[type="time"]').nth(0).fill('09:00')
     await page.locator('input[type="time"]').nth(1).fill('17:00')
     await page.getByTestId('shift-save-btn').click()
+    // Wait for add modal to close (confirms the save completed and load() was triggered)
+    await expect(page.getByTestId('shift-save-btn')).not.toBeVisible({ timeout: 8_000 })
 
     // Wait for the shift row to show the expected time (retries until UI refreshes)
     await expect(page.getByTestId('shift-time').first()).toHaveText(/9.*(am|:00).*5.*(pm|:00)/i, { timeout: 10_000 })
@@ -70,6 +72,8 @@ test.describe('Staff shifts — one-off', () => {
     // Change end time to 18:00
     await page.locator('input[type="time"]').nth(1).fill('18:00')
     await page.getByTestId('shift-save-btn').click()
+    // Wait for modal to close (confirms onSaved() fired and load() was triggered)
+    await expect(page.getByTestId('shift-save-btn')).not.toBeVisible({ timeout: 8_000 })
 
     // Wait for the time to update to 6 PM (retries until UI refreshes)
     await expect(page.getByTestId('shift-time').first()).toHaveText(/6.*(pm|:00)/i, { timeout: 10_000 })
