@@ -69,8 +69,15 @@ test.describe('Staff shifts — one-off', () => {
     // Wait for the edit modal's save button to confirm the modal is open
     await expect(page.getByTestId('shift-save-btn')).toBeVisible({ timeout: 5_000 })
 
-    // Change end time to 18:00
-    await page.locator('input[type="time"]').nth(1).fill('18:00')
+    // Change end time to 18:00 via nativeInputValueSetter so React's onChange fires
+    // reliably in headless Chromium (plain fill() may not trigger onChange on a
+    // React-controlled input that already has a value).
+    await page.getByTestId('shift-end-time').evaluate((el: HTMLInputElement) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      setter?.call(el, '18:00')
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+      el.dispatchEvent(new Event('change', { bubbles: true }))
+    })
     await page.getByTestId('shift-save-btn').click()
     // Wait for modal to close (confirms onSaved() fired and load() was triggered)
     await expect(page.getByTestId('shift-save-btn')).not.toBeVisible({ timeout: 8_000 })

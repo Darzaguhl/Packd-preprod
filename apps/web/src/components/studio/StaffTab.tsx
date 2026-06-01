@@ -745,7 +745,7 @@ function AddShiftModal({ member, studioId, token, onSaved, onClose }: {
           </div>
           <div className="flex-1 space-y-1">
             <label className="text-xs font-medium text-gray-600">End</label>
-            <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)}
+            <input data-testid="shift-end-time" type="time" value={endTime} onChange={e => setEndTime(e.target.value)}
               className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300" />
           </div>
         </div>
@@ -832,7 +832,7 @@ function EditShiftModal({ shift, token, onSaved, onClose }: {
           </div>
           <div className="flex-1 space-y-1">
             <label className="text-xs font-medium text-gray-600">End</label>
-            <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)}
+            <input data-testid="shift-end-time" type="time" value={endTime} onChange={e => setEndTime(e.target.value)}
               className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300" />
           </div>
         </div>

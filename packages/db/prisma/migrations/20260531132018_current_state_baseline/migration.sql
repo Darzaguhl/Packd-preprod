@@ -701,7 +701,7 @@ CREATE INDEX "InstructorPhoto_studioId_idx" ON "public"."InstructorPhoto"("studi
 CREATE UNIQUE INDEX "Member_referralCode_key" ON "public"."Member"("referralCode" ASC);
 
 -- CreateIndex
-CREATE INDEX "Member_staffRoles_idx" ON "public"."Member" USING GIN ("staffRoles" array_ops ASC);
+CREATE INDEX "Member_staffRoles_idx" ON "public"."Member" USING GIN ("staffRoles" array_ops);
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Member_studioId_externalId_key" ON "public"."Member"("studioId" ASC, "externalId" ASC);
@@ -710,7 +710,7 @@ CREATE UNIQUE INDEX "Member_studioId_externalId_key" ON "public"."Member"("studi
 CREATE INDEX "Member_studioId_idx" ON "public"."Member"("studioId" ASC);
 
 -- CreateIndex
-CREATE INDEX "Member_studioIds_idx" ON "public"."Member" USING GIN ("studioIds" array_ops ASC);
+CREATE INDEX "Member_studioIds_idx" ON "public"."Member" USING GIN ("studioIds" array_ops);
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Member_userId_key" ON "public"."Member"("userId" ASC);
