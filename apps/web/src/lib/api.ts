@@ -816,68 +816,17 @@ export const api = {
         standalone: { id: string; name: string; city: string; country: string }[]
       }>(`/schedule/brand-studios?studioId=${studioId}`),
   },
-  bookings: {
-    /** @deprecated Use `bookings.create` from `@/lib/api-client` instead. */
-    create: (sessionId: string, token: string, memberId?: string, memberNote?: string) =>
-      apiFetch<ApiResponse<{ id: string }>>('/bookings', {
-        method: 'POST',
-        body: JSON.stringify({ sessionId, ...(memberId ? { memberId } : {}), ...(memberNote ? { memberNote } : {}) }),
-        token,
-      }),
-    /** @deprecated Use `bookings.cancel` from `@/lib/api-client` instead. */
-    cancel: (bookingId: string, token: string) =>
-      apiFetch<{ success: boolean; isLateCancel: boolean }>(`/bookings/${bookingId}`, {
-        method: 'DELETE',
-        token,
-      }),
-    /** @deprecated Use `bookings.selfCheckIn` from `@/lib/api-client` instead. */
-    selfCheckIn: (bookingId: string, token: string) =>
-      apiFetch<{ success: boolean }>(`/bookings/${bookingId}/checkin`, { method: 'POST', token }),
-  },
-  waitlist: {
-    /** @deprecated Use `waitlist.join` from `@/lib/api-client` instead. */
-    join: (sessionId: string, token: string) =>
-      apiFetch<ApiResponse<{ id: string; position: number }>>('/waitlist', {
-        method: 'POST',
-        body: JSON.stringify({ sessionId }),
-        token,
-      }),
-  },
   members: {
-    /** @deprecated Use `members.me` from `@/lib/api-client` instead. */
-    me: (token: string) => apiFetch<MemberProfile & { birthday: string | null; emergencyContactName: string | null; emergencyContactPhone: string | null; guestPassBalance: number }>('/members/me', { token }),
     bookings: (token: string) => apiFetch<UpcomingBooking[]>('/members/me/bookings', { token }),
     history: (token: string) => apiFetch<MemberHistory>('/members/me/history', { token }),
-    /** @deprecated Use `members.ensure` from `@/lib/api-client` instead. */
-    ensure: (token: string, studioId?: string) =>
-      apiFetch<{ success: boolean; memberId: string }>('/members/ensure', {
-        method: 'POST', body: JSON.stringify({ studioId }), token,
-      }),
-    /** @deprecated Use `members.updateMe` from `@/lib/api-client` instead. */
-    updateMe: (data: { firstName?: string; lastName?: string; birthday?: string | null; emergencyContactName?: string | null; emergencyContactPhone?: string | null }, token: string) =>
-      apiFetch<{ success: boolean; data: { firstName: string; lastName: string } }>('/members/me', {
-        method: 'PATCH', body: JSON.stringify(data), token,
-      }),
     stats: (studioId: string, token: string) =>
       apiFetch<MemberStats>(`/members/me/stats?studioId=${studioId}`, { token }),
     purchases: (token: string, studioId?: string) =>
       apiFetch<ProductSale[]>(`/members/me/purchases${studioId ? `?studioId=${studioId}` : ''}`, { token }),
-    /** @deprecated Use `members.referral` from `@/lib/api-client` instead. */
-    referral: (token: string) =>
-      apiFetch<{ code: string; totalReferrals: number; pendingReward: number; creditsEarned: number }>('/members/me/referral', { token }),
-    /** @deprecated Use `members.applyReferral` from `@/lib/api-client` instead. */
-    applyReferral: (code: string, token: string) =>
-      apiFetch<{ success: boolean }>('/members/referral/apply', { method: 'POST', body: JSON.stringify({ code }), token }),
-    /** @deprecated Use `members.updateEmailPreferences` from `@/lib/api-client` instead. */
-    updateEmailPreferences: (prefs: { classReminder?: boolean; marketing?: boolean; waitlist?: boolean }, token: string) =>
-      apiFetch<{ success: boolean }>('/members/me/email-preferences', { method: 'PATCH', body: JSON.stringify(prefs), token }),
     selfPause: (subscriptionId: string, pauseUntil: string, token: string) =>
       apiFetch<{ success: boolean }>(`/memberships/subscriptions/${subscriptionId}/self-pause`, { method: 'POST', body: JSON.stringify({ pauseUntil }), token }),
     exportData: (token: string) =>
       fetch(`${typeof window !== 'undefined' ? process.env.NEXT_PUBLIC_API_URL : ''}/members/me/export`, { headers: { Authorization: `Bearer ${token}` } }),
-    /** @deprecated Use `members.deleteAccount` from `@/lib/api-client` instead. */
-    deleteAccount: (token: string) =>
-      apiFetch<{ success: boolean }>('/members/me', { method: 'DELETE', token }),
     receipts: (token: string) =>
       apiFetch<{ id: string; soldAt: string; totalCents: number; currency: string; stripeReceiptUrl: string | null; items: unknown[] }[]>('/members/me/receipts', { token }),
   },
@@ -1450,24 +1399,6 @@ export const api = {
       apiFetch<{ success: boolean }>(`/networks/${networkId}/studios/${studioId}`, { method: 'DELETE', token }),
     my: (token: string) =>
       apiFetch<MemberNetworkInfo>('/networks/my', { token }),
-  },
-
-  waivers: {
-    /** @deprecated Use `waivers.getActive` from `@/lib/api-client` instead. */
-    getActive: (studioId: string, token: string) =>
-      apiFetch<{ waiver: { id: string; title: string; body: string; version: number; updatedAt: string } | null }>(`/waivers/active?studioId=${studioId}`, { token }),
-    /** @deprecated Use `waivers.sign` from `@/lib/api-client` instead. */
-    sign: (waiverId: string, token: string) =>
-      apiFetch<{ success: boolean }>(`/waivers/${waiverId}/sign`, { method: 'POST', token }),
-    /** @deprecated Use `waivers.getAdmin` from `@/lib/api-client` instead. */
-    getAdmin: (studioId: string, token: string) =>
-      apiFetch<{ waiver: { id: string; title: string; body: string; version: number; updatedAt: string } | null }>(`/waivers/admin?studioId=${studioId}`, { token }),
-    /** @deprecated Use `waivers.upsert` from `@/lib/api-client` instead. */
-    upsert: (studioId: string, title: string, body: string, token: string) =>
-      apiFetch<{ success: boolean; version: number }>('/waivers/admin', { method: 'PUT', body: JSON.stringify({ studioId, title, body }), token }),
-    /** @deprecated Use `waivers.remove` from `@/lib/api-client` instead. */
-    remove: (studioId: string, token: string) =>
-      apiFetch<{ success: boolean }>(`/waivers/admin?studioId=${studioId}`, { method: 'DELETE', token }),
   },
 
   brands: {

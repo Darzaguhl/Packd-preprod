@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import type { SessionSlot } from '@packd/types'
 import { api, type MemberNetworkInfo } from '@/lib/api'
+import { bookings as bookingsClient, waitlist as waitlistClient } from '@/lib/api-client'
 import { createClient } from '@/lib/supabase/client'
 import ClassCard from './schedule/ClassCard'
 import SessionDetailView from './schedule/SessionDetailView'
@@ -286,7 +287,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
     setActionLoading(sessionId)
     try {
       const t = await getFreshToken()
-      const res = await api.bookings.create(sessionId, t, undefined, memberNote)
+      const res = await bookingsClient.create({ sessionId, memberNote }, t)
       const session = sessions.find((s) => s.id === sessionId)!
       mutateSession(sessionId, {
         bookedCount: session.bookedCount + 1,
@@ -321,7 +322,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
     setActionLoading(sessionId)
     try {
       const t = await getFreshToken()
-      const res = await api.bookings.cancel(bookingId, t)
+      const res = await bookingsClient.cancel(bookingId, t)
       if (res.success) {
         mutateSession(sessionId, {
           bookedCount: sessions.find((s) => s.id === sessionId)!.bookedCount - 1,
@@ -344,7 +345,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
     setActionLoading(sessionId)
     try {
       const t = await getFreshToken()
-      const res = await api.waitlist.join(sessionId, t)
+      const res = await waitlistClient.join(sessionId, t)
       if (res.success) showToast(`You're #${res.data.position} on the waitlist`)
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Failed to join waitlist', false)

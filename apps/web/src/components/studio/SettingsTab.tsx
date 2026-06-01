@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { api, type StudioDetail } from '@/lib/api'
+import { waivers as waiversClient } from '@/lib/api-client'
 
 const TIMEZONES: { group: string; zones: string[] }[] = [
   { group: 'Europe', zones: [
@@ -169,7 +170,7 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
       setSavedPolicy(p)
     }).catch(() => {}).finally(() => setPolicyLoading(false))
 
-    api.waivers.getAdmin(studioId, token).then(res => {
+    waiversClient.getAdmin(studioId, token).then(res => {
       if (res.waiver) {
         setExistingWaiver(res.waiver)
         setWaiverTitle(res.waiver.title)
@@ -265,16 +266,16 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
     setWaiverSaving(true)
     try {
       if (!waiverEnabled) {
-        await api.waivers.remove(studioId, token)
+        await waiversClient.remove(studioId, token)
         setExistingWaiver(null)
         setWaiverTitle('')
         setWaiverBody('')
         showToast('Waiver removed')
       } else {
         if (!waiverTitle.trim() || !waiverBody.trim()) { showToast('Title and body are required', false); return }
-        await api.waivers.upsert(studioId, waiverTitle, waiverBody, token)
+        await waiversClient.upsert(studioId, waiverTitle, waiverBody, token)
         // Reload to get updated version
-        const res = await api.waivers.getAdmin(studioId, token)
+        const res = await waiversClient.getAdmin(studioId, token)
         if (res.waiver) setExistingWaiver(res.waiver)
         showToast('Waiver saved')
       }

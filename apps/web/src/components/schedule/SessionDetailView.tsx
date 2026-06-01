@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { api, type SessionSpots } from '@/lib/api'
+import { waivers as waiversClient } from '@/lib/api-client'
 import type { SessionSlot } from '@packd/types'
 import SpotPicker from '@/components/room/SpotPicker'
 import CapacityBar from './CapacityBar'
@@ -137,7 +138,7 @@ export default function SessionDetailView({
       if (err.message === 'WAIVER_REQUIRED' && err.waiverId && s.studioId) {
         // Fetch waiver content and show modal
         const t = await getFreshToken()
-        const res = await api.waivers.getActive(s.studioId, t).catch(() => null)
+        const res = await waiversClient.getActive(s.studioId, t).catch(() => null)
         if (res?.waiver) {
           setWaiverData({ id: res.waiver.id, title: res.waiver.title, body: res.waiver.body })
           setPendingBookArgs({ sessionId, note })
@@ -151,7 +152,7 @@ export default function SessionDetailView({
   async function handleSignAndBook() {
     if (!pendingBookArgs || !waiverData) return
     const t = await getFreshToken()
-    await api.waivers.sign(waiverData.id, t)
+    await waiversClient.sign(waiverData.id, t)
     setWaiverData(null)
     const { sessionId, note } = pendingBookArgs
     setPendingBookArgs(null)

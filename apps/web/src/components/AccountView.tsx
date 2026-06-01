@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { api } from '@/lib/api'
+import { bookings as bookingsClient, members as membersClient } from '@/lib/api-client'
 import type { MemberProfile } from '@packd/types'
 import NavBar from '@/components/NavBar'
 import MemberHistoryView from '@/components/member/MemberHistoryView'
@@ -37,7 +38,7 @@ function EditProfileModal({
     setSaving(true)
     setError(null)
     try {
-      await api.members.updateMe({
+      await membersClient.updateMe({
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         birthday: birthday || null,
@@ -168,7 +169,7 @@ export default function AccountView() {
         if (!t) return
         try {
           const [profileData, historyData] = await Promise.all([
-            api.members.me(t),
+            membersClient.me(t),
             api.members.history(t),
           ])
           setProfile(profileData)
@@ -187,7 +188,7 @@ export default function AccountView() {
 
       try {
         const [profileData, upcomingData, historyData] = await Promise.all([
-          api.members.me(t),
+          membersClient.me(t),
           api.members.bookings(t),
           api.members.history(t),
         ])
@@ -242,7 +243,7 @@ export default function AccountView() {
     if (!token) return
     try {
       await api.memberships.cancelMe(token)
-      const updated = await api.members.me(token)
+      const updated = await membersClient.me(token)
       setProfile(updated)
       showToast('Membership cancelled')
     } catch (e) {
@@ -276,7 +277,7 @@ export default function AccountView() {
       await api.memberships.subscribe(planId, token)
       // Refresh profile (new subscription + credits granted)
       const [updated, history] = await Promise.all([
-        api.members.me(token),
+        membersClient.me(token),
         api.members.history(token),
       ])
       setProfile(updated)
@@ -291,7 +292,7 @@ export default function AccountView() {
     if (!token) return
     const booking = upcoming.find(b => b.id === bookingId)
     try {
-      const res = await api.bookings.cancel(bookingId, token)
+      const res = await bookingsClient.cancel(bookingId, token)
       if (res.success) {
         setUpcoming(prev => prev.filter(b => b.id !== bookingId))
         showToast(
@@ -300,7 +301,7 @@ export default function AccountView() {
         )
         // Re-fetch profile + transactions to get accurate balances
         // (late-cancel fee amount is server-determined, so we don't guess it)
-        api.members.me(token).then(updated => setProfile(updated)).catch(() => {})
+        membersClient.me(token).then(updated => setProfile(updated)).catch(() => {})
         api.members.history(token).then(h => setTransactions(h.transactions)).catch(() => {})
         // Optimistic refund for on-time cancellation (amount is known client-side)
         if (!res.isLateCancel && booking) {
@@ -321,7 +322,7 @@ export default function AccountView() {
   async function handleSelfCheckIn(bookingId: string) {
     if (!token) return
     try {
-      await api.bookings.selfCheckIn(bookingId, token)
+      await bookingsClient.selfCheckIn(bookingId, token)
       setUpcoming(prev => prev.map(b => b.id === bookingId ? { ...b, checkedIn: true } : b))
       showToast('Checked in! See you in class 🎉')
     } catch (e) {

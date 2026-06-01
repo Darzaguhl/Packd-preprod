@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
+import { members as membersClient } from '@/lib/api-client'
 
 interface Props {
   token: string
@@ -19,7 +20,7 @@ function ReferralSection({ token }: { token: string }) {
   const [applyMsg, setApplyMsg] = useState<{ text: string; ok: boolean } | null>(null)
 
   useEffect(() => {
-    api.members.referral(token).then(setData).catch(() => {})
+    membersClient.referral(token).then(setData).catch(() => {})
   }, [token])
 
   function copy() {
@@ -35,7 +36,7 @@ function ReferralSection({ token }: { token: string }) {
     setApplying(true)
     setApplyMsg(null)
     try {
-      await api.members.applyReferral(applyCode.trim().toUpperCase(), token)
+      await membersClient.applyReferral(applyCode.trim().toUpperCase(), token)
       setApplyMsg({ text: 'Referral code applied! Your referrer will earn credits when you take your first class.', ok: true })
       setApplyCode('')
     } catch (err) {
@@ -107,7 +108,7 @@ function EmailPrefsSection({ token }: { token: string }) {
     setPrefs(next)
     setSaving(true)
     try {
-      await api.members.updateEmailPreferences(next, token)
+      await membersClient.updateEmailPreferences(next, token)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } finally {
@@ -261,7 +262,7 @@ function GdprSection({ token }: { token: string }) {
     if (deleteConfirm !== 'DELETE') return
     setDeleting(true)
     try {
-      await api.members.deleteAccount(token)
+      await membersClient.deleteAccount(token)
       window.location.href = '/login'
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to delete account')

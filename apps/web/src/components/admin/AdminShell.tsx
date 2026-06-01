@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { api } from '@/lib/api'
+import { members as membersClient } from '@/lib/api-client'
 import LiveDashboard from '@/components/live/LiveDashboard'
 import StudioManagerDashboard from '@/components/studio/StudioManagerDashboard'
 
@@ -144,7 +145,7 @@ export default function AdminShell({ studioId: initialStudioId, studioName: init
   useEffect(() => {
     createClient().auth.getSession().then(({ data: { session } }) => {
       const t = session?.access_token
-      if (t) api.members.ensure(t, initialStudioId).catch(() => {})
+      if (t) membersClient.ensure(t, initialStudioId).catch(() => {})
     })
   }, [initialStudioId])
 

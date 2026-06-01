@@ -383,4 +383,4 @@ For each file in `apps/api/src/routes/`, check:
 - [ ] External penetration test — internal audit found 30 issues (all fixed). Schedule a third-party pen test before enterprise launch.
 
 ### Technical debt
-- [ ] api.ts full migration to api-client.ts — critical paths (bookings, waitlist, members, waivers) now use typed `api-client.ts`; remaining admin/franchise/studio methods still use the legacy hand-written client. Migrate call-sites and delete deprecated methods once all are replaced.
+- [ ] api.ts remaining migration — all deprecated methods removed; `api.ts` retains only non-deprecated helpers (admin, franchise, studio, memberships, etc.). Full migration requires adding those namespaces to `api-client.ts` with typed request bodies.

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { api, type AdminSession, type AdminBooking, type Product, type CartSaleItem } from '@/lib/api'
+import { bookings as bookingsClient } from '@/lib/api-client'
 import { createClient } from '@/lib/supabase/client'
 import { useTimeFormat } from '@/lib/time-format-context'
 import { fmtTime } from '@/lib/fmt-time'
@@ -240,7 +241,7 @@ export default function MemberDrawer({ studioId, currency, selectedSession, perm
       let bookingId: string | undefined
       try {
         // Try to create a new booking
-        const createRes = await api.bookings.create(selectedSession.id, t, m.id)
+        const createRes = await bookingsClient.create({ sessionId: selectedSession.id, memberId: m.id }, t)
         bookingId = (createRes as { success: boolean; data?: { id: string } })?.data?.id
         onBookingChanged()
       } catch {
@@ -301,7 +302,7 @@ export default function MemberDrawer({ studioId, currency, selectedSession, perm
     setActionLoading(true)
     try {
       const t = await getFreshToken()
-      await api.bookings.create(selectedSession.id, t, member.id)
+      await bookingsClient.create({ sessionId: selectedSession.id, memberId: member.id }, t)
       onBookingChanged()
       // Refresh the map so the newly-booked member appears in the unassigned list
       onAssigned?.()
@@ -766,7 +767,7 @@ export default function MemberDrawer({ studioId, currency, selectedSession, perm
                       setCancellingBookingId(b.id)
                       try {
                         const t = await getFreshToken()
-                        await api.bookings.cancel(b.id, t)
+                        await bookingsClient.cancel(b.id, t)
                         setMemberUpcoming(prev => prev.filter(x => x.id !== b.id))
                         showToast('Booking cancelled')
                         onBookingChanged()

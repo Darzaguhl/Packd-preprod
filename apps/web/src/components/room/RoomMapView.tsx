@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { api, type RoomLayout, type LayoutTemplate, type SessionSpots, type AdminSession, type SpotAssignment } from '@/lib/api'
+import { bookings as bookingsClient } from '@/lib/api-client'
 import RoomMapEditor from './RoomMapEditor'
 import SessionRoomMap from './SessionRoomMap'
 
@@ -210,7 +211,7 @@ const RoomMapView = forwardRef<RoomMapViewHandle, Props>(function RoomMapView({ 
     setSpots(prev => prev ? { ...prev, assignments: prev.assignments.filter(a => a.bookingId !== bookingId) } : prev)
     try {
       const t = await getFreshToken()
-      await api.bookings.cancel(bookingId, t)
+      await bookingsClient.cancel(bookingId, t)
     } catch {
       setSpots(previous)
       showToast('Failed to remove booking', false)
