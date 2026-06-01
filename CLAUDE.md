@@ -32,7 +32,7 @@ npm install              # also runs prisma generate via postinstall
 cd apps/api && npm run dev           # API on :4000
 cd apps/web && npm run dev           # Web on :3000
 
-npm test                             # Vitest unit tests (149 passing across 17 files — kept green throughout)
+npm test                             # Vitest unit tests (197 passing across 22 files — kept green throughout)
 npm run test:e2e                     # Playwright (needs both servers + .auth/ state files)
 
 npm run db:migrate                   # create + apply migration locally (interactive)
@@ -41,7 +41,7 @@ npm run db:migrate:deploy            # apply pending migrations non-interactivel
 
 ## Key environment files
 
-**`apps/api/.env`** — `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CORS_ORIGIN=http://localhost:3000`, `PORT=4000`, `WEB_URL=http://localhost:3000`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `ICAL_SECRET`, `SENTRY_DSN` (optional), `OPS_EMAIL` (fallback alert address when studio has no supportEmail)
+**`apps/api/.env`** — `DATABASE_URL`, `PGBOSS_DATABASE_URL` (direct connection, no pgBouncer; falls back to `DATABASE_URL` via `||`), `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CORS_ORIGIN=http://localhost:3000`, `PORT=4000`, `WEB_URL=http://localhost:3000`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `ICAL_SECRET`, `INVITE_SECRET` (falls back to `ICAL_SECRET`; signs staff invite tokens), `SENTRY_DSN` (optional), `OPS_EMAIL` (fallback alert address when studio has no supportEmail)
 
 **`apps/web/.env.local`** — `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (sb_publishable_... format), `NEXT_PUBLIC_API_URL=http://localhost:4000`, `NEXT_PUBLIC_STUDIO_ID`
 
@@ -289,7 +289,7 @@ e2e/
 - **Pay rate access**: `PATCH /staff/:memberId/hourly-pay` and `PATCH /staff/instructors/:instructorId` require `franchise_admin`. StaffTab shows rates as read-only for studio_admin. Editing is in `FranchiseStaffRoster` (expandable row per person, per-studio for instructors).
 - **Vitest booking mocks**: `prisma.booking` mock must include `count: vi.fn().mockResolvedValue(2)` (first-booking referral check) and `prisma.referral: { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn() }`. Missing either causes 500 in booking tests.
 - **Email preferences**: `Member.emailPreferences Json` defaults to `{}` (treated as all true). Check with `(prefs.classReminder ?? true)` pattern — explicit `false` opts out, missing key = opted in.
-- **Staff invite flow**: `POST /staff/invite` sends to `/accept-invite?email=&studio=&studioId=&role=`. The `/accept-invite` page handles auth then calls `POST /staff/accept-invite` which validates email match and applies `app_metadata` role + studioIds via Supabase admin API.
+- **Staff invite flow**: `POST /staff/invite` generates an HMAC-SHA256 signed token (7-day expiry, base64url, signed with `INVITE_SECRET ?? ICAL_SECRET`) and sends it as `&token=<token>` in the invite URL to `/accept-invite?email=&studio=&studioId=&role=&token=`. The `/accept-invite` page reads the token and includes it in the POST body. `POST /staff/accept-invite` verifies the token (constant-time `timingSafeEqual`) before applying `app_metadata` role + studioIds via Supabase admin API.
 - **Referral reward**: fires in `POST /bookings` after first confirmed booking (`prisma.booking.count === 1`). Finds unrewarded `Referral` for the member, grants credits to referrer, marks as rewarded. Non-fatal (wrapped in try/catch).
 - **Staff conflict detection**: `checkInstructorConflict()` defined in both `schedules.ts` and `admin-sessions.ts`. Checks for overlapping sessions (status ≠ CANCELLED). Applied on: substitute assignment (schedules.ts), session reschedule/time-change (admin-sessions.ts). NOT applied on bulk schedule generation (impractical — skip by design).
 - **Tax / VAT**: `Studio.taxRatePct` + `stripeTaxRateId`. On checkout: if `taxRatePct > 0`, creates Stripe TaxRate once and caches ID on Studio. Passed as `default_tax_rates` to checkout session.
