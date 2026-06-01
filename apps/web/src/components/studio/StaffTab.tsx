@@ -850,7 +850,7 @@ function EditShiftModal({ shift, token, onSaved, onClose }: {
             className="flex-1 text-sm font-medium py-2 text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
             Cancel
           </button>
-          <button onClick={handleSave} disabled={saving}
+          <button data-testid="shift-save-btn" onClick={handleSave} disabled={saving}
             className="flex-1 text-sm font-medium py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50">
             {saving ? 'Saving…' : 'Save'}
           </button>
