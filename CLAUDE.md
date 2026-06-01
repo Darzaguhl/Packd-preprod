@@ -227,6 +227,7 @@ apps/
       accept-invite/       # /accept-invite — staff invitation acceptance page (auth + role apply)
       onboarding/          # /onboarding — franchise_admin only (guarded); 7-step wizard
                            # steps: Studio → Location → Classes → Policy → Import → Invite → Done
+      platform/            # /platform — admin-only; brand + franchise management UI (PlatformDashboard)
     components/
       ScheduleView.tsx     # Member schedule shell + location picker
       AccountView.tsx      # Member account page; fetches allowMemberPause + referralEnabled from studio
@@ -255,8 +256,12 @@ apps/
       onboarding/          # OnboardingFlow + step components (StepImport, StepInviteAdmin added)
       brand/               # BrandDashboard — franchise creation, franchise admin assignment,
                            # cross-franchise analytics, members, classes
+      platform/            # PlatformDashboard — brand CRUD, franchise creation, franchise admin
+                           # assignment (admin-only; guarded in /platform page)
     lib/
-      api.ts               # Typed API client (hand-written; types from api-types.generated.ts)
+      api.ts               # Legacy hand-written client; new code uses api-client.ts
+      api-client.ts        # Typed client (openapi-fetch + api-types.generated.ts); use for new code
+                           # namespaces: bookings, waitlist, members, waivers; makeApiClient() for raw access
       api-types.generated.ts  # Auto-generated from openapi.json via openapi-typescript; run
                               # `npm run generate:types` after any route schema change
       supabase/            # client.ts + server.ts
@@ -368,15 +373,14 @@ For each file in `apps/api/src/routes/`, check:
 - [ ] Conflict detection on bulk schedule creation — skipped by design; only applied on single-session edits and substitute assignment.
 - [ ] Minimum class threshold / auto-cancel — no `minCapacity` field or automated cancellation if bookings fall below threshold before class.
 - [ ] Class series / multi-session bookings — no concept of booking a 6-week course as a unit.
-- [ ] Platform admin panel — creating Brands + assigning `brand_admin` still requires direct Supabase API access.
 - [ ] Receipt PDF generation — currently exposes Stripe's hosted receipt URL; no first-party PDF.
 - [ ] SMS notifications — email only; no SMS channel.
 - [ ] Pagination on remaining high-volume endpoints — `GET /franchise/all-admins`, `GET /franchise/promos`, brand member lists.
 
 ### Enterprise / operational
-- [ ] RLS integration tests activated — `rls-isolation.test.ts` has 7 integration tests that prove row-level isolation works end-to-end. Currently skipped (`INTEGRATION=true` required). Add RLS SQL + `packd_api` role setup to CI postgres service to enable.
-- [ ] Access review schedule — quarterly review of who has `studio_admin` and `franchise_admin` access (SOC 2 CC6.3 requirement).
-- [ ] Log retention policy — `AuditLog` entries currently kept indefinitely; define and enforce a retention window.
 - [ ] Backup restore test — Supabase PITR enabled but restore procedure untested. Run a restore drill against a staging environment.
 - [ ] Business continuity plan — define what happens if Supabase, Stripe, or Resend are unavailable.
 - [ ] External penetration test — internal audit found 30 issues (all fixed). Schedule a third-party pen test before enterprise launch.
+
+### Technical debt
+- [ ] api.ts full migration to api-client.ts — critical paths (bookings, waitlist, members, waivers) now use typed `api-client.ts`; remaining admin/franchise/studio methods still use the legacy hand-written client. Migrate call-sites and delete deprecated methods once all are replaced.
