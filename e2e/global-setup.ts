@@ -232,7 +232,36 @@ export default async function globalSetup() {
     }
   }
 
-  // 6. Save browser auth states
+  // 6. Seed a waiver for the studio AND immediately sign it for the e2e-member.
+  //    The waiver.spec.ts will supersede this with a new version to test the gate;
+  //    all other tests see the pre-signed waiver and book without the modal.
+  const waiverRes = await fetch(`${API_URL}/waivers/admin`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+    body: JSON.stringify({
+      studioId: STUDIO_ID,
+      title: 'E2E Test Waiver',
+      body: 'By booking you agree to participate at your own risk. This is an automated test waiver.',
+    }),
+  })
+  const waiverData = await waiverRes.json().catch(() => null)
+  if (waiverData?.ok || waiverRes.ok) {
+    // Find the active waiver and pre-sign it for the test member
+    const activeRes = await fetch(`${API_URL}/waivers/active?studioId=${STUDIO_ID}`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+    })
+    const { waiver } = await activeRes.json().catch(() => ({ waiver: null }))
+    if (waiver?.id) {
+      await fetch(`${API_URL}/waivers/${waiver.id}/sign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${memberToken}` },
+        body: JSON.stringify({}),
+      })
+      console.log(`[setup] Waiver seeded and pre-signed for test member (id: ${waiver.id})`)
+    }
+  }
+
+  // 8. Save browser auth states
   console.log('[setup] Saving auth states…')
   await saveAuthState(E2E_MEMBER_EMAIL, E2E_MEMBER_PASSWORD, '.auth/member.json', /schedule/)
   await saveAuthState(E2E_ADMIN_EMAIL,  E2E_ADMIN_PASSWORD,  '.auth/admin.json',  /dashboard/)

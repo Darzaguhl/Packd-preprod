@@ -17,7 +17,7 @@
  *   2. INTEGRATION=true npm test -- rls-isolation
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // ── Layer 1: unit tests ───────────────────────────────────────────────────────
 
@@ -150,8 +150,11 @@ describe.skipIf(!RUN_INTEGRATION)('RLS row-level isolation (integration)', () =>
   })
 
   it('Member: studioA context cannot see studioB members', async () => {
-    // Create a member in studio B
-    const user = await realPrisma.user.create({ data: { email: `rls-test-${Date.now()}@example.com`, firstName: 'RLS', lastName: 'Test' } })
+    // Create a user + member in studio B (User.id must match Supabase Auth id format — use cuid)
+    const uid = `rls-test-${Date.now()}`
+    const user = await realPrisma.user.create({
+      data: { id: uid, email: `${uid}@example.com`, firstName: 'RLS', lastName: 'Test' },
+    })
     await realPrisma.member.create({ data: { userId: user.id, studioId: studioB, source: 'packd' } })
 
     // Query through studioA context — should return 0 rows
@@ -163,12 +166,18 @@ describe.skipIf(!RUN_INTEGRATION)('RLS row-level isolation (integration)', () =>
 
   it('ClassSession: studioA context cannot see studioB sessions', async () => {
     const template = await realPrisma.classTemplate.create({
-      data: { studioId: studioB, name: 'RLS Test Class', sport: 'Other', durationMin: 60, capacity: 10, creditsRequired: 1 },
+      data: { studioId: studioB, name: 'RLS Test Class', sport: 'OTHER', durationMin: 60 },
     })
-    const location = await realPrisma.location.create({ data: { studioId: studioB, name: 'RLS Location' } })
-    const room = await realPrisma.room.create({ data: { locationId: location.id, studioId: studioB, name: 'RLS Room', capacity: 10 } })
+    const location = await realPrisma.location.create({
+      data: { studioId: studioB, name: 'RLS Location', address: '1 Test St', city: 'Stockholm', country: 'SE', timezone: 'Europe/Stockholm' },
+    })
+    const room = await realPrisma.room.create({
+      data: { locationId: location.id, name: 'RLS Room', capacity: 10 },
+    })
+    const startsAt = new Date(Date.now() + 86_400_000)
+    const endsAt   = new Date(Date.now() + 86_400_000 + 3_600_000)
     await realPrisma.classSession.create({
-      data: { templateId: template.id, studioId: studioB, roomId: room.id, startsAt: new Date(), capacity: 10, creditsRequired: 1, status: 'SCHEDULED' },
+      data: { templateId: template.id, studioId: studioB, roomId: room.id, startsAt, endsAt, capacity: 10, creditsRequired: 1, status: 'SCHEDULED', instructorId: 'placeholder' },
     })
 
     const result = await realWithStudioCtx(studioA, async (tx) =>
@@ -190,7 +199,7 @@ describe.skipIf(!RUN_INTEGRATION)('RLS row-level isolation (integration)', () =>
 
   it('MembershipPlan: studioA context cannot see studioB plans', async () => {
     await realPrisma.membershipPlan.create({
-      data: { studioId: studioB, name: 'RLS Plan', priceInCents: 5000, billingIntervalMonths: 1, creditsPerCycle: 10 },
+      data: { studioId: studioB, name: 'RLS Plan', priceInCents: 5000, intervalMonths: 1, creditsPerCycle: 10 },
     })
 
     const result = await realWithStudioCtx(studioA, async (tx) =>
@@ -201,7 +210,7 @@ describe.skipIf(!RUN_INTEGRATION)('RLS row-level isolation (integration)', () =>
 
   it('PromoCode: studioA context cannot see studioB promo codes', async () => {
     await realPrisma.promoCode.create({
-      data: { studioId: studioB, code: `RLS-TEST-${Date.now()}`, discountType: 'FLAT', discountValue: 10 },
+      data: { studioId: studioB, code: `RLS-TEST-${Date.now()}`, type: 'MEMBERSHIP_FLAT', value: 10 },
     })
 
     const result = await realWithStudioCtx(studioA, async (tx) =>

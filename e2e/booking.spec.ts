@@ -57,6 +57,80 @@ test.describe('Schedule', () => {
   })
 })
 
+test.describe('Credit balance', () => {
+  test('booking a class decrements credit balance; cancelling restores it', async ({ authedPage: page }) => {
+    // Read initial credit balance from the account page
+    await page.goto('/account')
+    const balanceEl = page.locator('[data-testid="credit-balance"]')
+    await expect(balanceEl).toBeVisible({ timeout: 8000 })
+    const initialText = await balanceEl.textContent()
+    const initialBalance = parseInt(initialText?.match(/\d+/)?.[0] ?? '-1', 10)
+    if (initialBalance < 1) { test.skip(); return } // need at least 1 credit
+
+    // Navigate to schedule and find a class that costs exactly 1 credit
+    await page.goto('/schedule')
+    const tabs = page.locator('[data-testid="day-tab"]')
+    let sessionCost = -1
+    let booked = false
+
+    for (let dayIdx = 0; dayIdx < 7 && !booked; dayIdx++) {
+      await tabs.nth(dayIdx).click()
+      await page.waitForTimeout(400)
+      const cards = page.locator('[data-testid="class-card"][data-past="false"]')
+      const count = await cards.count()
+
+      for (let i = 0; i < count && !booked; i++) {
+        const text = await cards.nth(i).textContent() ?? ''
+        if (text.toLowerCase().includes('booked')) continue
+        // Look for a credit cost indicator
+        const costMatch = text.match(/(\d+)\s*cr/)
+        if (!costMatch) continue
+        sessionCost = parseInt(costMatch[1], 10)
+        if (sessionCost > initialBalance) continue
+
+        await cards.nth(i).click()
+        const bookBtn = page.locator('[data-testid="book-btn"]')
+        await expect(bookBtn).toBeVisible({ timeout: 5000 })
+        if (!await bookBtn.isEnabled()) {
+          await page.goBack(); continue
+        }
+
+        await bookBtn.click()
+        await expect(page.locator('[data-testid="toast"]')).toBeVisible({ timeout: 8000 })
+        await expect(page.locator('[data-testid="toast"]')).not.toBeVisible({ timeout: 5000 })
+        booked = true
+
+        // Verify balance decremented
+        await page.goto('/account')
+        await expect(balanceEl).toBeVisible({ timeout: 8000 })
+        const afterBookText = await balanceEl.textContent()
+        const afterBookBalance = parseInt(afterBookText?.match(/\d+/)?.[0] ?? '-1', 10)
+        expect(afterBookBalance).toBe(initialBalance - sessionCost)
+
+        // Cancel and verify balance restored
+        await page.goto('/schedule')
+        await tabs.nth(dayIdx).click()
+        await page.waitForTimeout(400)
+        const bookedCard = page.locator('[data-testid="class-card"][data-past="false"]').filter({ hasText: /booked/i })
+        await bookedCard.first().click()
+        const cancelBtn = page.locator('[data-testid="cancel-btn"]')
+        await expect(cancelBtn).toBeEnabled({ timeout: 5000 })
+        await cancelBtn.click()
+        await expect(page.locator('[data-testid="toast"]')).toBeVisible({ timeout: 8000 })
+        await expect(page.locator('[data-testid="toast"]')).not.toBeVisible({ timeout: 5000 })
+
+        await page.goto('/account')
+        await expect(balanceEl).toBeVisible({ timeout: 8000 })
+        const restoredText = await balanceEl.textContent()
+        const restoredBalance = parseInt(restoredText?.match(/\d+/)?.[0] ?? '-1', 10)
+        expect(restoredBalance).toBe(initialBalance)
+      }
+    }
+
+    if (!booked) test.skip()
+  })
+})
+
 test.describe('Book and cancel flow', () => {
   test('can book an available class and then cancel it', async ({ authedPage: page }) => {
     // Find a future bookable class (not full, not already booked)
