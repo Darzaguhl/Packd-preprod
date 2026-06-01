@@ -6,7 +6,7 @@
   "scripts": {
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:deploy": "DIRECT_URL=${DIRECT_URL:-$DATABASE_URL} prisma migrate deploy",
     "db:studio": "prisma studio",
     "db:seed": "tsx src/seed.ts"
   },
