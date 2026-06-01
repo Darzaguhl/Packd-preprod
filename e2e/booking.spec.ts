@@ -59,6 +59,8 @@ test.describe('Schedule', () => {
 
 test.describe('Credit balance', () => {
   test('booking a class decrements credit balance; cancelling restores it', async ({ authedPage: page }) => {
+    test.setTimeout(90_000) // card-scanning loop can be slow across 7 days
+
     // Read initial credit balance from the account page
     await page.goto('/account')
     const balanceEl = page.locator('[data-testid="credit-balance"]')
@@ -67,7 +69,7 @@ test.describe('Credit balance', () => {
     const initialBalance = parseInt(initialText?.match(/\d+/)?.[0] ?? '-1', 10)
     if (initialBalance < 1) { test.skip(); return } // need at least 1 credit
 
-    // Navigate to schedule and find a class that costs exactly 1 credit
+    // Navigate to schedule and find a class that costs credits and is bookable
     await page.goto('/schedule')
     const tabs = page.locator('[data-testid="day-tab"]')
     let sessionCost = -1
@@ -75,18 +77,21 @@ test.describe('Credit balance', () => {
 
     for (let dayIdx = 0; dayIdx < 7 && !booked; dayIdx++) {
       await tabs.nth(dayIdx).click()
-      // Wait for schedule to settle (skeleton gone or cards/empty-state visible)
+      // Wait for schedule to settle before reading card texts
       await expect(
         page.locator('[data-testid="class-card"]').first()
           .or(page.locator('text=/no classes/i'))
       ).toBeVisible({ timeout: 6000 }).catch(() => {})
-      const cards = page.locator('[data-testid="class-card"][data-past="false"]')
-      const count = await cards.count()
 
-      for (let i = 0; i < count && !booked; i++) {
-        const text = await cards.nth(i).textContent() ?? ''
+      const cards = page.locator('[data-testid="class-card"][data-past="false"]')
+      // Fetch all card texts in one round-trip to avoid O(N) individual calls
+      const texts: string[] = await cards.evaluateAll(
+        (els: Element[]) => els.map(el => el.textContent ?? '')
+      )
+
+      for (let i = 0; i < texts.length && !booked; i++) {
+        const text = texts[i]
         if (text.toLowerCase().includes('booked')) continue
-        // Look for a credit cost indicator
         const costMatch = text.match(/(\d+)\s*cr/)
         if (!costMatch) continue
         sessionCost = parseInt(costMatch[1], 10)
