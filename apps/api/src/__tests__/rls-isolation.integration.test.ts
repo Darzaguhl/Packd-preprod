@@ -84,6 +84,13 @@ describe.skipIf(!RUN_INTEGRATION)('RLS row-level isolation (integration)', () =>
     const room = await realPrisma.room.create({
       data: { locationId: location.id, name: 'RLS Room', capacity: 10 },
     })
+    const iuid = `rls-instructor-${Date.now()}`
+    const iuser = await realPrisma.user.create({
+      data: { id: iuid, email: `${iuid}@example.com`, firstName: 'RLS', lastName: 'Instructor' },
+    })
+    const instructor = await realPrisma.instructor.create({
+      data: { userId: iuser.id, studioId: studioB },
+    })
     const startsAt = new Date(Date.now() + 86_400_000)
     const endsAt   = new Date(Date.now() + 86_400_000 + 3_600_000)
     await realPrisma.classSession.create({
@@ -91,6 +98,7 @@ describe.skipIf(!RUN_INTEGRATION)('RLS row-level isolation (integration)', () =>
         templateId: template.id,
         studioId: studioB,
         roomId: room.id,
+        instructorId: instructor.id,
         startsAt,
         endsAt,
         capacity: 10,

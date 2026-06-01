@@ -357,6 +357,104 @@ DROP POLICY IF EXISTS studio_isolation ON "StripeEvent";
 CREATE POLICY studio_isolation ON "StripeEvent"
   AS PERMISSIVE FOR ALL USING (true);
 
+-- ─────────────────────────────────────────────────────────────
+-- AuditLog — direct studioId column
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "AuditLog" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "AuditLog" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "AuditLog";
+CREATE POLICY studio_isolation ON "AuditLog"
+  AS PERMISSIVE FOR ALL
+  USING (
+    current_setting('app.current_studio_id', true) = ''
+    OR "studioId" = current_setting('app.current_studio_id', true)
+  );
+
+-- ─────────────────────────────────────────────────────────────
+-- StaffShift — direct studioId column
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "StaffShift" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "StaffShift" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "StaffShift";
+CREATE POLICY studio_isolation ON "StaffShift"
+  AS PERMISSIVE FOR ALL
+  USING (
+    current_setting('app.current_studio_id', true) = ''
+    OR "studioId" = current_setting('app.current_studio_id', true)
+  );
+
+-- ─────────────────────────────────────────────────────────────
+-- StaffShiftPattern — direct studioId column
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "StaffShiftPattern" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "StaffShiftPattern" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "StaffShiftPattern";
+CREATE POLICY studio_isolation ON "StaffShiftPattern"
+  AS PERMISSIVE FOR ALL
+  USING (
+    current_setting('app.current_studio_id', true) = ''
+    OR "studioId" = current_setting('app.current_studio_id', true)
+  );
+
+-- ─────────────────────────────────────────────────────────────
+-- Referral — direct studioId column
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "Referral" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Referral" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "Referral";
+CREATE POLICY studio_isolation ON "Referral"
+  AS PERMISSIVE FOR ALL
+  USING (
+    current_setting('app.current_studio_id', true) = ''
+    OR "studioId" = current_setting('app.current_studio_id', true)
+  );
+
+-- ─────────────────────────────────────────────────────────────
+-- Waiver — direct studioId column
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "Waiver" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Waiver" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "Waiver";
+CREATE POLICY studio_isolation ON "Waiver"
+  AS PERMISSIVE FOR ALL
+  USING (
+    current_setting('app.current_studio_id', true) = ''
+    OR "studioId" = current_setting('app.current_studio_id', true)
+  );
+
+-- ─────────────────────────────────────────────────────────────
+-- WaiverSignature — scoped via waiverId → Waiver.studioId
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "WaiverSignature" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "WaiverSignature" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "WaiverSignature";
+CREATE POLICY studio_isolation ON "WaiverSignature"
+  AS PERMISSIVE FOR ALL
+  USING (
+    current_setting('app.current_studio_id', true) = ''
+    OR EXISTS (
+      SELECT 1 FROM "Waiver" w
+      WHERE w.id = "WaiverSignature"."waiverId"
+        AND w."studioId" = current_setting('app.current_studio_id', true)
+    )
+  );
+
+-- ─────────────────────────────────────────────────────────────
+-- _prisma_migrations (system table — open policy)
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "_prisma_migrations" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "_prisma_migrations" FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS studio_isolation ON "_prisma_migrations";
+CREATE POLICY studio_isolation ON "_prisma_migrations"
+  AS PERMISSIVE FOR ALL USING (true);
+
 -- ── Verification query ───────────────────────────────────────
 -- Run this after applying to confirm RLS is enabled:
 --

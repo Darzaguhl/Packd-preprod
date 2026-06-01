@@ -99,8 +99,9 @@ test.describe('Credit balance', () => {
 
         await cards.nth(i).click()
         const bookBtn = page.locator('[data-testid="book-btn"]')
-        // Session may have a room layout (spot-picker instead of book-btn) — skip those
-        const btnVisible = await bookBtn.isVisible({ timeout: 5000 }).catch(() => false)
+        // Session may have a room layout (spot-picker instead of book-btn) — skip those.
+        // Keep timeout short (1500ms) so layout sessions don't consume budget.
+        const btnVisible = await bookBtn.isVisible({ timeout: 1500 }).catch(() => false)
         if (!btnVisible || !await bookBtn.isEnabled()) {
           await page.goBack(); continue
         }
@@ -117,7 +118,11 @@ test.describe('Credit balance', () => {
         // Cancel and verify balance restored
         await page.goto('/schedule')
         await tabs.nth(dayIdx).click()
-        await page.waitForTimeout(400)
+        // Wait for the schedule to load before looking for the booked card
+        await expect(
+          page.locator('[data-testid="class-card"]').first()
+            .or(page.locator('text=/no classes/i'))
+        ).toBeVisible({ timeout: 6000 }).catch(() => {})
         const bookedCard = page.locator('[data-testid="class-card"][data-past="false"]').filter({ hasText: /booked/i })
         await bookedCard.first().click()
         const cancelBtn = page.locator('[data-testid="cancel-btn"]')
