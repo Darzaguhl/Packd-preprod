@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { api } from '@/lib/api'
-import type { StudioSummary } from '@/lib/api'
+import { api } from '@/lib/api-client'
+import type { StudioSummary } from '@/lib/api-client'
 
 type Admin = {
   userId: string

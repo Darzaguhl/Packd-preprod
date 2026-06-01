@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api-client'
 
 type Member = { id: string; name: string; email: string; creditBalance: number; membershipStatus: string | null }
 

@@ -3,16 +3,16 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { api, type AdminSession } from '@/lib/api'
+import { api, type AdminSession } from '@/lib/api-client'
 import NavBar from '@/components/NavBar'
 import RoomMapView, { type RoomMapViewHandle } from '@/components/room/RoomMapView'
 import MemberDrawer from './MemberDrawer'
-import type { SpotAssignment } from '@/lib/api'
+import type { SpotAssignment } from '@/lib/api-client'
 
 type DrawerMember = { id: string; name: string; creditBalance: number; membershipStatus: string | null }
 import { TimeFormatProvider } from '@/lib/time-format-context'
 import { fmtTime, type TimeFormat } from '@/lib/fmt-time'
-import { type LivePermissions, FULL_LIVE_PERMISSIONS } from '@/lib/api'
+import { type LivePermissions, FULL_LIVE_PERMISSIONS } from '@/lib/api-client'
 
 interface Studio {
   id: string

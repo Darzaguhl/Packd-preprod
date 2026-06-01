@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { api, type InstructorPhoto } from '@/lib/api'
+import { api, type InstructorPhoto } from '@/lib/api-client'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

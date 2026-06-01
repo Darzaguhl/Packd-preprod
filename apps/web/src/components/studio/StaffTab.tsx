@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { api, type StaffMember, type StaffShift, type StaffShiftPattern } from '@/lib/api'
+import { api, type StaffMember, type StaffShift, type StaffShiftPattern } from '@/lib/api-client'
 import PhotosTab from './PhotosTab'
 
 interface Props {

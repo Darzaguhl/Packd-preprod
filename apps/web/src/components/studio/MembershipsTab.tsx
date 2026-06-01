@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { api, type MembershipPlan, type MembershipSubscription } from '@/lib/api'
+import { api, type MembershipPlan, type MembershipSubscription } from '@/lib/api-client'
 
 interface Props {
   studioId: string

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { api, type Leaderboard } from '@/lib/api'
+import { api, type Leaderboard } from '@/lib/api-client'
 
 const PERIODS = [
   { id: 'week', label: 'This week' },

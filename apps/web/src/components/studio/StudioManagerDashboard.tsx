@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { api, type AdminSession } from '@/lib/api'
+import { api, type AdminSession } from '@/lib/api-client'
 import { SPORT_CONFIG } from '@/components/schedule/constants'
 import SessionPanel from '@/components/admin/SessionPanel'
 import PermissionsTab from './PermissionsTab'

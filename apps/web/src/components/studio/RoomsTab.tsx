@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { api, type RoomSummary, type RoomLayout } from '@/lib/api'
+import { api, type RoomSummary, type RoomLayout } from '@/lib/api-client'
 import RoomMapView from '@/components/room/RoomMapView'
 
 interface Props {

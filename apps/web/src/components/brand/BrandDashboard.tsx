@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { api, type Brand, type BrandStats, type BrandMember, type BrandSession, type BrandFranchise } from '@/lib/api'
+import { api, type Brand, type BrandStats, type BrandMember, type BrandSession, type BrandFranchise } from '@/lib/api-client'
 
 type Tab = 'overview' | 'members' | 'classes' | 'franchises'
 type Period = '7d' | '30d' | '90d'

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api-client'
 
 interface Instructor { id: string; name: string }
 interface Template { id: string; name: string }

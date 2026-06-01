@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { api, type StudioSummary } from '@/lib/api'
+import { api, type StudioSummary } from '@/lib/api-client'
 import { members as membersClient } from '@/lib/api-client'
 
 import AdminShell from '@/components/admin/AdminShell'

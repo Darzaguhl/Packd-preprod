@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { api, type RoomLayout, type LayoutTemplate, type SessionSpots, type AdminSession, type SpotAssignment } from '@/lib/api'
+import { api, type RoomLayout, type LayoutTemplate, type SessionSpots, type AdminSession, type SpotAssignment } from '@/lib/api-client'
 import { bookings as bookingsClient } from '@/lib/api-client'
 import RoomMapEditor from './RoomMapEditor'
 import SessionRoomMap from './SessionRoomMap'

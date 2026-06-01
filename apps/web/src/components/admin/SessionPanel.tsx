@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { api, type AdminSession, type AdminBooking } from '@/lib/api'
+import { api, type AdminSession, type AdminBooking } from '@/lib/api-client'
 import { useTimeFormat } from '@/lib/time-format-context'
 import { fmtTime } from '@/lib/fmt-time'
 

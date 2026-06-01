@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useId, useEffect } from 'react'
-import type { RoomLayout, LayoutTemplate, Station, StationType } from '@/lib/api'
+import type { RoomLayout, LayoutTemplate, Station, StationType } from '@/lib/api-client'
 import { STATION_META, STATION_TYPES, snapToGrid } from './constants'
 
 interface EditorStation extends Omit<Station, 'id' | 'layoutId'> {

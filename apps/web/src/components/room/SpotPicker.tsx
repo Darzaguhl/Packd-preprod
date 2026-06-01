@@ -1,6 +1,6 @@
 'use client'
 
-import type { RoomLayout, SpotAssignment } from '@/lib/api'
+import type { RoomLayout, SpotAssignment } from '@/lib/api-client'
 import { STATION_META } from './constants'
 
 interface Props {

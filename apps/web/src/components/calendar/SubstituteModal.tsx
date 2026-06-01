@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { api, type CalendarSession, type CalendarInstructor } from '@/lib/api'
+import { api, type CalendarSession, type CalendarInstructor } from '@/lib/api-client'
 import { useTimeFormat } from '@/lib/time-format-context'
 import { fmtTime } from '@/lib/fmt-time'
 

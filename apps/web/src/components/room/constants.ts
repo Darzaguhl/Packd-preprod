@@ -1,4 +1,4 @@
-import type { StationType } from '@/lib/api'
+import type { StationType } from '@/lib/api-client'
 
 export const STATION_META: Record<StationType, { label: string; short: string; icon: string; color: string; w: number; h: number }> = {
   BIKE:       { label: 'Bike',       short: 'Bike', icon: '🚴', color: 'bg-violet-100 border-violet-300 text-violet-800', w: 1.2, h: 0.8 },

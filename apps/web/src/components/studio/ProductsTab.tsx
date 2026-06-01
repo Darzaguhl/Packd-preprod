@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { api, type Product } from '@/lib/api'
+import { api, type Product } from '@/lib/api-client'
 import PromoCodesTab from './PromoCodesTab'
 
 const CATEGORIES = ['Drinks', 'Food', 'Merchandise', 'Services', 'Other']

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { api, type PromoCode } from '@/lib/api'
+import { api, type PromoCode } from '@/lib/api-client'
 
 const TYPE_LABELS: Record<string, string> = {
   CREDIT_GRANT: 'Credit top-up',

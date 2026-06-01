@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api-client'
 import { createClient } from '@/lib/supabase/client'
-import type { UpcomingBooking, PastBooking, CreditTransaction, AdminMemberProfile, MembershipPlan } from '@/lib/api'
+import type { UpcomingBooking, PastBooking, CreditTransaction, AdminMemberProfile, MembershipPlan } from '@/lib/api-client'
 import type { MemberProfile } from '@packd/types'
 import { sportConfig } from '@/components/schedule/constants'
 import { useTimeFormat } from '@/lib/time-format-context'

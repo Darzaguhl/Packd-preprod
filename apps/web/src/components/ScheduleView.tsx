@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import type { SessionSlot } from '@packd/types'
-import { api, type MemberNetworkInfo } from '@/lib/api'
+import { api, type MemberNetworkInfo } from '@/lib/api-client'
 import { bookings as bookingsClient, waitlist as waitlistClient } from '@/lib/api-client'
 import { createClient } from '@/lib/supabase/client'
 import ClassCard from './schedule/ClassCard'

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { api, type ClassTemplate } from '@/lib/api'
+import { api, type ClassTemplate } from '@/lib/api-client'
 import { SPORT_CONFIG } from '@/components/schedule/constants'
 import TimeInput from '@/components/ui/TimeInput'
 

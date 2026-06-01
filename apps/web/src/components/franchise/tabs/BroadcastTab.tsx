@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { api, type StudioSummary } from '@/lib/api'
+import { api, type StudioSummary } from '@/lib/api-client'
 
 interface Props {
   studios: StudioSummary[]

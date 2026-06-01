@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { api, type AnalyticsData } from '@/lib/api'
+import { api, type AnalyticsData } from '@/lib/api-client'
 import QueryTab from './QueryTab'
 import LeaderboardTab from './LeaderboardTab'
 

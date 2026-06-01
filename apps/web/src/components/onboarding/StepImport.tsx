@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import type { OnboardingData } from './OnboardingFlow'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api-client'
 
 type CopyOption = 'plans' | 'products' | 'templates' | 'policy'
 

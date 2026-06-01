@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { api, type Brand } from '@/lib/api'
+import { api, type Brand } from '@/lib/api-client'
 
 interface Props {
   token: string

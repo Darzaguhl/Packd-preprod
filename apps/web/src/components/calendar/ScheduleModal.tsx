@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { api, type CalendarTemplate, type CalendarInstructor, type CalendarRoom, type ClassSchedule, type OrphanedPattern } from '@/lib/api'
+import { api, type CalendarTemplate, type CalendarInstructor, type CalendarRoom, type ClassSchedule, type OrphanedPattern } from '@/lib/api-client'
 import { SPORT_CONFIG } from '@/components/schedule/constants'
 import { useTimeFormat } from '@/lib/time-format-context'
 import { fmtHHMM } from '@/lib/fmt-time'

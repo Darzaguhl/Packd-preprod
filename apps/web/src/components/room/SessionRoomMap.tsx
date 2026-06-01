@@ -13,7 +13,7 @@ import {
   type DragEndEvent,
   type DropAnimation,
 } from '@dnd-kit/core'
-import type { RoomLayout, SpotAssignment, Station } from '@/lib/api'
+import type { RoomLayout, SpotAssignment, Station } from '@/lib/api-client'
 import { STATION_META } from './constants'
 
 const SCALE = 90 // px per metre

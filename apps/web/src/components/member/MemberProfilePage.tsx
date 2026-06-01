@@ -3,11 +3,11 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { api, type AdminMemberProfile, type AdminMemberHistory, type MembershipPlan, type GuestPassEntry } from '@/lib/api'
+import { api, type AdminMemberProfile, type AdminMemberHistory, type MembershipPlan, type GuestPassEntry } from '@/lib/api-client'
 import NavBar from '@/components/NavBar'
 import MemberHistoryView from './MemberHistoryView'
 import { TimeFormatProvider } from '@/lib/time-format-context'
-import type { UpcomingBooking, PastBooking, CreditTransaction } from '@/lib/api'
+import type { UpcomingBooking, PastBooking, CreditTransaction } from '@/lib/api-client'
 
 interface Props {
   memberId: string

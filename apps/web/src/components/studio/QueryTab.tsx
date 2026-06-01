@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { api, type QueryResult } from '@/lib/api'
+import { api, type QueryResult } from '@/lib/api-client'
 
 // ─── Report definitions ───────────────────────────────────────────────────────
 

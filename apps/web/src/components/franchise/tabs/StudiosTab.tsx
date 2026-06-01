@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { api, type StudioSummary } from '@/lib/api'
+import { api, type StudioSummary } from '@/lib/api-client'
 
 function FillBar({ pct }: { pct: number }) {
   return (

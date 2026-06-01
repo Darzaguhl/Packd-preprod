@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { api, type CalendarWeek, type CalendarSession, type ClassSchedule, type OrphanedPattern, type StaffShift, type StaffMember } from '@/lib/api'
+import { api, type CalendarWeek, type CalendarSession, type ClassSchedule, type OrphanedPattern, type StaffShift, type StaffMember } from '@/lib/api-client'
 import { SPORT_CONFIG } from '@/components/schedule/constants'
 import ScheduleModal from './ScheduleModal'
 import SubstituteModal from './SubstituteModal'

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { api, type PlatformBrand } from '@/lib/api'
+import { api, type PlatformBrand } from '@/lib/api-client'
 import NavBar from '@/components/NavBar'
 
 // ── New Brand Modal ──────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import AiAssistant from './AiAssistant'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api-client'
 
 export default function AiAssistantWrapper() {
   const [token, setToken] = useState<string | null>(null)

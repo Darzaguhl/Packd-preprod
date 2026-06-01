@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { api, type NetworkWithStudios, type StudioSummary } from '@/lib/api'
+import { api, type NetworkWithStudios, type StudioSummary } from '@/lib/api-client'
 
 interface Props {
   studios: StudioSummary[]

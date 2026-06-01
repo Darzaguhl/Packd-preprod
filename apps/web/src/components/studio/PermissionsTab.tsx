@@ -8,7 +8,7 @@ import {
   type FronthostPermissions,
   DEFAULT_INSTRUCTOR_PERMISSIONS,
   DEFAULT_FRONTHOST_PERMISSIONS,
-} from '@/lib/api'
+} from '@/lib/api-client'
 
 // ─── Merged permission definition ────────────────────────────────────────────
 // Each entry maps to one or both roles. For dual-role users, shared permissions

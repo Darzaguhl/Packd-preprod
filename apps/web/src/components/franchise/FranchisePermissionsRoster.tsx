@@ -9,7 +9,7 @@ import {
   type FronthostPermissions,
   DEFAULT_INSTRUCTOR_PERMISSIONS,
   DEFAULT_FRONTHOST_PERMISSIONS,
-} from '@/lib/api'
+} from '@/lib/api-client'
 
 // Reuse ALL_PERMS definition inline (same as PermissionsTab)
 type RoleKey = 'instructor' | 'fronthost'

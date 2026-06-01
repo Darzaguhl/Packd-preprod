@@ -3,14 +3,14 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api-client'
 import { bookings as bookingsClient, members as membersClient } from '@/lib/api-client'
 import type { MemberProfile } from '@packd/types'
 import NavBar from '@/components/NavBar'
 import MemberHistoryView from '@/components/member/MemberHistoryView'
 import AccountExtrasSection from '@/components/member/AccountExtrasSection'
 import { TimeFormatProvider } from '@/lib/time-format-context'
-import type { UpcomingBooking, PastBooking, CreditTransaction, MembershipPlan } from '@/lib/api'
+import type { UpcomingBooking, PastBooking, CreditTransaction, MembershipPlan } from '@/lib/api-client'
 
 // ─── Edit profile modal ───────────────────────────────────────────────────────
 
