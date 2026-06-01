@@ -33,6 +33,9 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://packd:packd@localhost:5432/packd_test
+      # DIRECT_URL = direct (non-pooled) connection used by Prisma migrate.
+      # In CI there is no pgBouncer, so it equals DATABASE_URL.
+      DIRECT_URL: postgresql://packd:packd@localhost:5432/packd_test
       NODE_ENV: test
       # Third-party SDKs are stubbed in unit tests — real keys not needed
       STRIPE_SECRET_KEY: sk_test_placeholder
@@ -62,6 +65,7 @@ jobs:
         run: npm run db:migrate:deploy
         env:
           DATABASE_URL: postgresql://packd:packd@localhost:5432/packd_test
+          DIRECT_URL: postgresql://packd:packd@localhost:5432/packd_test
 
       - name: Set up packd_api role and RLS policies
         run: |
