@@ -1,8 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { api } from '@/lib/api-client'
-import { members as membersClient } from '@/lib/api-client'
+import { api, members as membersClient } from '@/lib/api-client'
 
 interface Props {
   token: string

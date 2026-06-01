@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { api, type StudioSummary } from '@/lib/api-client'
-import { members as membersClient } from '@/lib/api-client'
+import { api, members as membersClient } from '@/lib/api-client'
+import type { StudioSummary } from '@/lib/api-client'
 
 import AdminShell from '@/components/admin/AdminShell'
 import NavBar from '@/components/NavBar'

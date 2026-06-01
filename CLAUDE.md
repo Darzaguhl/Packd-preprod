@@ -383,4 +383,4 @@ For each file in `apps/api/src/routes/`, check:
 - [ ] External penetration test — internal audit found 30 issues (all fixed). Schedule a third-party pen test before enterprise launch.
 
 ### Technical debt
-- [ ] api.ts remaining migration — all deprecated methods removed; `api.ts` retains only non-deprecated helpers (admin, franchise, studio, memberships, etc.). Full migration requires adding those namespaces to `api-client.ts` with typed request bodies.
+- [ ] Response type generation — all API response types are still hand-written in `api.ts`. Add Zod response schemas to Fastify routes so `api-types.generated.ts` emits response shapes, then replace hand-written interfaces with generated types. This is the last step to complete the OpenAPI contract.

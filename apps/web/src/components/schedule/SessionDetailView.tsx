@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { api, type SessionSpots } from '@/lib/api-client'
-import { waivers as waiversClient } from '@/lib/api-client'
+import { api, waivers as waiversClient } from '@/lib/api-client'
+import type { SessionSpots } from '@/lib/api-client'
 import type { SessionSlot } from '@packd/types'
 import SpotPicker from '@/components/room/SpotPicker'
 import CapacityBar from './CapacityBar'

@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { api, type StudioDetail } from '@/lib/api-client'
-import { waivers as waiversClient } from '@/lib/api-client'
+import { api, waivers as waiversClient } from '@/lib/api-client'
+import type { StudioDetail } from '@/lib/api-client'
 
 const TIMEZONES: { group: string; zones: string[] }[] = [
   { group: 'Europe', zones: [

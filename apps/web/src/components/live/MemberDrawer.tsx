@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { api, type AdminSession, type AdminBooking, type Product, type CartSaleItem } from '@/lib/api-client'
-import { bookings as bookingsClient } from '@/lib/api-client'
+import { api, bookings as bookingsClient } from '@/lib/api-client'
+import type { AdminSession, AdminBooking, Product, CartSaleItem } from '@/lib/api-client'
 import { createClient } from '@/lib/supabase/client'
 import { useTimeFormat } from '@/lib/time-format-context'
 import { fmtTime } from '@/lib/fmt-time'

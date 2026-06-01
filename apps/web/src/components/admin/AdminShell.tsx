@@ -3,8 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { api } from '@/lib/api-client'
-import { members as membersClient } from '@/lib/api-client'
+import { api, members as membersClient } from '@/lib/api-client'
 import LiveDashboard from '@/components/live/LiveDashboard'
 import StudioManagerDashboard from '@/components/studio/StudioManagerDashboard'
 
