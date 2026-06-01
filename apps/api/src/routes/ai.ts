@@ -244,6 +244,7 @@ async function executeTool(
   input: Record<string, unknown>,
   userId: string,
   userRole: string,
+  callerStudioId: string,
 ): Promise<unknown> {
   const rank = ROLE_RANK[userRole as keyof typeof ROLE_RANK] ?? 0
 
@@ -712,8 +713,14 @@ async function executeTool(
     }
 
     case 'adjust_member_credits': {
-      if (rank < ROLE_RANK['fronthost']) return { error: 'Insufficient permissions' }
+      // Problem 2 — raise guard to studio_admin (ADMIN_TOOLS) and verify member ownership
+      if (rank < ROLE_RANK['studio_admin']) return { error: 'Insufficient permissions' }
       const { memberId, amount, reason } = input as { memberId: string; amount: number; reason: string }
+      const targetMember = await prisma.member.findUnique({ where: { id: memberId }, select: { studioId: true } })
+      if (!targetMember) return { error: 'Member not found' }
+      if (rank < ROLE_RANK['franchise_admin'] && targetMember.studioId !== callerStudioId) {
+        return { error: 'Member does not belong to this studio' }
+      }
       await prisma.$transaction(async (tx) => {
         await tx.creditBalance.upsert({
           where: { memberId },
@@ -734,43 +741,60 @@ async function executeTool(
 
 // ── Route ─────────────────────────────────────────────────────────────────────
 
+// Per-user in-memory rate limit store (keyed by user.id, not IP)
+const _aiRateStore = new Map<string, number[]>()
+const AI_RATE_WINDOW_MS = 60_000
+const AI_RATE_LIMIT = 20
+
 export async function aiRoutes(app: FastifyInstance) {
-  // 20 requests per minute per user — protects Anthropic API costs
-  app.addHook('preHandler', async (request: FastifyRequest, reply) => {
-    const key = `ai:${(request as FastifyRequest & { user?: { id: string } }).user?.id ?? request.ip}`
-    const now = Date.now()
-    const windowMs = 60_000
-    const limit = 20
-
-    const store = (app as FastifyInstance & { _aiRateStore?: Map<string, number[]> })
-    if (!store._aiRateStore) store._aiRateStore = new Map()
-    const hits = (store._aiRateStore.get(key) ?? []).filter(t => now - t < windowMs)
-    if (hits.length >= limit) {
-      return reply.code(429).send({ error: 'Too many requests — please wait a moment before sending another message.' })
-    }
-    hits.push(now)
-    store._aiRateStore.set(key, hits)
-  })
-
   app.post<{
     Body: {
       messages: Array<{ role: 'user' | 'assistant'; content: string }>
       studioId: string
-      studioName?: string
     }
   }>(
     '/chat',
     { preHandler: requireAuth },
     async (request, reply) => {
       const user = getUser(request)
-      const { messages, studioId, studioName } = request.body
+      const { messages, studioId } = request.body
       const rank = ROLE_RANK[user.role as keyof typeof ROLE_RANK] ?? 0
 
-      // Resolve API key: studio's own key takes precedence over platform key
+      // Problem 1 — studioId isolation: verify the caller belongs to the requested studio
+      const userStudioIds: string[] = (user.studioIds as string[] | undefined) ?? [user.studioId].filter(Boolean) as string[]
+      if (rank < ROLE_RANK['franchise_admin'] && !userStudioIds.includes(studioId)) {
+        return reply.forbidden()
+      }
+
+      // Rate limit keyed by authenticated user ID (not IP — avoids shared-IP false positives).
+      // Evict stale entries on each check to prevent unbounded memory growth.
+      {
+        const key = `ai:${user.id}`
+        const now = Date.now()
+        const existing = _aiRateStore.get(key) ?? []
+        const hits = existing.filter(t => now - t < AI_RATE_WINDOW_MS)
+        // Also evict all entries across the store that have fully expired
+        for (const [k, ts] of _aiRateStore) {
+          const fresh = ts.filter(t => now - t < AI_RATE_WINDOW_MS)
+          if (fresh.length === 0) _aiRateStore.delete(k)
+          else if (fresh.length !== ts.length) _aiRateStore.set(k, fresh)
+        }
+        if (hits.length >= AI_RATE_LIMIT) {
+          return reply.code(429).send({ error: 'Too many requests — please wait a moment before sending another message.' })
+        }
+        hits.push(now)
+        _aiRateStore.set(key, hits)
+      }
+
+      // Resolve API key: studio's own key takes precedence over platform key.
+      // Also fetch studioName from DB — never trust the client-supplied value (prompt injection).
       const studio = await prisma.studio.findUnique({
         where: { id: studioId },
-        select: { anthropicApiKey: true, aiEnabled: true },
+        select: { anthropicApiKey: true, aiEnabled: true, name: true },
       })
+
+      // Problem 3 — use DB-sourced studioName in the system prompt
+      const studioName = studio?.name ?? 'the studio'
 
       if (studio && !studio.aiEnabled) {
         return reply.code(403).send({ error: 'AI assistant is disabled for this studio.' })
@@ -889,6 +913,7 @@ Studio ID: ${studioId}`
               block.input as Record<string, unknown>,
               user.id,
               user.role,
+              studioId,
             )
             toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result) })
           }

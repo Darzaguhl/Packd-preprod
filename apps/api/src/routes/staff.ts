@@ -1,10 +1,43 @@
 import type { FastifyInstance } from 'fastify'
+import { createHmac, timingSafeEqual } from 'crypto'
 import { prisma } from '@packd/db'
 import { requireRole, requireAuth, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
-import { ROLE_RANK } from '@packd/types'
 import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole } from '../lib/supabase-admin.js'
 import { sendStaffInvite } from '../lib/email.js'
+import { assertStudioAccess } from './admin-shared.js'
+
+// ── Invite token helpers ─────────────────────────────────────────────────────
+
+function getInviteSecret(): string {
+  return process.env.INVITE_SECRET ?? process.env.ICAL_SECRET ?? 'dev-invite-secret'
+}
+
+function generateInviteToken(email: string, studioId: string, role: string): string {
+  const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 days
+  const payload = `${email}|${studioId}|${role}|${expiresAt}`
+  const sig = createHmac('sha256', getInviteSecret()).update(payload).digest('hex')
+  return Buffer.from(`${payload}|${sig}`).toString('base64url')
+}
+
+function verifyInviteToken(token: string, email: string, studioId: string, role: string): boolean {
+  try {
+    const decoded = Buffer.from(token, 'base64url').toString('utf8')
+    const parts = decoded.split('|')
+    if (parts.length !== 5) return false
+    const [tEmail, tStudioId, tRole, expiresAtStr, sig] = parts
+    if (tEmail !== email || tStudioId !== studioId || tRole !== role) return false
+    if (Date.now() > parseInt(expiresAtStr, 10)) return false
+    const payload = `${tEmail}|${tStudioId}|${tRole}|${expiresAtStr}`
+    const expected = createHmac('sha256', getInviteSecret()).update(payload).digest('hex')
+    const sigBuf = Buffer.from(sig, 'hex')
+    const expBuf = Buffer.from(expected, 'hex')
+    if (sigBuf.length !== expBuf.length) return false
+    return timingSafeEqual(sigBuf, expBuf)
+  } catch {
+    return false
+  }
+}
 
 const requireStudioAdmin = requireRole('studio_admin')
 
@@ -15,19 +48,6 @@ const STAFF_PHOTO_BUCKET = 'instructor-photos' // Supabase bucket — also store
 const VALID_STAFF_ROLES = ['fronthost', 'instructor'] as const
 type StaffRole = typeof VALID_STAFF_ROLES[number]
 const VALID_INVITE_ROLES = [...VALID_STAFF_ROLES, 'studio_admin'] as const
-
-async function assertStudioAccess(
-  userId: string,
-  role: string,
-  studioId: string,
-  jwtStudioIds?: string[],
-): Promise<boolean> {
-  if (ROLE_RANK[role as keyof typeof ROLE_RANK] >= ROLE_RANK['franchise_admin']) return true
-  // Check JWT studioIds first (no DB roundtrip for staff)
-  if (jwtStudioIds && jwtStudioIds.length > 0) return jwtStudioIds.includes(studioId)
-  const member = await prisma.member.findUnique({ where: { userId }, select: { studioId: true } })
-  return !!(member && member.studioId === studioId)
-}
 
 export async function staffRoutes(app: FastifyInstance) {
   // GET /staff/studios — studios assigned to the current user (fronthost use)
@@ -56,7 +76,7 @@ export async function staffRoutes(app: FastifyInstance) {
       if (!studioId) return reply.badRequest('studioId is required')
 
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, user.studioIds)) return reply.forbidden()
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const staff = await prisma.member.findMany({
         where: { studioIds: { has: studioId }, staffRoles: { hasSome: [...VALID_STAFF_ROLES] } },
@@ -100,7 +120,7 @@ export async function staffRoutes(app: FastifyInstance) {
       }
 
       const user = getUser(request)
-      if (!await assertStudioAccess(user.id, user.role, studioId, user.studioIds)) return reply.forbidden()
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       if (!SERVICE_ROLE_KEY) return reply.internalServerError('SUPABASE_SERVICE_ROLE_KEY not configured on server')
 
@@ -170,7 +190,7 @@ export async function staffRoutes(app: FastifyInstance) {
 
       const user = getUser(request)
       const studioToRemove = callerStudioId ?? member.studioId
-      if (!await assertStudioAccess(user.id, user.role, studioToRemove, user.studioIds)) return reply.forbidden()
+      if (!await assertStudioAccess(user.id, user.role, studioToRemove, reply, user.studioIds)) return
 
       if (!SERVICE_ROLE_KEY) return reply.internalServerError('SUPABASE_SERVICE_ROLE_KEY not configured on server')
 
@@ -241,9 +261,7 @@ export async function staffRoutes(app: FastifyInstance) {
       if (!(VALID_INVITE_ROLES as readonly string[]).includes(role)) {
         return reply.badRequest('role must be fronthost, instructor, or studio_admin')
       }
-      if (!await assertStudioAccess(user.id, user.role, studioId, user.studioIds)) {
-        return reply.forbidden('Access denied to this studio')
-      }
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const studio = await prisma.studio.findUnique({ where: { id: studioId }, select: { name: true } })
       if (!studio) return reply.notFound('Studio not found')
@@ -252,7 +270,8 @@ export async function staffRoutes(app: FastifyInstance) {
       const inviterName = inviterUser ? `${inviterUser.firstName} ${inviterUser.lastName}` : 'A studio admin'
 
       const webUrl = process.env.WEB_URL ?? 'http://localhost:3001'
-      const signupUrl = `${webUrl}/accept-invite?email=${encodeURIComponent(email)}&studio=${encodeURIComponent(studio.name)}&studioId=${studioId}&role=${role}`
+      const inviteToken = generateInviteToken(email, studioId, role)
+      const signupUrl = `${webUrl}/accept-invite?email=${encodeURIComponent(email)}&studio=${encodeURIComponent(studio.name)}&studioId=${studioId}&role=${role}&token=${inviteToken}`
 
       await sendStaffInvite({
         to: email,
@@ -270,16 +289,21 @@ export async function staffRoutes(app: FastifyInstance) {
 
   // POST /staff/accept-invite — authenticated user accepts their invite and gets their role applied
   // Called client-side immediately after signup/login on the /accept-invite page.
-  app.post<{ Body: { studioId: string; role: string; invitedEmail: string } }>(
+  app.post<{ Body: { studioId: string; role: string; invitedEmail: string; token: string } }>(
     '/accept-invite',
     { preHandler: requireAuth },
     async (request, reply) => {
-      const { studioId, role, invitedEmail } = request.body
+      const { studioId, role, invitedEmail, token } = request.body
       const user = getUser(request)
 
-      if (!studioId || !role || !invitedEmail) return reply.badRequest('studioId, role, and invitedEmail are required')
+      if (!studioId || !role || !invitedEmail || !token) return reply.badRequest('studioId, role, invitedEmail, and token are required')
       if (!(VALID_INVITE_ROLES as readonly string[]).includes(role)) {
         return reply.badRequest('Invalid role')
+      }
+
+      // Verify the HMAC invite token — proves a real invite was issued for this email/studio/role
+      if (!verifyInviteToken(token, invitedEmail, studioId, role)) {
+        return reply.code(403).send({ error: 'Invalid or expired invite token' })
       }
 
       // Verify the authenticated user's email matches the invited email
@@ -335,8 +359,7 @@ export async function staffRoutes(app: FastifyInstance) {
       })
       if (!instructor) return reply.notFound()
 
-      const hasAccess = await assertStudioAccess(user.id, user.role, instructor.studioId, user.studioIds)
-      if (!hasAccess) return reply.forbidden()
+      if (!await assertStudioAccess(user.id, user.role, instructor.studioId, reply, user.studioIds)) return
 
       const updated = await prisma.instructor.update({
         where: { id: instructorId },
@@ -366,8 +389,7 @@ export async function staffRoutes(app: FastifyInstance) {
       })
       if (!member) return reply.notFound()
 
-      const hasAccess = await assertStudioAccess(user.id, user.role, member.studioId, user.studioIds)
-      if (!hasAccess) return reply.forbidden()
+      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply, user.studioIds)) return
 
       await prisma.member.update({
         where: { id: memberId },
@@ -399,8 +421,7 @@ export async function staffRoutes(app: FastifyInstance) {
       })
       if (!member) return reply.notFound()
 
-      const hasAccess = await assertStudioAccess(user.id, user.role, member.studioId, user.studioIds)
-      if (!hasAccess) return reply.forbidden()
+      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply, user.studioIds)) return
 
       const ext = fileName.split('.').pop()?.toLowerCase() ?? 'jpg'
       const storageKey = `avatars/${member.userId}.${ext}`

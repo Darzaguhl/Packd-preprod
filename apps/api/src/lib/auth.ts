@@ -2,7 +2,8 @@ import { createRemoteJWKSet, jwtVerify } from 'jose'
 import type { FastifyRequest, FastifyReply } from 'fastify'
 import { ROLE_RANK, type AuthUser, type UserRole } from '@packd/types'
 
-const SUPABASE_URL = process.env.SUPABASE_URL!
+if (!process.env.SUPABASE_URL) throw new Error('SUPABASE_URL env var is required')
+const SUPABASE_URL = process.env.SUPABASE_URL
 const JWKS = createRemoteJWKSet(
   new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`),
 )

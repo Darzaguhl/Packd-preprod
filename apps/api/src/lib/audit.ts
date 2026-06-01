@@ -38,6 +38,7 @@ export const AUDIT = {
   SHIFT_UPDATE:          'shift.update',
   SHIFT_DELETE:          'shift.delete',
   SHIFT_PATTERN_CREATE:  'shift.pattern.create',
+  SHIFT_PATTERN_UPDATE:  'shift.pattern.update',
   SHIFT_PATTERN_DELETE:  'shift.pattern.delete',
   STAFF_ROLE_ADD:        'staff.role.add',
   STAFF_ROLE_REMOVE:     'staff.role.remove',

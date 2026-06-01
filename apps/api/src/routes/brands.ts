@@ -469,6 +469,10 @@ export async function brandRoutes(app: FastifyInstance) {
     if (!exists) return reply.notFound()
 
     const allStudioIds = await getStudioIdsForBrand(id)
+
+    // Prevent querying studios outside this brand
+    if (filterStudio && !allStudioIds.includes(filterStudio)) return reply.forbidden()
+
     const studioIds = filterStudio ? [filterStudio] : allStudioIds
 
     const where = q ? {
@@ -488,7 +492,7 @@ export async function brandRoutes(app: FastifyInstance) {
         creditBalance: { select: { balance: true } },
         _count: { select: { bookings: true } },
       },
-      take: parseInt(limit),
+      take: Math.min(parseInt(limit, 10) || 50, 200),
       orderBy: [{ user: { lastName: 'asc' } }, { user: { firstName: 'asc' } }],
     })
 

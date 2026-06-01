@@ -1189,7 +1189,7 @@ export const api = {
         body: JSON.stringify({ payRateHourlyCents }),
         token,
       }),
-    acceptInvite: (body: { studioId: string; role: string; invitedEmail: string }, token: string) =>
+    acceptInvite: (body: { studioId: string; role: string; invitedEmail: string; token: string }, token: string) =>
       apiFetch<{ success: boolean; role: string; studioName: string }>('/staff/accept-invite', {
         method: 'POST',
         body: JSON.stringify(body),

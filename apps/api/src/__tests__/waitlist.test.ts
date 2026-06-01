@@ -13,6 +13,10 @@ vi.mock('@packd/db', () => {
   const booking = { create: vi.fn() }
   const creditBalance = { update: vi.fn(), findUniqueOrThrow: vi.fn() }
   const creditTransaction = { create: vi.fn() }
+  // New gates added to POST /waitlist/:id/confirm
+  const membershipSubscription = { findFirst: vi.fn().mockResolvedValue(null) }
+  const waiver = { findFirst: vi.fn().mockResolvedValue(null) }
+  const waiverSignature = { findUnique: vi.fn().mockResolvedValue(null) }
 
   return {
     prisma: {
@@ -22,6 +26,9 @@ vi.mock('@packd/db', () => {
       booking,
       creditBalance,
       creditTransaction,
+      membershipSubscription,
+      waiver,
+      waiverSignature,
       $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({ member, classSession, waitlistEntry, booking, creditBalance, creditTransaction }),
       ),
@@ -103,7 +110,7 @@ describe('POST /waitlist/:id/confirm', () => {
       status: 'NOTIFIED',
       expiresAt: new Date(Date.now() + 600_000),
       member: { userId: 'user-1', creditBalance: { balance: 5 } },
-      session: { creditsRequired: 1, capacity: 20 },
+      session: { creditsRequired: 1, capacity: 20, studioId: 'studio-1' },
     } as never)
     vi.mocked(prisma.classSession.findUniqueOrThrow).mockResolvedValue(mockConfirmSession() as never)
     vi.mocked(prisma.creditBalance.findUniqueOrThrow).mockResolvedValue({ balance: 5 } as never)

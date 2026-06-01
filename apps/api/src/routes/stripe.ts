@@ -5,6 +5,7 @@ import { requireAuth, getUser } from '../lib/auth.js'
 import { sendWelcome, sendPaymentFailed } from '../lib/email.js'
 import { ROLE_RANK } from '@packd/types'
 import { audit, AUDIT } from '../lib/audit.js'
+import { assertStudioAccess } from './admin-shared.js'
 
 // Lazy-init so tests without STRIPE_SECRET_KEY don't blow up at import time
 let _stripe: Stripe | null = null
@@ -50,6 +51,11 @@ export async function stripeRoutes(app: FastifyInstance) {
 
       if (studioSettings?.creditPurchaseEnabled === false) {
         return reply.code(403).send({ error: 'Online credit purchase is not enabled for this studio.' })
+      }
+
+      // Ensure the plan belongs to the requested studio (prevents cross-studio plan abuse)
+      if (plan.studioId !== studioId) {
+        return reply.badRequest('Plan does not belong to this studio')
       }
 
       if (!plan.stripePriceId) {
@@ -190,6 +196,9 @@ export async function stripeRoutes(app: FastifyInstance) {
       if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['fronthost']) {
         return reply.forbidden()
       }
+
+      // Verify the caller has access to the target studio
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const member = await prisma.member.findUnique({
         where: { id: memberId },
@@ -613,9 +622,21 @@ export async function stripeRoutes(app: FastifyInstance) {
 
       const sale = await prisma.productSale.findUnique({ where: { id: saleId } })
       if (!sale) return reply.notFound('Sale not found')
+
+      // Studio-scoped IDOR guard: fronthost can only refund sales in their studio;
+      // franchise_admin+ can refund across studios.
+      if (!user.studioIds?.includes(sale.studioId) && ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['franchise_admin']) {
+        return reply.forbidden()
+      }
+
       if (sale.refundedAt) return reply.badRequest('Sale already refunded')
       if (sale.paymentMethod !== 'card') return reply.badRequest('Only card payments can be refunded via Stripe')
       if (!sale.stripePaymentIntentId) return reply.badRequest('No payment intent on record')
+
+      // Bounds check: amountCents must be positive and within the original sale amount
+      if (amountCents !== undefined && (amountCents <= 0 || amountCents > sale.totalCents)) {
+        return reply.badRequest('amountCents must be between 1 and the original sale amount')
+      }
 
       const refundCents = amountCents ?? sale.totalCents
 

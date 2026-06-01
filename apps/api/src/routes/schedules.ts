@@ -423,14 +423,14 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       const user = getUser(request)
       if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
-      // Instructors need the canSetSubstitute permission; studio_admin+ always allowed
+      // Instructors need the canEditSessionDetails permission; studio_admin+ always allowed
       if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['studio_admin']) {
         const instructor = await prisma.instructor.findFirst({
           where: { studioId, userId: user.id },
           select: { permissions: true },
         })
         const perms = (instructor?.permissions ?? {}) as Record<string, unknown>
-        if (!perms.canSetSubstitute) {
+        if (!perms.canEditSessionDetails) {
           return reply.code(403).send({ error: 'You do not have permission to set a substitute' })
         }
       }
@@ -463,23 +463,26 @@ export async function classScheduleRoutes(app: FastifyInstance) {
         const substituteName = `${updated.substitute.user.firstName} ${updated.substitute.user.lastName}`
         const confirmedBookings = await prisma.booking.findMany({
           where: { sessionId, status: 'CONFIRMED' },
-          include: { member: { include: { user: { select: { email: true, firstName: true } } } } },
+          include: { member: { select: { emailPreferences: true, user: { select: { email: true, firstName: true } } } } },
         })
         if (confirmedBookings.length > 0) {
           const webUrl = process.env.WEB_URL ?? 'http://localhost:3000'
-          await Promise.allSettled(
-            confirmedBookings.map(b =>
-              sendSubstituteNotification({
-                to: b.member.user.email,
-                firstName: b.member.user.firstName,
-                studioName: updated.studio.name,
-                className: updated.template?.name ?? 'Class',
-                startsAt: updated.startsAt.toISOString(),
-                substituteName,
-                webUrl,
-              }),
-            ),
-          )
+          const notifications: Promise<unknown>[] = []
+          for (const b of confirmedBookings) {
+            const prefs = (b.member.emailPreferences as Record<string, boolean> | null) ?? {}
+            // classReminder preference controls substitute notifications (opt-out respected)
+            if ((prefs.classReminder ?? true) === false) continue
+            notifications.push(sendSubstituteNotification({
+              to: b.member.user.email,
+              firstName: b.member.user.firstName,
+              studioName: updated.studio.name,
+              className: updated.template?.name ?? 'Class',
+              startsAt: updated.startsAt.toISOString(),
+              substituteName,
+              webUrl,
+            }))
+          }
+          await Promise.allSettled(notifications)
         }
       }
 

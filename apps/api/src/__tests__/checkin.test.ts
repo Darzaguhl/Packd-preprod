@@ -4,7 +4,7 @@ vi.mock('@packd/db', () => ({
   prisma: {
     classSession: { findUniqueOrThrow: vi.fn() },
     member: { findUnique: vi.fn() },
-    booking: { findUniqueOrThrow: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    booking: { findUniqueOrThrow: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     studio: { findUnique: vi.fn().mockResolvedValue({ selfCheckInEnabled: true }) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   },
@@ -48,6 +48,7 @@ describe('POST /admin/sessions/:id/checkin/:bookingId', () => {
     vi.mocked(prisma.booking.findUniqueOrThrow).mockResolvedValue({
       id: 'booking-1',
       sessionId: 'session-1',
+      status: 'CONFIRMED',
       checkedIn: false,
     } as never)
     vi.mocked(prisma.booking.update).mockResolvedValue({ id: 'booking-1', checkedIn: true } as never)
@@ -68,6 +69,7 @@ describe('POST /admin/sessions/:id/checkin/:bookingId', () => {
     vi.mocked(prisma.booking.findUniqueOrThrow).mockResolvedValue({
       id: 'booking-1',
       sessionId: 'session-1',
+      status: 'CONFIRMED',
       checkedIn: true,
     } as never)
     vi.mocked(prisma.booking.update).mockResolvedValue({ id: 'booking-1', checkedIn: false } as never)
@@ -80,8 +82,8 @@ describe('POST /admin/sessions/:id/checkin/:bookingId', () => {
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({ success: true, checkedIn: false })
-    // Verify checkedInAt is cleared on un-check
-    expect(vi.mocked(prisma.booking.update).mock.calls[0][0].data.checkedInAt).toBeNull()
+    // Verify checkedInAt is cleared on un-check (updateMany is used for atomic toggle)
+    expect(vi.mocked(prisma.booking.updateMany).mock.calls[0][0].data.checkedInAt).toBeNull()
   })
 
   it('returns 404 when booking belongs to a different session', async () => {

@@ -56,6 +56,11 @@ vi.mock('../lib/auth.js', () => ({
 
 vi.mock('../lib/email.js', () => ({ sendWelcome: vi.fn() }))
 
+// assertStudioAccess is called by charge-member; mock it to always allow
+vi.mock('../routes/admin-shared.js', () => ({
+  assertStudioAccess: vi.fn().mockResolvedValue(true),
+}))
+
 import Fastify from 'fastify'
 import sensible from '@fastify/sensible'
 import { stripeRoutes } from '../routes/stripe.js'
@@ -161,6 +166,7 @@ describe('POST /stripe/refund', () => {
   it('refunds successfully for a fronthost', async () => {
     vi.mocked(prisma.productSale.findUnique).mockResolvedValue({
       id: 'sale-1',
+      studioId: 'studio-1',  // fronthost studioIds includes 'studio-1' — passes IDOR check
       refundedAt: null,
       paymentMethod: 'card',
       stripePaymentIntentId: 'pi_1',
@@ -186,6 +192,7 @@ describe('POST /stripe/refund', () => {
   it('returns 400 when sale is already refunded', async () => {
     vi.mocked(prisma.productSale.findUnique).mockResolvedValue({
       id: 'sale-1',
+      studioId: 'studio-1',
       refundedAt: new Date(),
       paymentMethod: 'card',
       stripePaymentIntentId: 'pi_1',
@@ -206,6 +213,7 @@ describe('POST /stripe/refund', () => {
   it('returns 400 for non-card payment methods', async () => {
     vi.mocked(prisma.productSale.findUnique).mockResolvedValue({
       id: 'sale-2',
+      studioId: 'studio-1',
       refundedAt: null,
       paymentMethod: 'cash',
       stripePaymentIntentId: null,
@@ -231,6 +239,7 @@ describe('POST /stripe/checkout', () => {
   const mockPlan = (overrides = {}) => ({
     id: 'plan-1',
     name: 'Monthly',
+    studioId: 'studio-1',  // must match the studioId in the checkout payload
     stripePriceId: 'price_123',
     intervalMonths: 1,
     isIntroOffer: false,

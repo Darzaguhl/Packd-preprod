@@ -39,6 +39,6 @@ export async function withStudioCtx<T>(
  * Note: requires a connection in session-mode (not pgBouncer transaction-mode).
  * Prefer `withStudioCtx` for correctness.
  */
-export async function setStudioCtx(studioId: string): Promise<void> {
+async function setStudioCtx(studioId: string): Promise<void> {
   await prisma.$executeRaw`SELECT set_config('app.current_studio_id', ${studioId}, true)`
 }

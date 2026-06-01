@@ -4,6 +4,7 @@ import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { syncStripePrice, archiveStripeProduct } from '../lib/stripe-sync.js'
 import { logger } from '../lib/logger.js'
+import { assertStudioAccess } from './admin-shared.js'
 import Stripe from 'stripe'
 
 // Lazy-init so tests without STRIPE_SECRET_KEY don't blow up at import time
@@ -155,6 +156,9 @@ export async function membershipRoutes(app: FastifyInstance) {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
 
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
+
       const plans = await prisma.membershipPlan.findMany({
         where: { studioId },
         include: {
@@ -204,6 +208,9 @@ export async function membershipRoutes(app: FastifyInstance) {
         return reply.badRequest('creditsPerCycle must be a non-negative integer or null (unlimited)')
       }
 
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
+
       // Sync with Stripe (fire-and-forget on failure — don't block plan creation)
       let stripeProductId: string | undefined
       let stripePriceId: string | undefined
@@ -252,8 +259,7 @@ export async function membershipRoutes(app: FastifyInstance) {
       const existing = await prisma.membershipPlan.findUnique({ where: { id: planId } })
       if (!existing) return reply.notFound('Plan not found')
       const userForPatch = getUser(request)
-      if (ROLE_RANK[userForPatch.role as keyof typeof ROLE_RANK] < ROLE_RANK['franchise_admin'] &&
-          !userForPatch.studioIds?.includes(existing.studioId)) return reply.forbidden()
+      if (!await assertStudioAccess(userForPatch.id, userForPatch.role, existing.studioId, reply, userForPatch.studioIds)) return
 
       // Re-sync Stripe if price-relevant fields changed
       let stripeProductId = existing.stripeProductId ?? undefined
@@ -308,8 +314,7 @@ export async function membershipRoutes(app: FastifyInstance) {
       })
       if (!plan) return reply.notFound('Plan not found')
       const userForDelete = getUser(request)
-      if (ROLE_RANK[userForDelete.role as keyof typeof ROLE_RANK] < ROLE_RANK['franchise_admin'] &&
-          !userForDelete.studioIds?.includes(plan.studioId)) return reply.forbidden()
+      if (!await assertStudioAccess(userForDelete.id, userForDelete.role, plan.studioId, reply, userForDelete.studioIds)) return
       if (plan._count.subscriptions > 0) {
         return reply.code(409).send({
           error: `Cannot delete — ${plan._count.subscriptions} active subscription(s) still use this plan`,
@@ -334,6 +339,17 @@ export async function membershipRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId, memberId, all } = request.query
       if (!studioId && !memberId) return reply.badRequest('studioId or memberId is required')
+
+      const user = getUser(request)
+
+      // If memberId is provided without studioId, resolve the member's studioId for the access check
+      if (memberId && !studioId) {
+        const memberRecord = await prisma.member.findUnique({ where: { id: memberId }, select: { studioId: true } })
+        if (!memberRecord) return reply.notFound('Member not found')
+        if (!await assertStudioAccess(user.id, user.role, memberRecord.studioId, reply, user.studioIds)) return
+      } else if (studioId) {
+        if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
+      }
 
       const subscriptions = await prisma.membershipSubscription.findMany({
         where: {
@@ -451,6 +467,13 @@ export async function membershipRoutes(app: FastifyInstance) {
       ])
       if (!member) return reply.notFound('Member not found')
       if (!plan) return reply.notFound('Plan not found')
+
+      const user = getUser(request)
+      // Check access for both the member's studio and the plan's studio
+      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply, user.studioIds)) return
+      if (member.studioId !== plan.studioId) {
+        if (!await assertStudioAccess(user.id, user.role, plan.studioId, reply, user.studioIds)) return
+      }
 
       const start = startDate ? new Date(startDate) : new Date()
       start.setHours(0, 0, 0, 0)
@@ -592,6 +615,9 @@ export async function membershipRoutes(app: FastifyInstance) {
         include: { plan: true },
       })
       if (!sub) return reply.notFound('Subscription not found')
+
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, sub.plan.studioId, reply, user.studioIds)) return
 
       const wasActive = sub.status === 'ACTIVE'
       const reactivating = !wasActive && status === 'ACTIVE'

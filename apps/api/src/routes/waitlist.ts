@@ -84,6 +84,31 @@ export async function waitlistRoutes(app: FastifyInstance) {
         return reply.gone('Confirmation window expired')
       }
 
+      // PAST_DUE gate: members with an overdue subscription cannot confirm a waitlist spot
+      const pastDueSub = await prisma.membershipSubscription.findFirst({
+        where: { memberId: entry.memberId, status: 'PAST_DUE' },
+        select: { id: true },
+      })
+      if (pastDueSub) {
+        return reply.code(402).send({ error: 'SUBSCRIPTION_PAST_DUE' })
+      }
+
+      // Waiver gate: member must have signed the studio's active waiver (if any)
+      const activeWaiver = await prisma.waiver.findFirst({
+        where: { studioId: entry.session.studioId, isActive: true },
+        select: { id: true },
+        orderBy: { createdAt: 'desc' },
+      })
+      if (activeWaiver) {
+        const signed = await prisma.waiverSignature.findUnique({
+          where: { waiverId_memberId: { waiverId: activeWaiver.id, memberId: entry.memberId } },
+          select: { id: true },
+        })
+        if (!signed) {
+          return reply.code(403).send({ error: 'WAIVER_REQUIRED', waiverId: activeWaiver.id })
+        }
+      }
+
       const balance = entry.member.creditBalance?.balance ?? 0
       if (balance < entry.session.creditsRequired) {
         return reply.paymentRequired('Insufficient credits')

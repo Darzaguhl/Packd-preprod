@@ -4,6 +4,7 @@ import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library.js
 import { requireAuth, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import Stripe from 'stripe'
+import { logger } from '../lib/logger.js'
 
 // Lazy-init so tests without STRIPE_SECRET_KEY don't blow up at import time
 let _stripe: Stripe | null = null
@@ -572,8 +573,15 @@ export async function memberRoutes(app: FastifyInstance) {
     })
     if (!member) return reply.notFound('No member profile found')
 
-    // Cancel active subscriptions
+    // Cancel active subscriptions — also cancel in Stripe to stop future billing
     if (member.memberships.length > 0) {
+      for (const sub of member.memberships) {
+        if (sub.stripeSubId) {
+          await stripe().subscriptions.cancel(sub.stripeSubId).catch(err =>
+            logger.warn({ err }, 'stripe sub cancel failed during GDPR delete'),
+          )
+        }
+      }
       await prisma.membershipSubscription.updateMany({
         where: { memberId: member.id, status: { in: ['ACTIVE', 'PAUSED'] } },
         data: { status: 'CANCELLED' },
@@ -596,7 +604,7 @@ export async function memberRoutes(app: FastifyInstance) {
     await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${user.id}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${SERVICE_ROLE_KEY}`, apikey: SERVICE_ROLE_KEY },
-    }).catch(() => {})
+    }).catch(err => logger.warn({ err }, 'supabase auth deletion failed during GDPR delete'))
 
     return reply.send({ success: true })
   })

@@ -119,6 +119,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       const term = q.trim()
       const members = await prisma.member.findMany({
         where: {
+          studioId,
           OR: [
             { user: { firstName: { contains: term, mode: 'insensitive' } } },
             { user: { lastName:  { contains: term, mode: 'insensitive' } } },
@@ -149,6 +150,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
     { preHandler: requireInstructor },
     async (request, reply) => {
       const { memberId } = request.params
+      const user = getUser(request)
 
       const [member, memberNotes] = await Promise.all([
         prisma.member.findUnique({
@@ -171,6 +173,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
         }),
       ])
       if (!member) return reply.notFound('Member not found')
+      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply, user.studioIds)) return
 
       return reply.send({
         id: member.id,
@@ -215,8 +218,9 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       const user = getUser(request)
       if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
 
-      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true } })
+      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true, studioId: true } })
       if (!member) return reply.notFound('Member not found')
+      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply, user.studioIds)) return
 
       const now = new Date()
       const [bookings, transactions] = await Promise.all([
@@ -271,8 +275,10 @@ export async function adminMembersRoutes(app: FastifyInstance) {
 
       if (!Number.isInteger(amount) || amount === 0) return reply.badRequest('amount must be a non-zero integer')
 
+      const user = getUser(request)
       const member = await prisma.member.findUnique({ where: { id: memberId }, include: { creditBalance: true } })
       if (!member) return reply.notFound('Member not found')
+      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply, user.studioIds)) return
 
       const [balance] = await prisma.$transaction([
         prisma.creditBalance.upsert({
@@ -286,8 +292,8 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       ])
 
       audit({
-        actorId: getUser(request).id,
-        actorRole: getUser(request).role,
+        actorId: user.id,
+        actorRole: user.role,
         action: AUDIT.CREDIT_ADJUST,
         targetId: memberId,
         studioId: member.studioId,
@@ -305,9 +311,11 @@ export async function adminMembersRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { memberId } = request.params
       const { notes } = request.body
+      const user = getUser(request)
 
-      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true } })
+      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true, studioId: true } })
       if (!member) return reply.notFound('Member not found')
+      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply, user.studioIds)) return
 
       const updated = await prisma.member.update({
         where: { id: memberId },
@@ -328,8 +336,9 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       const user = getUser(request)
       if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
 
-      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true } })
+      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true, studioId: true } })
       if (!member) return reply.notFound('Member not found')
+      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply, user.studioIds)) return
 
       const notes = await prisma.memberNote.findMany({
         where: { memberId },
@@ -356,8 +365,9 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
       if (!content?.trim()) return reply.badRequest('content is required')
 
-      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true } })
+      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true, studioId: true } })
       if (!member) return reply.notFound('Member not found')
+      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply, user.studioIds)) return
 
       const note = await prisma.memberNote.create({
         data: { memberId, staffId: user.id, content: content.trim() },
@@ -410,8 +420,9 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       const user = getUser(request)
       if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
 
-      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true } })
+      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true, studioId: true } })
       if (!member) return reply.notFound('Member not found')
+      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply, user.studioIds)) return
 
       const updated = await prisma.member.update({
         where: { id: memberId },
@@ -441,6 +452,10 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
       const { memberId } = request.params
       const { pausedUntil } = request.body ?? {}
+
+      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { studioId: true } })
+      if (!member) return reply.notFound('Member not found')
+      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply, user.studioIds)) return
 
       const sub = await prisma.membershipSubscription.findFirst({
         where: { memberId, status: { in: ['ACTIVE', 'PAUSED'] } },
@@ -499,13 +514,14 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       if (ROLE_RANK[user.role] < ROLE_RANK['fronthost']) return reply.forbidden()
       const { memberId } = request.params
 
-      const [sub, memberForResume] = await Promise.all([
-        prisma.membershipSubscription.findFirst({
-          where: { memberId, status: 'PAUSED' },
-          orderBy: { startDate: 'desc' },
-        }),
-        prisma.member.findUnique({ where: { id: memberId }, select: { studioId: true } }),
-      ])
+      const memberForResume = await prisma.member.findUnique({ where: { id: memberId }, select: { studioId: true } })
+      if (!memberForResume) return reply.notFound('Member not found')
+      if (!await assertStudioAccess(user.id, user.role, memberForResume.studioId, reply, user.studioIds)) return
+
+      const sub = await prisma.membershipSubscription.findFirst({
+        where: { memberId, status: 'PAUSED' },
+        orderBy: { startDate: 'desc' },
+      })
       if (!sub) return reply.notFound('No paused subscription found')
 
       const updated = await prisma.membershipSubscription.update({
@@ -523,7 +539,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
         actorId: user.id, actorRole: user.role,
         action: AUDIT.RESUME_SUBSCRIPTION,
         targetId: memberId,
-        studioId: memberForResume?.studioId,
+        studioId: memberForResume.studioId,
         meta: { subscriptionId: sub.id },
       })
 
@@ -544,6 +560,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
 
       const member = await prisma.member.findUnique({ where: { id: memberId }, select: { id: true, studioId: true } })
       if (!member) return reply.notFound('Member not found')
+      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply, user.studioIds)) return
 
       await prisma.$transaction([
         prisma.member.update({ where: { id: memberId }, data: { guestPassBalance: { increment: amount } } }),
@@ -569,6 +586,12 @@ export async function adminMembersRoutes(app: FastifyInstance) {
     { preHandler: requireInstructor },
     async (request, reply) => {
       const { memberId } = request.params
+      const user = getUser(request)
+
+      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { studioId: true } })
+      if (!member) return reply.notFound('Member not found')
+      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply, user.studioIds)) return
+
       const passes = await prisma.guestPass.findMany({ where: { memberId }, orderBy: { createdAt: 'desc' }, take: 50 })
       return reply.send(passes.map(p => ({
         id: p.id, guestName: p.guestName, sessionId: p.sessionId,
@@ -587,6 +610,10 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       const { memberId } = request.params
       const { studioId } = request.query
 
+      const member = await prisma.member.findUnique({ where: { id: memberId }, select: { studioId: true } })
+      if (!member) return reply.notFound('Member not found')
+      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply, user.studioIds)) return
+
       const sales = await prisma.productSale.findMany({
         where: { memberId, ...(studioId ? { studioId } : {}) },
         orderBy: { soldAt: 'desc' },
@@ -604,6 +631,9 @@ export async function adminMembersRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId, limit: limitStr, cursor, targetId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
+
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const limit = Math.min(parseInt(limitStr ?? '50', 10) || 50, 200)
 

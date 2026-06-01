@@ -19,6 +19,9 @@ export async function productRoutes(app: FastifyInstance) {
       const { studioId, all } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
 
+      const user = getUser(request)
+      const isStudioAdmin = ROLE_RANK[user.role as keyof typeof ROLE_RANK] >= ROLE_RANK['studio_admin']
+
       const products = await prisma.product.findMany({
         where: {
           studioId,
@@ -26,6 +29,12 @@ export async function productRoutes(app: FastifyInstance) {
         },
         orderBy: [{ category: 'asc' }, { name: 'asc' }],
       })
+
+      // Only studio_admin+ should see Stripe internal IDs; strip them for lower roles
+      if (!isStudioAdmin) {
+        return products.map(({ stripeProductId: _sp, stripePriceId: _spr, ...rest }) => rest)
+      }
+
       return products
     },
   )

@@ -173,18 +173,23 @@ export async function adminSessionRoutes(app: FastifyInstance) {
 
       const booking = await prisma.booking.findUniqueOrThrow({ where: { id: request.params.bookingId } })
       if (booking.sessionId !== request.params.id) return reply.notFound()
+      if (booking.status !== 'CONFIRMED') return reply.badRequest('Cannot check in a non-confirmed booking')
 
-      const updated = await prisma.booking.update({
-        where: { id: request.params.bookingId },
+      // Atomic toggle: condition on the current checkedIn value prevents concurrent double-flip
+      const newCheckedIn = !booking.checkedIn
+      const result = await prisma.booking.updateMany({
+        where: { id: request.params.bookingId, checkedIn: booking.checkedIn },
         data: {
-          checkedIn: !booking.checkedIn,
-          checkedInAt: !booking.checkedIn ? new Date() : null,
+          checkedIn: newCheckedIn,
+          checkedInAt: newCheckedIn ? new Date() : null,
         },
       })
-      if (updated.checkedIn) {
+      if (result.count !== 1) return reply.conflict('Check-in state was modified concurrently — please retry')
+
+      if (newCheckedIn) {
         audit({ actorId: user.id, actorRole: user.role, action: AUDIT.SESSION_CHECKIN, targetId: booking.memberId, studioId: session.studioId, meta: { sessionId: session.id, bookingId: booking.id } })
       }
-      return { success: true, checkedIn: updated.checkedIn }
+      return { success: true, checkedIn: newCheckedIn }
     },
   )
 
@@ -341,6 +346,13 @@ export async function adminSessionRoutes(app: FastifyInstance) {
       const sessionIds = sessions.map(s => s.id)
 
       if (action === 'SUBSTITUTE') {
+        // Validate that the substitute instructor belongs to this studio
+        const subInstructor = await prisma.instructor.findFirst({
+          where: { id: substituteInstructorId, studioId },
+          select: { id: true },
+        })
+        if (!subInstructor) return reply.badRequest('Substitute instructor not found in this studio')
+
         await prisma.classSession.updateMany({
           where: { id: { in: sessionIds } },
           data: { substituteInstructorId },

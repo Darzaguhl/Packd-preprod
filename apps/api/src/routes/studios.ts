@@ -357,14 +357,45 @@ export async function studioRoutes(app: FastifyInstance) {
   )
 
   // GET /studios/:slug/public — public studio info (kept for onboarding)
-  app.get<{ Params: { slug: string } }>('/by-slug/:slug', async (request, reply) => {
-    const studio = await prisma.studio.findUnique({
-      where: { slug: request.params.slug },
-      include: { locations: true },
-    })
-    if (!studio) return reply.notFound()
-    return studio
-  })
+  app.get<{ Params: { slug: string } }>(
+    '/by-slug/:slug',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const studio = await prisma.studio.findUnique({
+        where: { slug: request.params.slug },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          logoUrl: true,
+          primaryColor: true,
+          timezone: true,
+          currency: true,
+          bookingWindowDays: true,
+          locations: {
+            select: {
+              id: true,
+              name: true,
+              address: true,
+              city: true,
+              country: true,
+              timezone: true,
+            },
+          },
+          cancellationPolicy: {
+            select: {
+              lateCancelWindowHours: true,
+              lateCancelFeeCredits: true,
+              noShowFeeCredits: true,
+              waitlistWindowMinutes: true,
+            },
+          },
+        },
+      })
+      if (!studio) return reply.notFound()
+      return studio
+    },
+  )
 
   // POST /studios/onboard — full studio setup in one transaction (franchise_admin only)
   app.post<{
@@ -472,6 +503,9 @@ export async function studioRoutes(app: FastifyInstance) {
     { preHandler: requireRole('instructor') },
     async (request, reply) => {
       const { studioId } = request.params
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
+
       const rooms = await prisma.room.findMany({
         where: { location: { studioId } },
         include: {

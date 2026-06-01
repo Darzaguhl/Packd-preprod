@@ -72,13 +72,20 @@ await app.register(swagger, {
   },
 })
 
-await app.register(swaggerUi, {
-  routePrefix: '/docs',
-  uiConfig: { docExpansion: 'list', deepLinking: true },
-})
+if (process.env.NODE_ENV !== 'production') {
+  await app.register(swaggerUi, {
+    routePrefix: '/docs',
+    uiConfig: { docExpansion: 'list', deepLinking: true },
+  })
+}
+
+const corsOrigins = (process.env.CORS_ORIGIN ?? 'http://localhost:3000').split(',')
+if (process.env.NODE_ENV === 'production' && corsOrigins.includes('*')) {
+  throw new Error('CORS_ORIGIN must not be wildcard (*) in production')
+}
 
 await app.register(cors, {
-  origin: (process.env.CORS_ORIGIN ?? 'http://localhost:3000').split(','),
+  origin: corsOrigins,
   credentials: true,
 })
 
@@ -98,7 +105,7 @@ await app.register(rateLimit, {
   max: 200,
   timeWindow: '1 minute',
   // Skip rate limiting for health check
-  skipOnError: true,
+  skipOnError: false,
   keyGenerator: (request) => {
     return request.ip
   },

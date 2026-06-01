@@ -23,6 +23,7 @@ function AcceptInviteInner() {
   const studioName   = searchParams.get('studio') ?? 'a studio'
   const studioId     = searchParams.get('studioId') ?? ''
   const role         = searchParams.get('role') ?? ''
+  const inviteToken  = searchParams.get('token') ?? ''
 
   const [session, setSession] = useState<{ email: string; token: string } | null | undefined>(undefined)
   const [mode, setMode] = useState<'sign_in' | 'sign_up'>('sign_up')
@@ -63,7 +64,7 @@ function AcceptInviteInner() {
     setAccepting(true)
     setAcceptError(null)
     try {
-      await api.staff.acceptInvite({ studioId, role, invitedEmail }, session.token)
+      await api.staff.acceptInvite({ studioId, role, invitedEmail, token: inviteToken }, session.token)
       setDone(true)
       // Refresh token so role is picked up, then redirect
       await createClient().auth.refreshSession()
@@ -78,6 +79,18 @@ function AcceptInviteInner() {
   async function handleSignOut() {
     await createClient().auth.signOut()
     setSession(null)
+  }
+
+  // Guard: missing token means the link is invalid or was generated before this fix
+  if (!inviteToken) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center space-y-3">
+          <p className="text-sm font-medium text-gray-900">Invalid invitation link</p>
+          <p className="text-xs text-gray-500">This link is missing a security token. Please ask the studio admin to resend the invitation.</p>
+        </div>
+      </div>
+    )
   }
 
   // Still loading session

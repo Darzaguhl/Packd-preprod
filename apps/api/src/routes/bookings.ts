@@ -7,6 +7,7 @@ import { ROLE_RANK } from '@packd/types'
 import { enqueueLateCancelCheck, enqueueWaitlistExpiry, enqueueFirstClassFollowup } from '../jobs/index.js'
 import { ensureMemberForAdmin } from './members.js'
 import { sendBookingConfirmation, sendBookingCancellation, sendWaitlistPromotion } from '../lib/email.js'
+import { logger } from '../lib/logger.js'
 
 /** Format a human-readable note for credit transactions, e.g. "Cycling · 26 May, 09:00" */
 function fmtClassNote(className: string | null | undefined, startsAt: Date): string {
@@ -240,20 +241,25 @@ export async function bookingRoutes(app: FastifyInstance) {
 
       // Check for first booking — trigger referral reward + followup email (non-fatal)
       const memberId = member.id
-      const bookingCount = await prisma.booking.count({ where: { memberId, status: 'CONFIRMED' } })
-      if (bookingCount === 1) {
+      prisma.$transaction(async (tx) => {
+        // Count inside the transaction so the count and reward grant are atomic
+        const bookingCount = await tx.booking.count({ where: { memberId, status: 'CONFIRMED' } })
+        if (bookingCount !== 1) return false
+
         // Reward referrer if unrewarded referral exists
-        const referral = await prisma.referral.findFirst({ where: { refereeId: memberId, rewarded: false } })
+        const referral = await tx.referral.findFirst({ where: { refereeId: memberId, rewarded: false } })
         if (referral && referral.rewardCredits > 0) {
-          prisma.$transaction([
-            prisma.creditBalance.upsert({ where: { memberId: referral.referrerId }, create: { memberId: referral.referrerId, balance: referral.rewardCredits }, update: { balance: { increment: referral.rewardCredits } } }),
-            prisma.creditTransaction.create({ data: { memberId: referral.referrerId, amount: referral.rewardCredits, type: 'REFERRAL', note: 'Referral reward' } }),
-            prisma.referral.update({ where: { id: referral.id }, data: { rewarded: true } }),
-          ]).catch(() => {})
+          await tx.creditBalance.upsert({ where: { memberId: referral.referrerId }, create: { memberId: referral.referrerId, balance: referral.rewardCredits }, update: { balance: { increment: referral.rewardCredits } } })
+          await tx.creditTransaction.create({ data: { memberId: referral.referrerId, amount: referral.rewardCredits, type: 'REFERRAL', note: 'Referral reward' } })
+          await tx.referral.update({ where: { id: referral.id }, data: { rewarded: true } })
         }
-        // Enqueue first-class follow-up email (26h after booking)
-        enqueueFirstClassFollowup(memberId, booking.booking.sessionId).catch(() => {})
-      }
+        return true
+      }).then(isFirst => {
+        // Enqueue first-class follow-up email (26h after booking) — outside transaction, non-fatal
+        if (isFirst) enqueueFirstClassFollowup(memberId, booking.booking.sessionId).catch(() => {})
+      }).catch(err => {
+        logger.warn({ err }, 'referral reward failed')
+      })
 
       // Send booking confirmation email (non-fatal)
       prisma.classSession.findUnique({

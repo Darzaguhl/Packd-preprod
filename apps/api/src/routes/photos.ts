@@ -82,6 +82,16 @@ export async function photoRoutes(app: FastifyInstance) {
 
       if (!base64 || !fileName || !contentType) return reply.badRequest('base64, fileName and contentType are required')
 
+      const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+      const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp']
+      if (!ALLOWED_MIME_TYPES.includes(contentType)) {
+        return reply.badRequest('Invalid content type. Allowed: image/jpeg, image/png, image/gif, image/webp')
+      }
+      const fileExt = fileName.split('.').pop()?.toLowerCase() ?? ''
+      if (!ALLOWED_EXTENSIONS.includes(fileExt)) {
+        return reply.badRequest('Invalid file extension. Allowed: jpg, jpeg, png, gif, webp')
+      }
+
       const access = await assertPhotoAccess(user.id, user.role, instructorId)
       if (!access) return reply.forbidden()
 

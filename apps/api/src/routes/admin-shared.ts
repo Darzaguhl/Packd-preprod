@@ -12,18 +12,29 @@ export async function assertStudioAccess(
   userId: string,
   role: UserRole,
   studioId: string,
-  reply: FastifyReply,
+  replyOrStudioIds?: FastifyReply | string[],
   jwtStudioIds?: string[],
 ): Promise<boolean> {
+  // Resolve overloaded 4th argument: may be reply (old callers) or studioIds array (new callers)
+  let reply: FastifyReply | undefined
+  let resolvedStudioIds: string[] | undefined
+
+  if (Array.isArray(replyOrStudioIds) || replyOrStudioIds === undefined) {
+    resolvedStudioIds = replyOrStudioIds as string[] | undefined
+  } else {
+    reply = replyOrStudioIds as FastifyReply
+    resolvedStudioIds = jwtStudioIds
+  }
+
   if (ROLE_RANK[role] >= ROLE_RANK['franchise_admin']) return true
-  if (jwtStudioIds !== undefined) {
-    if (jwtStudioIds.includes(studioId)) return true
-    reply.forbidden('Access denied to this studio')
+  if (resolvedStudioIds !== undefined) {
+    if (resolvedStudioIds.includes(studioId)) return true
+    reply?.forbidden('Access denied to this studio')
     return false
   }
   const member = await prisma.member.findUnique({ where: { userId }, select: { studioId: true } })
   if (!member || member.studioId !== studioId) {
-    reply.forbidden('Access denied to this studio')
+    reply?.forbidden('Access denied to this studio')
     return false
   }
   return true
@@ -54,8 +65,8 @@ export function validateSelectQuery(sql: string): string | null {
     return 'Query contains forbidden keywords (DML/DDL is not allowed)'
   }
 
-  if (/\bcopy\b.*\bto\b/s.test(stripped)) {
-    return 'COPY … TO is not allowed'
+  if (/\bcopy\b.*\bto\b/s.test(stripped) || /\bcopy\b.*\bfrom\b/s.test(stripped)) {
+    return 'COPY … TO/FROM is not allowed'
   }
 
   const withoutTrailingSemicolon = stripped.replace(/;\s*$/, '')

@@ -128,7 +128,8 @@ export async function franchiseRoutes(app: FastifyInstance) {
   app.get(
     '/studios',
     { preHandler: requireRole('franchise_admin') },
-    async (_request, reply) => {
+    async (request, reply) => {
+      const user = getUser(request)
       const todayStart = new Date()
       todayStart.setHours(0, 0, 0, 0)
       const tomorrowStart = new Date(todayStart)
@@ -137,8 +138,14 @@ export async function franchiseRoutes(app: FastifyInstance) {
       const monthStart = new Date()
       monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
 
+      // Scope studios to the caller's franchise if they have one
+      const franchiseFilter = user.franchiseId
+        ? { franchiseMemberships: { some: { franchiseId: user.franchiseId } } }
+        : {}
+
       const [studios, allStaff, monthlySales] = await Promise.all([
         prisma.studio.findMany({
+          where: franchiseFilter,
           include: {
             _count: {
               select: { members: true },
@@ -786,7 +793,11 @@ export async function franchiseRoutes(app: FastifyInstance) {
       const { code, description, type, value, maxUses, validFrom, validUntil } = request.body
       if (!code || !type) return reply.badRequest('code and type are required')
 
-      const studios = await prisma.studio.findMany({ select: { id: true } })
+      const user = getUser(request)
+      const franchiseFilter = user.franchiseId
+        ? { franchiseMemberships: { some: { franchiseId: user.franchiseId } } }
+        : {}
+      const studios = await prisma.studio.findMany({ where: franchiseFilter, select: { id: true } })
       if (!studios.length) return reply.badRequest('No studios found')
 
       // Upsert to be idempotent — running twice won't create duplicates
@@ -808,6 +819,18 @@ export async function franchiseRoutes(app: FastifyInstance) {
     { preHandler: requireRole('franchise_admin') },
     async (request, reply) => {
       const { code } = request.params
+      const user = getUser(request)
+      // Scope deletion to studios in the caller's franchise only
+      if (user.franchiseId) {
+        const franchiseStudioIds = await prisma.franchiseStudio.findMany({
+          where: { franchiseId: user.franchiseId },
+          select: { studioId: true },
+        }).then(rows => rows.map(r => r.studioId))
+        const { count } = await prisma.promoCode.deleteMany({
+          where: { code, studioId: { in: franchiseStudioIds } },
+        })
+        return reply.send({ success: true, deleted: count })
+      }
       const { count } = await prisma.promoCode.deleteMany({ where: { code } })
       return reply.send({ success: true, deleted: count })
     },
@@ -820,9 +843,21 @@ export async function franchiseRoutes(app: FastifyInstance) {
     '/broadcast',
     { preHandler: requireRole('franchise_admin'), config: { rateLimit: { max: 2, timeWindow: '1 minute' } } },
     async (request, reply) => {
-      const { studioIds, subject, message } = request.body
-      if (!studioIds?.length) return reply.badRequest('studioIds is required')
+      const { studioIds: rawStudioIds, subject, message } = request.body
+      if (!rawStudioIds?.length) return reply.badRequest('studioIds is required')
       if (!subject?.trim() || !message?.trim()) return reply.badRequest('subject and message are required')
+
+      const user = getUser(request)
+      // Intersect requested studioIds with the caller's own franchise studios to prevent cross-franchise broadcast
+      let studioIds = rawStudioIds
+      if (user.franchiseId) {
+        const myStudioIds = await prisma.franchiseStudio.findMany({
+          where: { franchiseId: user.franchiseId },
+          select: { studioId: true },
+        }).then(rows => rows.map(r => r.studioId))
+        studioIds = rawStudioIds.filter(id => myStudioIds.includes(id))
+        if (!studioIds.length) return reply.forbidden('None of the requested studios belong to your franchise')
+      }
 
       const studios = await prisma.studio.findMany({
         where: { id: { in: studioIds } },

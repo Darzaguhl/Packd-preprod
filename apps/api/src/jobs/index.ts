@@ -56,11 +56,11 @@ export async function setupJobs() {
       })
       await boss.sendAfter('waitlist.expire', { waitlistEntryId: next.id }, {}, expiresAt)
 
-      // Send waitlist promotion email
+      // Send waitlist promotion email (respects member email preferences)
       const promoted = await prisma.waitlistEntry.findUnique({
         where: { id: next.id },
         include: {
-          member: { include: { user: true } },
+          member: { select: { emailPreferences: true, user: { select: { email: true, firstName: true } } } },
           session: {
             include: {
               template: { select: { name: true } },
@@ -70,14 +70,17 @@ export async function setupJobs() {
         },
       })
       if (promoted) {
-        sendWaitlistPromotion({
-          to: promoted.member.user.email,
-          firstName: promoted.member.user.firstName,
-          studioName: promoted.session.studio.name,
-          className: promoted.session.template?.name ?? 'Class',
-          startsAt: promoted.session.startsAt.toISOString(),
-          webUrl: process.env.WEB_URL ?? 'http://localhost:3001',
-        }).catch(() => {})
+        const prefs = (promoted.member.emailPreferences ?? {}) as Record<string, boolean>
+        if ((prefs.waitlist ?? true) !== false) {
+          sendWaitlistPromotion({
+            to: promoted.member.user.email,
+            firstName: promoted.member.user.firstName,
+            studioName: promoted.session.studio.name,
+            className: promoted.session.template?.name ?? 'Class',
+            startsAt: promoted.session.startsAt.toISOString(),
+            webUrl: process.env.WEB_URL ?? 'http://localhost:3001',
+          }).catch(() => {})
+        }
       }
     }
   })
@@ -261,8 +264,8 @@ export async function setupJobs() {
       await boss.send('membership.renewal-reminder', { subscriptionId: sub.id })
     }
 
-    // Enqueue credit expiry sweep
-    await boss.send('credit.expiry-sweep', {})
+    // Enqueue credit expiry sweep (singletonKey prevents duplicate concurrent runs)
+    await boss.send('credit.expiry-sweep', {}, { singletonKey: 'credit.expiry-sweep-daily' })
 
     // Win-back: members inactive 30+ days, no win-back email in 60 days
     const webUrl = process.env.WEB_URL ?? 'http://localhost:3001'
