@@ -46,7 +46,79 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "slug": {
+                      "type": "string"
+                    },
+                    "timezone": {
+                      "type": "string"
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "timeFormat": {
+                      "type": "string"
+                    },
+                    "locations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "address": {
+                            "type": "string"
+                          },
+                          "city": {
+                            "type": "string"
+                          },
+                          "country": {
+                            "type": "string"
+                          },
+                          "timezone": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "address",
+                          "city",
+                          "country",
+                          "timezone"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "slug",
+                    "timezone",
+                    "currency",
+                    "timeFormat",
+                    "locations"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           }
         }
       },
@@ -258,7 +330,85 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "capacity": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "locationId": {
+                        "type": "string"
+                      },
+                      "locationName": {
+                        "type": "string"
+                      },
+                      "activeLayout": {
+                        "nullable": true,
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "widthM": {
+                            "type": "number"
+                          },
+                          "lengthM": {
+                            "type": "number"
+                          },
+                          "_count": {
+                            "type": "object",
+                            "properties": {
+                              "stations": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": [
+                              "stations"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "widthM",
+                          "lengthM",
+                          "_count"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "capacity",
+                      "locationId",
+                      "locationName",
+                      "activeLayout"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -1150,7 +1300,97 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "templateName": {
+                        "type": "string"
+                      },
+                      "sport": {
+                        "type": "string"
+                      },
+                      "instructorId": {
+                        "type": "string"
+                      },
+                      "instructorName": {
+                        "type": "string"
+                      },
+                      "instructorUserId": {
+                        "type": "string"
+                      },
+                      "substituteInstructorId": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "substituteInstructorUserId": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "roomId": {
+                        "type": "string"
+                      },
+                      "roomName": {
+                        "type": "string"
+                      },
+                      "capacity": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "bookedCount": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "startsAt": {
+                        "type": "string"
+                      },
+                      "endsAt": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "creditsRequired": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "isPrivate": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "templateName",
+                      "sport",
+                      "instructorId",
+                      "instructorName",
+                      "instructorUserId",
+                      "substituteInstructorId",
+                      "substituteInstructorUserId",
+                      "roomId",
+                      "roomName",
+                      "capacity",
+                      "bookedCount",
+                      "startsAt",
+                      "endsAt",
+                      "status",
+                      "creditsRequired"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -1235,7 +1475,62 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "memberId": {
+                        "type": "string"
+                      },
+                      "memberName": {
+                        "type": "string"
+                      },
+                      "memberEmail": {
+                        "type": "string"
+                      },
+                      "checkedIn": {
+                        "type": "boolean"
+                      },
+                      "checkedInAt": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "creditBalance": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "bookedAt": {
+                        "type": "string"
+                      },
+                      "memberNote": {
+                        "nullable": true,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "memberId",
+                      "memberName",
+                      "memberEmail",
+                      "checkedIn",
+                      "checkedInAt",
+                      "creditBalance",
+                      "bookedAt",
+                      "memberNote"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -1422,7 +1717,63 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "email": {
+                            "type": "string"
+                          },
+                          "creditBalance": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "membershipStatus": {
+                            "nullable": true,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "email",
+                          "creditBalance",
+                          "membershipStatus"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "nextCursor": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "hasMore": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "nextCursor",
+                    "hasMore"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           }
         }
       }
@@ -1451,7 +1802,45 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "email": {
+                        "type": "string"
+                      },
+                      "creditBalance": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "membershipStatus": {
+                        "nullable": true,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "email",
+                      "creditBalance",
+                      "membershipStatus"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -1461,7 +1850,8 @@
         "parameters": [
           {
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "in": "path",
             "name": "memberId",
@@ -1470,7 +1860,147 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "studioId": {
+                      "type": "string"
+                    },
+                    "firstName": {
+                      "type": "string"
+                    },
+                    "lastName": {
+                      "type": "string"
+                    },
+                    "email": {
+                      "type": "string"
+                    },
+                    "creditBalance": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "guestPassBalance": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "notes": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "birthday": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "emergencyContactName": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "emergencyContactPhone": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "staffNotes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "content": {
+                            "type": "string"
+                          },
+                          "staffName": {
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "content",
+                          "staffName",
+                          "createdAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "activeSubscription": {
+                      "nullable": true,
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "planId": {
+                          "type": "string"
+                        },
+                        "planName": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "pausedUntil": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "startDate": {
+                          "type": "string"
+                        },
+                        "endDate": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "nextBillingDate": {
+                          "nullable": true,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "planId",
+                        "planName",
+                        "status",
+                        "pausedUntil",
+                        "startDate",
+                        "endDate"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "joinedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "studioId",
+                    "firstName",
+                    "lastName",
+                    "email",
+                    "creditBalance",
+                    "guestPassBalance",
+                    "notes",
+                    "birthday",
+                    "emergencyContactName",
+                    "emergencyContactPhone",
+                    "staffNotes",
+                    "activeSubscription",
+                    "joinedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           }
         }
       },
@@ -1497,7 +2027,8 @@
         "parameters": [
           {
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "in": "path",
             "name": "memberId",
@@ -1506,7 +2037,187 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "upcoming": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "sessionId": {
+                            "type": "string"
+                          },
+                          "startsAt": {
+                            "type": "string"
+                          },
+                          "endsAt": {
+                            "type": "string"
+                          },
+                          "templateName": {
+                            "type": "string"
+                          },
+                          "sport": {
+                            "type": "string"
+                          },
+                          "instructorName": {
+                            "type": "string"
+                          },
+                          "roomName": {
+                            "type": "string"
+                          },
+                          "creditsRequired": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "sessionStatus": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "sessionId",
+                          "startsAt",
+                          "endsAt",
+                          "templateName",
+                          "sport",
+                          "instructorName",
+                          "roomName",
+                          "creditsRequired",
+                          "sessionStatus"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "pastBookings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "sessionId": {
+                            "type": "string"
+                          },
+                          "startsAt": {
+                            "type": "string"
+                          },
+                          "endsAt": {
+                            "type": "string"
+                          },
+                          "templateName": {
+                            "type": "string"
+                          },
+                          "sport": {
+                            "type": "string"
+                          },
+                          "instructorName": {
+                            "type": "string"
+                          },
+                          "roomName": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "CONFIRMED",
+                              "CANCELLED",
+                              "LATE_CANCELLED",
+                              "NO_SHOW"
+                            ]
+                          },
+                          "checkedIn": {
+                            "type": "boolean"
+                          },
+                          "creditsRequired": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "sessionId",
+                          "startsAt",
+                          "endsAt",
+                          "templateName",
+                          "sport",
+                          "instructorName",
+                          "roomName",
+                          "status",
+                          "checkedIn",
+                          "creditsRequired"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "transactions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "amount": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "PURCHASE",
+                              "CLASS_DEBIT",
+                              "REFUND",
+                              "LATE_CANCEL_FEE",
+                              "NO_SHOW_FEE",
+                              "MANUAL_ADJUSTMENT",
+                              "MEMBERSHIP_RENEWAL",
+                              "EXPIRY",
+                              "REFERRAL"
+                            ]
+                          },
+                          "note": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "expiresAt": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "amount",
+                          "type",
+                          "note",
+                          "createdAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "upcoming",
+                    "pastBookings",
+                    "transactions"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           }
         }
       }
@@ -1578,7 +2289,8 @@
         "parameters": [
           {
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "in": "path",
             "name": "memberId",
@@ -1587,7 +2299,38 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "content": {
+                        "type": "string"
+                      },
+                      "staffName": {
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "content",
+                      "staffName",
+                      "createdAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -1744,7 +2487,8 @@
         "parameters": [
           {
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "in": "path",
             "name": "memberId",
@@ -1753,7 +2497,51 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "guestName": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "sessionId": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "note": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "guestName",
+                      "sessionId",
+                      "amount",
+                      "note",
+                      "createdAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -1882,7 +2670,101 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "members": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "rank": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "memberId": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "visits": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "checkIns": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "lastVisit": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "rank",
+                          "memberId",
+                          "name",
+                          "visits",
+                          "checkIns",
+                          "lastVisit"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "topInstructors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "rank": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "instructorId": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "totalBookings": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "rank",
+                          "instructorId",
+                          "name",
+                          "totalBookings"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "period": {
+                      "type": "string"
+                    },
+                    "generatedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "members",
+                    "topInstructors",
+                    "period",
+                    "generatedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           }
         }
       }
@@ -1920,7 +2802,343 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "heatmap": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "dow": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "hour": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "fillRate": {
+                            "type": "number"
+                          },
+                          "count": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "dow",
+                          "hour",
+                          "fillRate",
+                          "count"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "weeklyTrend": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "weekStart": {
+                            "type": "string"
+                          },
+                          "sessions": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "avgFillRate": {
+                            "type": "number"
+                          },
+                          "checkInRate": {
+                            "type": "number"
+                          },
+                          "cancelRate": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "weekStart",
+                          "sessions",
+                          "avgFillRate",
+                          "checkInRate",
+                          "cancelRate"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "classStats": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "templateId": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "sport": {
+                            "type": "string"
+                          },
+                          "sessions": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "avgFillRate": {
+                            "type": "number"
+                          },
+                          "checkInRate": {
+                            "type": "number"
+                          },
+                          "totalBookings": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "templateId",
+                          "name",
+                          "sport",
+                          "sessions",
+                          "avgFillRate",
+                          "checkInRate",
+                          "totalBookings"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "funnel": {
+                      "type": "object",
+                      "properties": {
+                        "confirmed": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "checkedIn": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "onTimeCancelled": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "lateCancelled": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "noShow": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "confirmed",
+                        "checkedIn",
+                        "onTimeCancelled",
+                        "lateCancelled",
+                        "noShow"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "instructors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "sessions": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "avgFillRate": {
+                            "type": "number"
+                          },
+                          "checkInRate": {
+                            "type": "number"
+                          },
+                          "loyaltyRate": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "sessions",
+                          "avgFillRate",
+                          "checkInRate",
+                          "loyaltyRate"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "recurrence": {
+                      "type": "object",
+                      "properties": {
+                        "monthOverMonth": {
+                          "type": "number"
+                        },
+                        "avgBookingsPerMember": {
+                          "type": "number"
+                        },
+                        "frequencyBuckets": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string"
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": [
+                              "label",
+                              "count"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "monthOverMonth",
+                        "avgBookingsPerMember",
+                        "frequencyBuckets"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "revenue": {
+                      "type": "object",
+                      "properties": {
+                        "creditsIssued": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "creditsConsumed": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "lateCancelFees": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "noShowFees": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "activeSubscriptions": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "weeklyCredits": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "weekStart": {
+                                "type": "string"
+                              },
+                              "issued": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "consumed": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "fees": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": [
+                              "weekStart",
+                              "issued",
+                              "consumed",
+                              "fees"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "creditsIssued",
+                        "creditsConsumed",
+                        "lateCancelFees",
+                        "noShowFees",
+                        "activeSubscriptions",
+                        "weeklyCredits"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "weeks": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "windowStart": {
+                          "type": "string"
+                        },
+                        "generatedAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "weeks",
+                        "windowStart",
+                        "generatedAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "heatmap",
+                    "weeklyTrend",
+                    "classStats",
+                    "funnel",
+                    "instructors",
+                    "recurrence",
+                    "revenue",
+                    "meta"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           }
         }
       }
@@ -2031,7 +3249,44 @@
         },
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "columns": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {}
+                      }
+                    },
+                    "rowCount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "duration": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "columns",
+                    "rows",
+                    "rowCount",
+                    "duration"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           }
         }
       }
@@ -2230,7 +3485,70 @@
       "get": {
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "slug": {
+                        "type": "string"
+                      },
+                      "timezone": {
+                        "type": "string"
+                      },
+                      "currency": {
+                        "type": "string"
+                      },
+                      "memberCount": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "todaySessionCount": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "staffCount": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "fillRateToday": {
+                        "type": "number"
+                      },
+                      "revenueThisMonthCents": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "slug",
+                      "timezone",
+                      "currency",
+                      "memberCount",
+                      "todaySessionCount",
+                      "staffCount",
+                      "fillRateToday",
+                      "revenueThisMonthCents"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -2314,7 +3632,162 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "memberId": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "userId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "email": {
+                        "type": "string"
+                      },
+                      "roles": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "instructor",
+                            "fronthost"
+                          ]
+                        }
+                      },
+                      "instructorPermissions": {
+                        "type": "object",
+                        "properties": {
+                          "canCheckInMembers": {
+                            "type": "boolean"
+                          },
+                          "canManageBookings": {
+                            "type": "boolean"
+                          },
+                          "canViewMemberContact": {
+                            "type": "boolean"
+                          },
+                          "canManageWaitlist": {
+                            "type": "boolean"
+                          },
+                          "canEditSessionDetails": {
+                            "type": "boolean"
+                          },
+                          "canCancelSession": {
+                            "type": "boolean"
+                          },
+                          "canCreateSchedules": {
+                            "type": "boolean"
+                          },
+                          "canSetSubstitute": {
+                            "type": "boolean"
+                          },
+                          "canGrantCredits": {
+                            "type": "boolean"
+                          },
+                          "canManagePromoCodes": {
+                            "type": "boolean"
+                          },
+                          "canViewPurchaseHistory": {
+                            "type": "boolean"
+                          },
+                          "canOverrideBookingRestrictions": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "canCheckInMembers",
+                          "canManageBookings",
+                          "canViewMemberContact",
+                          "canManageWaitlist",
+                          "canEditSessionDetails",
+                          "canCancelSession",
+                          "canCreateSchedules",
+                          "canSetSubstitute",
+                          "canGrantCredits",
+                          "canManagePromoCodes",
+                          "canViewPurchaseHistory",
+                          "canOverrideBookingRestrictions"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "fronthostPermissions": {
+                        "type": "object",
+                        "properties": {
+                          "canCheckInMembers": {
+                            "type": "boolean"
+                          },
+                          "canAdjustCredits": {
+                            "type": "boolean"
+                          },
+                          "canManageBookings": {
+                            "type": "boolean"
+                          },
+                          "canManageWaitlist": {
+                            "type": "boolean"
+                          },
+                          "canViewMemberContact": {
+                            "type": "boolean"
+                          },
+                          "canGrantCredits": {
+                            "type": "boolean"
+                          },
+                          "canIssueRefunds": {
+                            "type": "boolean"
+                          },
+                          "canManagePromoCodes": {
+                            "type": "boolean"
+                          },
+                          "canViewPurchaseHistory": {
+                            "type": "boolean"
+                          },
+                          "canExportData": {
+                            "type": "boolean"
+                          },
+                          "canOverrideBookingRestrictions": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "canCheckInMembers",
+                          "canAdjustCredits",
+                          "canManageBookings",
+                          "canManageWaitlist",
+                          "canViewMemberContact",
+                          "canGrantCredits",
+                          "canIssueRefunds",
+                          "canManagePromoCodes",
+                          "canViewPurchaseHistory",
+                          "canExportData",
+                          "canOverrideBookingRestrictions"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "memberId",
+                      "userId",
+                      "name",
+                      "email",
+                      "roles"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -2573,7 +4046,8 @@
         "parameters": [
           {
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "in": "path",
             "name": "roomId",
@@ -2582,7 +4056,94 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "nullable": true,
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "roomId": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "widthM": {
+                      "type": "number"
+                    },
+                    "lengthM": {
+                      "type": "number"
+                    },
+                    "isActive": {
+                      "type": "boolean"
+                    },
+                    "stations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "layoutId": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "BIKE",
+                              "TREADMILL",
+                              "BENCH",
+                              "ROWER",
+                              "MAT",
+                              "REFORMER",
+                              "BARRE",
+                              "OTHER"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "xM": {
+                            "type": "number"
+                          },
+                          "yM": {
+                            "type": "number"
+                          },
+                          "rotation": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "layoutId",
+                          "type",
+                          "label",
+                          "xM",
+                          "yM",
+                          "rotation"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "roomId",
+                    "name",
+                    "widthM",
+                    "lengthM",
+                    "isActive",
+                    "stations"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           }
         }
       },
@@ -2681,7 +4242,8 @@
         "parameters": [
           {
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "in": "path",
             "name": "roomId",
@@ -2690,7 +4252,96 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "roomId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "widthM": {
+                        "type": "number"
+                      },
+                      "lengthM": {
+                        "type": "number"
+                      },
+                      "isActive": {
+                        "type": "boolean"
+                      },
+                      "stations": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "layoutId": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "BIKE",
+                                "TREADMILL",
+                                "BENCH",
+                                "ROWER",
+                                "MAT",
+                                "REFORMER",
+                                "BARRE",
+                                "OTHER"
+                              ]
+                            },
+                            "label": {
+                              "type": "string"
+                            },
+                            "xM": {
+                              "type": "number"
+                            },
+                            "yM": {
+                              "type": "number"
+                            },
+                            "rotation": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "layoutId",
+                            "type",
+                            "label",
+                            "xM",
+                            "yM",
+                            "rotation"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "roomId",
+                      "name",
+                      "widthM",
+                      "lengthM",
+                      "isActive",
+                      "stations"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -2854,7 +4505,8 @@
         "parameters": [
           {
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "in": "path",
             "name": "roomId",
@@ -2862,7 +4514,8 @@
           },
           {
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "in": "path",
             "name": "sessionId",
@@ -2871,7 +4524,163 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "layout": {
+                      "nullable": true,
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "roomId": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "widthM": {
+                          "type": "number"
+                        },
+                        "lengthM": {
+                          "type": "number"
+                        },
+                        "isActive": {
+                          "type": "boolean"
+                        },
+                        "stations": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "layoutId": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "BIKE",
+                                  "TREADMILL",
+                                  "BENCH",
+                                  "ROWER",
+                                  "MAT",
+                                  "REFORMER",
+                                  "BARRE",
+                                  "OTHER"
+                                ]
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "xM": {
+                                "type": "number"
+                              },
+                              "yM": {
+                                "type": "number"
+                              },
+                              "rotation": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "layoutId",
+                              "type",
+                              "label",
+                              "xM",
+                              "yM",
+                              "rotation"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "roomId",
+                        "name",
+                        "widthM",
+                        "lengthM",
+                        "isActive",
+                        "stations"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "assignments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "bookingId": {
+                            "type": "string"
+                          },
+                          "memberId": {
+                            "type": "string"
+                          },
+                          "memberName": {
+                            "type": "string"
+                          },
+                          "checkedIn": {
+                            "type": "boolean"
+                          },
+                          "stationId": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "creditBalance": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "membershipStatus": {
+                            "nullable": true,
+                            "type": "string",
+                            "enum": [
+                              "ACTIVE",
+                              "PAUSED",
+                              "CANCELLED",
+                              "EXPIRED"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "bookingId",
+                          "memberId",
+                          "memberName",
+                          "checkedIn",
+                          "stationId",
+                          "creditBalance",
+                          "membershipStatus"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "myBookingId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "myStationId": {
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "layout",
+                    "assignments",
+                    "myBookingId",
+                    "myStationId"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           }
         }
       },
@@ -2951,7 +4760,233 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "weekStart": {
+                      "type": "string"
+                    },
+                    "sessions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "scheduleId": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "templateId": {
+                            "type": "string"
+                          },
+                          "templateName": {
+                            "type": "string"
+                          },
+                          "sport": {
+                            "type": "string"
+                          },
+                          "instructorId": {
+                            "type": "string"
+                          },
+                          "instructorName": {
+                            "type": "string"
+                          },
+                          "substituteInstructorId": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "substituteInstructorName": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "roomId": {
+                            "type": "string"
+                          },
+                          "roomName": {
+                            "type": "string"
+                          },
+                          "startsAt": {
+                            "type": "string"
+                          },
+                          "endsAt": {
+                            "type": "string"
+                          },
+                          "capacity": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "creditsRequired": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "isPrivate": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "scheduleId",
+                          "templateId",
+                          "templateName",
+                          "sport",
+                          "instructorId",
+                          "instructorName",
+                          "substituteInstructorId",
+                          "substituteInstructorName",
+                          "roomId",
+                          "roomName",
+                          "startsAt",
+                          "endsAt",
+                          "capacity",
+                          "creditsRequired",
+                          "status"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "templates": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "sport": {
+                            "type": "string"
+                          },
+                          "durationMin": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "isPrivate": {
+                            "type": "boolean"
+                          },
+                          "defaultInstructorId": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "defaultRoomId": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "defaultCapacity": {
+                            "nullable": true,
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "defaultCreditsRequired": {
+                            "nullable": true,
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "defaultStartTime": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "defaultStartTime2": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "defaultDaysOfWeek": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "defaultIntervalWeeks": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "sport",
+                          "durationMin"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "instructors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "rooms": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "capacity": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "locationName": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "capacity",
+                          "locationName"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "weekStart",
+                    "sessions",
+                    "templates",
+                    "instructors",
+                    "rooms"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           }
         }
       },
@@ -3068,7 +5103,100 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "templateId": {
+                        "type": "string"
+                      },
+                      "templateName": {
+                        "type": "string"
+                      },
+                      "sport": {
+                        "type": "string"
+                      },
+                      "instructorId": {
+                        "type": "string"
+                      },
+                      "instructorName": {
+                        "type": "string"
+                      },
+                      "roomId": {
+                        "type": "string"
+                      },
+                      "roomName": {
+                        "type": "string"
+                      },
+                      "daysOfWeek": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "startTime": {
+                        "type": "string"
+                      },
+                      "durationMin": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "intervalWeeks": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "capacity": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "creditsRequired": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "validFrom": {
+                        "type": "string"
+                      },
+                      "validUntil": {
+                        "nullable": true,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "templateId",
+                      "templateName",
+                      "sport",
+                      "instructorId",
+                      "instructorName",
+                      "roomId",
+                      "roomName",
+                      "daysOfWeek",
+                      "startTime",
+                      "durationMin",
+                      "intervalWeeks",
+                      "capacity",
+                      "creditsRequired",
+                      "validFrom",
+                      "validUntil"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -3295,7 +5423,79 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "templateId": {
+                        "type": "string"
+                      },
+                      "templateName": {
+                        "type": "string"
+                      },
+                      "sport": {
+                        "type": "string"
+                      },
+                      "instructorId": {
+                        "type": "string"
+                      },
+                      "instructorName": {
+                        "type": "string"
+                      },
+                      "roomId": {
+                        "type": "string"
+                      },
+                      "roomName": {
+                        "type": "string"
+                      },
+                      "startTime": {
+                        "type": "string"
+                      },
+                      "durationMin": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "sessionCount": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "nextOccurrence": {
+                        "type": "string"
+                      },
+                      "daysOfWeek": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      }
+                    },
+                    "required": [
+                      "templateId",
+                      "templateName",
+                      "sport",
+                      "instructorId",
+                      "instructorName",
+                      "roomId",
+                      "roomName",
+                      "startTime",
+                      "durationMin",
+                      "sessionCount",
+                      "nextOccurrence",
+                      "daysOfWeek"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -3378,7 +5578,92 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "studioId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "priceInCents": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "intervalMonths": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "creditsPerCycle": {
+                        "nullable": true,
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "guestPassesPerCycle": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "creditExpiryDays": {
+                        "nullable": true,
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "isIntroOffer": {
+                        "type": "boolean"
+                      },
+                      "maxRedemptionsPerMember": {
+                        "nullable": true,
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "memberRedemptions": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "stripePriceId": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "activeSubscriptions": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "studioId",
+                      "name",
+                      "priceInCents",
+                      "intervalMonths",
+                      "creditsPerCycle",
+                      "guestPassesPerCycle"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -3551,7 +5836,98 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "memberId": {
+                        "type": "string"
+                      },
+                      "memberFirstName": {
+                        "type": "string"
+                      },
+                      "memberLastName": {
+                        "type": "string"
+                      },
+                      "memberEmail": {
+                        "type": "string"
+                      },
+                      "planId": {
+                        "type": "string"
+                      },
+                      "plan": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "creditsPerCycle": {
+                            "nullable": true,
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "intervalMonths": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "priceInCents": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "creditsPerCycle",
+                          "intervalMonths",
+                          "priceInCents"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "ACTIVE",
+                          "PAUSED",
+                          "CANCELLED",
+                          "EXPIRED",
+                          "PAST_DUE"
+                        ]
+                      },
+                      "startDate": {
+                        "type": "string"
+                      },
+                      "endDate": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "memberId",
+                      "planId",
+                      "plan",
+                      "status",
+                      "startDate",
+                      "endDate"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -3736,7 +6112,70 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "userId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "email": {
+                        "type": "string"
+                      },
+                      "staffRoles": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "joinedAt": {
+                        "type": "string"
+                      },
+                      "instructorId": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "payRatePerHeadCents": {
+                        "nullable": true,
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "payRateHourlyCents": {
+                        "nullable": true,
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "avatarUrl": {
+                        "nullable": true,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "userId",
+                      "name",
+                      "email",
+                      "staffRoles",
+                      "joinedAt",
+                      "instructorId"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -3975,7 +6414,58 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "instructorId": {
+                        "type": "string"
+                      },
+                      "studioId": {
+                        "type": "string"
+                      },
+                      "storageKey": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string"
+                      },
+                      "fileName": {
+                        "type": "string"
+                      },
+                      "approvedForSocial": {
+                        "type": "boolean"
+                      },
+                      "uploadedBy": {
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "instructorId",
+                      "studioId",
+                      "storageKey",
+                      "url",
+                      "fileName",
+                      "approvedForSocial",
+                      "uploadedBy",
+                      "createdAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -4138,7 +6628,96 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "studioId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "sport": {
+                        "type": "string"
+                      },
+                      "durationMin": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "description": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "color": {
+                        "type": "string"
+                      },
+                      "isPrivate": {
+                        "type": "boolean"
+                      },
+                      "defaultInstructorId": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "defaultRoomId": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "defaultCapacity": {
+                        "nullable": true,
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "defaultCreditsRequired": {
+                        "nullable": true,
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "defaultStartTime": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "defaultStartTime2": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "defaultDaysOfWeek": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "defaultIntervalWeeks": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "studioId",
+                      "name",
+                      "sport",
+                      "durationMin",
+                      "color"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -4381,7 +6960,63 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "studioId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "category": {
+                        "type": "string"
+                      },
+                      "priceInCents": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "creditsRequired": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "imageUrl": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "inStock": {
+                        "type": "boolean"
+                      },
+                      "stripePriceId": {
+                        "nullable": true,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "studioId",
+                      "name",
+                      "category",
+                      "priceInCents",
+                      "creditsRequired",
+                      "imageUrl",
+                      "inStock"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -4543,7 +7178,53 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "instructorId": {
+                        "type": "string"
+                      },
+                      "instructorName": {
+                        "type": "string"
+                      },
+                      "studioId": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "startDate": {
+                        "type": "string"
+                      },
+                      "endDate": {
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "instructorId",
+                      "studioId",
+                      "title",
+                      "startDate",
+                      "endDate",
+                      "createdAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -4628,7 +7309,53 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "instructorId": {
+                        "type": "string"
+                      },
+                      "instructorName": {
+                        "type": "string"
+                      },
+                      "studioId": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "startDate": {
+                        "type": "string"
+                      },
+                      "endDate": {
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "instructorId",
+                      "studioId",
+                      "title",
+                      "startDate",
+                      "endDate",
+                      "createdAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -4737,7 +7464,60 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "memberId": {
+                        "type": "string"
+                      },
+                      "memberName": {
+                        "type": "string"
+                      },
+                      "studioId": {
+                        "type": "string"
+                      },
+                      "startsAt": {
+                        "type": "string"
+                      },
+                      "endsAt": {
+                        "type": "string"
+                      },
+                      "note": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "patternId": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "memberId",
+                      "memberName",
+                      "studioId",
+                      "startsAt",
+                      "endsAt",
+                      "note",
+                      "patternId",
+                      "createdAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -4792,7 +7572,60 @@
       "get": {
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "memberId": {
+                        "type": "string"
+                      },
+                      "memberName": {
+                        "type": "string"
+                      },
+                      "studioId": {
+                        "type": "string"
+                      },
+                      "startsAt": {
+                        "type": "string"
+                      },
+                      "endsAt": {
+                        "type": "string"
+                      },
+                      "note": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "patternId": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "memberId",
+                      "memberName",
+                      "studioId",
+                      "startsAt",
+                      "endsAt",
+                      "note",
+                      "patternId",
+                      "createdAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -4885,7 +7718,79 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "memberId": {
+                        "type": "string"
+                      },
+                      "memberName": {
+                        "type": "string"
+                      },
+                      "studioId": {
+                        "type": "string"
+                      },
+                      "daysOfWeek": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "startTime": {
+                        "type": "string"
+                      },
+                      "endTime": {
+                        "type": "string"
+                      },
+                      "intervalWeeks": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "validFrom": {
+                        "type": "string"
+                      },
+                      "validUntil": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "note": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "memberId",
+                      "memberName",
+                      "studioId",
+                      "daysOfWeek",
+                      "startTime",
+                      "endTime",
+                      "intervalWeeks",
+                      "validFrom",
+                      "validUntil",
+                      "note",
+                      "createdAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -5062,7 +7967,78 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "code": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "CREDIT_GRANT",
+                          "FREE_CLASS",
+                          "MEMBERSHIP_PCT",
+                          "MEMBERSHIP_FLAT"
+                        ]
+                      },
+                      "value": {
+                        "type": "number"
+                      },
+                      "maxUses": {
+                        "nullable": true,
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "usageCount": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "validFrom": {
+                        "type": "string"
+                      },
+                      "validUntil": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "isActive": {
+                        "type": "boolean"
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "code",
+                      "type",
+                      "value",
+                      "maxUses",
+                      "usageCount",
+                      "validFrom",
+                      "validUntil",
+                      "isActive",
+                      "createdAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -5308,7 +8284,87 @@
       "get": {
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "slug": {
+                        "type": "string"
+                      },
+                      "studios": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "studioId": {
+                              "type": "string"
+                            },
+                            "networkId": {
+                              "type": "string"
+                            },
+                            "joinedAt": {
+                              "type": "string"
+                            },
+                            "studio": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "slug": {
+                                  "type": "string"
+                                },
+                                "timezone": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "name",
+                                "slug",
+                                "timezone"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "studioId",
+                            "networkId",
+                            "joinedAt",
+                            "studio"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "slug",
+                      "studios"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -5478,7 +8534,76 @@
       "get": {
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "network": {
+                      "nullable": true,
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "slug": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "slug"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "homeStudioId": {
+                      "type": "string"
+                    },
+                    "studios": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "slug": {
+                            "type": "string"
+                          },
+                          "timezone": {
+                            "type": "string"
+                          },
+                          "isHome": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "slug",
+                          "timezone",
+                          "isHome"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "network",
+                    "studios"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           }
         }
       }

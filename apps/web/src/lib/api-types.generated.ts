@@ -77,7 +77,24 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            name: string;
+                            slug: string;
+                            timezone: string;
+                            currency: string;
+                            timeFormat: string;
+                            locations: {
+                                id: string;
+                                name: string;
+                                address: string;
+                                city: string;
+                                country: string;
+                                timezone: string;
+                            }[];
+                        };
+                    };
                 };
             };
         };
@@ -237,7 +254,24 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            name: string;
+                            capacity: number;
+                            locationId: string;
+                            locationName: string;
+                            activeLayout: {
+                                id: string;
+                                name: string;
+                                widthM: number;
+                                lengthM: number;
+                                _count: {
+                                    stations: number;
+                                };
+                            } | null;
+                        }[];
+                    };
                 };
             };
         };
@@ -1560,7 +1594,27 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            templateName: string;
+                            sport: string;
+                            instructorId: string;
+                            instructorName: string;
+                            instructorUserId: string;
+                            substituteInstructorId: string | null;
+                            substituteInstructorUserId: string | null;
+                            roomId: string;
+                            roomName: string;
+                            capacity: number;
+                            bookedCount: number;
+                            startsAt: string;
+                            endsAt: string;
+                            status: string;
+                            creditsRequired: number;
+                            isPrivate?: boolean;
+                        }[];
+                    };
                 };
             };
         };
@@ -1658,7 +1712,19 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            memberId: string;
+                            memberName: string;
+                            memberEmail: string;
+                            checkedIn: boolean;
+                            checkedInAt: string | null;
+                            creditBalance: number;
+                            bookedAt: string;
+                            memberNote: string | null;
+                        }[];
+                    };
                 };
             };
         };
@@ -1855,7 +1921,19 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            items: {
+                                id: string;
+                                name: string;
+                                email: string;
+                                creditBalance: number;
+                                membershipStatus: string | null;
+                            }[];
+                            nextCursor: string | null;
+                            hasMore: boolean;
+                        };
+                    };
                 };
             };
         };
@@ -1891,7 +1969,15 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            name: string;
+                            email: string;
+                            creditBalance: number;
+                            membershipStatus: string | null;
+                        }[];
+                    };
                 };
             };
         };
@@ -1926,7 +2012,38 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            studioId: string;
+                            firstName: string;
+                            lastName: string;
+                            email: string;
+                            creditBalance: number;
+                            guestPassBalance: number;
+                            notes: string | null;
+                            birthday: string | null;
+                            emergencyContactName: string | null;
+                            emergencyContactPhone: string | null;
+                            staffNotes: {
+                                id: string;
+                                content: string;
+                                staffName: string;
+                                createdAt: string;
+                            }[];
+                            activeSubscription: {
+                                id: string;
+                                planId: string;
+                                planName: string;
+                                status: string;
+                                pausedUntil: string | null;
+                                startDate: string;
+                                endDate: string | null;
+                                nextBillingDate?: string | null;
+                            } | null;
+                            joinedAt: string;
+                        };
+                    };
                 };
             };
         };
@@ -1980,7 +2097,45 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            upcoming: {
+                                id: string;
+                                sessionId: string;
+                                startsAt: string;
+                                endsAt: string;
+                                templateName: string;
+                                sport: string;
+                                instructorName: string;
+                                roomName: string;
+                                creditsRequired: number;
+                                sessionStatus: string;
+                            }[];
+                            pastBookings: {
+                                id: string;
+                                sessionId: string;
+                                startsAt: string;
+                                endsAt: string;
+                                templateName: string;
+                                sport: string;
+                                instructorName: string;
+                                roomName: string;
+                                /** @enum {string} */
+                                status: "CONFIRMED" | "CANCELLED" | "LATE_CANCELLED" | "NO_SHOW";
+                                checkedIn: boolean;
+                                creditsRequired: number;
+                            }[];
+                            transactions: {
+                                id: string;
+                                amount: number;
+                                /** @enum {string} */
+                                type: "PURCHASE" | "CLASS_DEBIT" | "REFUND" | "LATE_CANCEL_FEE" | "NO_SHOW_FEE" | "MANUAL_ADJUSTMENT" | "MEMBERSHIP_RENEWAL" | "EXPIRY" | "REFERRAL";
+                                note: string | null;
+                                expiresAt?: string | null;
+                                createdAt: string;
+                            }[];
+                        };
+                    };
                 };
             };
         };
@@ -2092,7 +2247,14 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            content: string;
+                            staffName: string;
+                            createdAt: string;
+                        }[];
+                    };
                 };
             };
         };
@@ -2300,7 +2462,16 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            guestName: string | null;
+                            sessionId: string | null;
+                            amount: number;
+                            note: string | null;
+                            createdAt: string;
+                        }[];
+                    };
                 };
             };
         };
@@ -2445,7 +2616,26 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            members: {
+                                rank: number;
+                                memberId: string;
+                                name: string;
+                                visits: number;
+                                checkIns: number;
+                                lastVisit: string;
+                            }[];
+                            topInstructors: {
+                                rank: number;
+                                instructorId: string;
+                                name: string;
+                                totalBookings: number;
+                            }[];
+                            period: string;
+                            generatedAt: string;
+                        };
+                    };
                 };
             };
         };
@@ -2482,7 +2672,73 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            heatmap: {
+                                dow: number;
+                                hour: number;
+                                fillRate: number;
+                                count: number;
+                            }[];
+                            weeklyTrend: {
+                                weekStart: string;
+                                sessions: number;
+                                avgFillRate: number;
+                                checkInRate: number;
+                                cancelRate: number;
+                            }[];
+                            classStats: {
+                                templateId: string;
+                                name: string;
+                                sport: string;
+                                sessions: number;
+                                avgFillRate: number;
+                                checkInRate: number;
+                                totalBookings: number;
+                            }[];
+                            funnel: {
+                                confirmed: number;
+                                checkedIn: number;
+                                onTimeCancelled: number;
+                                lateCancelled: number;
+                                noShow: number;
+                            };
+                            instructors: {
+                                id: string;
+                                name: string;
+                                sessions: number;
+                                avgFillRate: number;
+                                checkInRate: number;
+                                loyaltyRate: number;
+                            }[];
+                            recurrence: {
+                                monthOverMonth: number;
+                                avgBookingsPerMember: number;
+                                frequencyBuckets: {
+                                    label: string;
+                                    count: number;
+                                }[];
+                            };
+                            revenue: {
+                                creditsIssued: number;
+                                creditsConsumed: number;
+                                lateCancelFees: number;
+                                noShowFees: number;
+                                activeSubscriptions: number;
+                                weeklyCredits: {
+                                    weekStart: string;
+                                    issued: number;
+                                    consumed: number;
+                                    fees: number;
+                                }[];
+                            };
+                            meta: {
+                                weeks: number;
+                                windowStart: string;
+                                generatedAt: string;
+                            };
+                        };
+                    };
                 };
             };
         };
@@ -2619,7 +2875,14 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            columns: string[];
+                            rows: unknown[][];
+                            rowCount: number;
+                            duration: number;
+                        };
+                    };
                 };
             };
         };
@@ -2899,7 +3162,20 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            name: string;
+                            slug: string;
+                            timezone: string;
+                            currency: string;
+                            memberCount: number;
+                            todaySessionCount: number;
+                            staffCount: number;
+                            fillRateToday: number;
+                            revenueThisMonthCents: number;
+                        }[];
+                    };
                 };
             };
         };
@@ -3040,7 +3316,43 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            memberId: string | null;
+                            userId: string;
+                            name: string;
+                            email: string;
+                            roles: ("instructor" | "fronthost")[];
+                            instructorPermissions?: {
+                                canCheckInMembers: boolean;
+                                canManageBookings: boolean;
+                                canViewMemberContact: boolean;
+                                canManageWaitlist: boolean;
+                                canEditSessionDetails: boolean;
+                                canCancelSession: boolean;
+                                canCreateSchedules: boolean;
+                                canSetSubstitute: boolean;
+                                canGrantCredits: boolean;
+                                canManagePromoCodes: boolean;
+                                canViewPurchaseHistory: boolean;
+                                canOverrideBookingRestrictions: boolean;
+                            };
+                            fronthostPermissions?: {
+                                canCheckInMembers: boolean;
+                                canAdjustCredits: boolean;
+                                canManageBookings: boolean;
+                                canManageWaitlist: boolean;
+                                canViewMemberContact: boolean;
+                                canGrantCredits: boolean;
+                                canIssueRefunds: boolean;
+                                canManagePromoCodes: boolean;
+                                canViewPurchaseHistory: boolean;
+                                canExportData: boolean;
+                                canOverrideBookingRestrictions: boolean;
+                            };
+                        }[];
+                    };
                 };
             };
         };
@@ -3408,7 +3720,26 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            roomId: string;
+                            name: string;
+                            widthM: number;
+                            lengthM: number;
+                            isActive: boolean;
+                            stations: {
+                                id: string;
+                                layoutId: string;
+                                /** @enum {string} */
+                                type: "BIKE" | "TREADMILL" | "BENCH" | "ROWER" | "MAT" | "REFORMER" | "BARRE" | "OTHER";
+                                label: string;
+                                xM: number;
+                                yM: number;
+                                rotation: number;
+                            }[];
+                        } | null;
+                    };
                 };
             };
         };
@@ -3478,7 +3809,26 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            roomId: string;
+                            name: string;
+                            widthM: number;
+                            lengthM: number;
+                            isActive: boolean;
+                            stations: {
+                                id: string;
+                                layoutId: string;
+                                /** @enum {string} */
+                                type: "BIKE" | "TREADMILL" | "BENCH" | "ROWER" | "MAT" | "REFORMER" | "BARRE" | "OTHER";
+                                label: string;
+                                xM: number;
+                                yM: number;
+                                rotation: number;
+                            }[];
+                        }[];
+                    };
                 };
             };
         };
@@ -3622,7 +3972,40 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            layout: {
+                                id: string;
+                                roomId: string;
+                                name: string;
+                                widthM: number;
+                                lengthM: number;
+                                isActive: boolean;
+                                stations: {
+                                    id: string;
+                                    layoutId: string;
+                                    /** @enum {string} */
+                                    type: "BIKE" | "TREADMILL" | "BENCH" | "ROWER" | "MAT" | "REFORMER" | "BARRE" | "OTHER";
+                                    label: string;
+                                    xM: number;
+                                    yM: number;
+                                    rotation: number;
+                                }[];
+                            } | null;
+                            assignments: {
+                                bookingId: string;
+                                memberId: string;
+                                memberName: string;
+                                checkedIn: boolean;
+                                stationId: string | null;
+                                creditBalance: number;
+                                /** @enum {string|null} */
+                                membershipStatus: "ACTIVE" | "PAUSED" | "CANCELLED" | "EXPIRED" | null;
+                            }[];
+                            myBookingId: string | null;
+                            myStationId: string | null;
+                        };
+                    };
                 };
             };
         };
@@ -3714,7 +4097,55 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            weekStart: string;
+                            sessions: {
+                                id: string;
+                                scheduleId: string | null;
+                                templateId: string;
+                                templateName: string;
+                                sport: string;
+                                instructorId: string;
+                                instructorName: string;
+                                substituteInstructorId: string | null;
+                                substituteInstructorName: string | null;
+                                roomId: string;
+                                roomName: string;
+                                startsAt: string;
+                                endsAt: string;
+                                capacity: number;
+                                creditsRequired: number;
+                                status: string;
+                                isPrivate?: boolean;
+                            }[];
+                            templates: {
+                                id: string;
+                                name: string;
+                                sport: string;
+                                durationMin: number;
+                                isPrivate?: boolean;
+                                defaultInstructorId?: string | null;
+                                defaultRoomId?: string | null;
+                                defaultCapacity?: number | null;
+                                defaultCreditsRequired?: number | null;
+                                defaultStartTime?: string | null;
+                                defaultStartTime2?: string | null;
+                                defaultDaysOfWeek?: number[];
+                                defaultIntervalWeeks?: number;
+                            }[];
+                            instructors: {
+                                id: string;
+                                name: string;
+                            }[];
+                            rooms: {
+                                id: string;
+                                name: string;
+                                capacity: number;
+                                locationName: string;
+                            }[];
+                        };
+                    };
                 };
             };
         };
@@ -3785,7 +4216,26 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            templateId: string;
+                            templateName: string;
+                            sport: string;
+                            instructorId: string;
+                            instructorName: string;
+                            roomId: string;
+                            roomName: string;
+                            daysOfWeek: number[];
+                            startTime: string;
+                            durationMin: number;
+                            intervalWeeks: number;
+                            capacity: number;
+                            creditsRequired: number;
+                            validFrom: string;
+                            validUntil: string | null;
+                        }[];
+                    };
                 };
             };
         };
@@ -3934,7 +4384,22 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            templateId: string;
+                            templateName: string;
+                            sport: string;
+                            instructorId: string;
+                            instructorName: string;
+                            roomId: string;
+                            roomName: string;
+                            startTime: string;
+                            durationMin: number;
+                            sessionCount: number;
+                            nextOccurrence: string;
+                            daysOfWeek: number[];
+                        }[];
+                    };
                 };
             };
         };
@@ -4095,7 +4560,24 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            studioId: string;
+                            name: string;
+                            description?: string | null;
+                            priceInCents: number;
+                            intervalMonths: number;
+                            creditsPerCycle: number | null;
+                            guestPassesPerCycle: number;
+                            creditExpiryDays?: number | null;
+                            isIntroOffer?: boolean;
+                            maxRedemptionsPerMember?: number | null;
+                            memberRedemptions?: number;
+                            stripePriceId?: string | null;
+                            activeSubscriptions?: number;
+                        }[];
+                    };
                 };
             };
         };
@@ -4227,7 +4709,27 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            memberId: string;
+                            memberFirstName?: string;
+                            memberLastName?: string;
+                            memberEmail?: string;
+                            planId: string;
+                            plan: {
+                                name: string;
+                                creditsPerCycle: number | null;
+                                intervalMonths: number;
+                                priceInCents: number;
+                            };
+                            /** @enum {string} */
+                            status: "ACTIVE" | "PAUSED" | "CANCELLED" | "EXPIRED" | "PAST_DUE";
+                            startDate: string;
+                            endDate: string | null;
+                            createdAt?: string;
+                        }[];
+                    };
                 };
             };
         };
@@ -4597,7 +5099,20 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            userId: string;
+                            name: string;
+                            email: string;
+                            staffRoles: string[];
+                            joinedAt: string;
+                            instructorId: string | null;
+                            payRatePerHeadCents?: number | null;
+                            payRateHourlyCents?: number | null;
+                            avatarUrl?: string | null;
+                        }[];
+                    };
                 };
             };
         };
@@ -4889,7 +5404,19 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            instructorId: string;
+                            studioId: string;
+                            storageKey: string;
+                            url: string;
+                            fileName: string;
+                            approvedForSocial: boolean;
+                            uploadedBy: string;
+                            createdAt: string;
+                        }[];
+                    };
                 };
             };
         };
@@ -5064,7 +5591,26 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            studioId: string;
+                            name: string;
+                            sport: string;
+                            durationMin: number;
+                            description?: string | null;
+                            color: string;
+                            isPrivate?: boolean;
+                            defaultInstructorId?: string | null;
+                            defaultRoomId?: string | null;
+                            defaultCapacity?: number | null;
+                            defaultCreditsRequired?: number | null;
+                            defaultStartTime?: string | null;
+                            defaultStartTime2?: string | null;
+                            defaultDaysOfWeek?: number[];
+                            defaultIntervalWeeks?: number;
+                        }[];
+                    };
                 };
             };
         };
@@ -5210,7 +5756,19 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            studioId: string;
+                            name: string;
+                            category: string;
+                            priceInCents: number;
+                            creditsRequired: number;
+                            imageUrl: string | null;
+                            inStock: boolean;
+                            stripePriceId?: string | null;
+                        }[];
+                    };
                 };
             };
         };
@@ -5342,7 +5900,18 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            instructorId: string;
+                            instructorName?: string;
+                            studioId: string;
+                            title: string;
+                            startDate: string;
+                            endDate: string;
+                            createdAt: string;
+                        }[];
+                    };
                 };
             };
         };
@@ -5408,7 +5977,18 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            instructorId: string;
+                            instructorName?: string;
+                            studioId: string;
+                            title: string;
+                            startDate: string;
+                            endDate: string;
+                            createdAt: string;
+                        }[];
+                    };
                 };
             };
         };
@@ -5508,7 +6088,19 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            memberId: string;
+                            memberName: string;
+                            studioId: string;
+                            startsAt: string;
+                            endsAt: string;
+                            note: string | null;
+                            patternId: string | null;
+                            createdAt: string;
+                        }[];
+                    };
                 };
             };
         };
@@ -5570,7 +6162,19 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            memberId: string;
+                            memberName: string;
+                            studioId: string;
+                            startsAt: string;
+                            endsAt: string;
+                            note: string | null;
+                            patternId: string | null;
+                            createdAt: string;
+                        }[];
+                    };
                 };
             };
         };
@@ -5670,7 +6274,22 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            memberId: string;
+                            memberName: string;
+                            studioId: string;
+                            daysOfWeek: number[];
+                            startTime: string;
+                            endTime: string;
+                            intervalWeeks: number;
+                            validFrom: string;
+                            validUntil: string | null;
+                            note: string | null;
+                            createdAt: string;
+                        }[];
+                    };
                 };
             };
         };
@@ -5806,7 +6425,22 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            code: string;
+                            description?: string | null;
+                            /** @enum {string} */
+                            type: "CREDIT_GRANT" | "FREE_CLASS" | "MEMBERSHIP_PCT" | "MEMBERSHIP_FLAT";
+                            value: number;
+                            maxUses: number | null;
+                            usageCount: number;
+                            validFrom: string;
+                            validUntil: string | null;
+                            isActive: boolean;
+                            createdAt: string;
+                        }[];
+                    };
                 };
             };
         };
@@ -6108,7 +6742,25 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            name: string;
+                            slug: string;
+                            studios: {
+                                id: string;
+                                studioId: string;
+                                networkId: string;
+                                joinedAt: string;
+                                studio: {
+                                    id: string;
+                                    name: string;
+                                    slug: string;
+                                    timezone: string;
+                                };
+                            }[];
+                        }[];
+                    };
                 };
             };
         };
@@ -6304,7 +6956,23 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            network: {
+                                id: string;
+                                name: string;
+                                slug: string;
+                            } | null;
+                            homeStudioId?: string;
+                            studios: {
+                                id: string;
+                                name: string;
+                                slug: string;
+                                timezone: string;
+                                isHome: boolean;
+                            }[];
+                        };
+                    };
                 };
             };
         };

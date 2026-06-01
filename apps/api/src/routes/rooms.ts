@@ -5,6 +5,7 @@ import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library.js
 import { ROLE_RANK } from '@packd/types'
 import { requireRole, requireAuth, getUser } from '../lib/auth.js'
 import { Id } from '../schemas.js'
+import { RoomLayoutSchema, SessionSpotsSchema } from '../schemas/responses.js'
 
 async function snapshotLayoutIfNeeded(
   tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
@@ -87,7 +88,7 @@ const layoutBodySchema = z.object({
 export async function roomRoutes(app: FastifyInstance) {
   app.get<{ Params: { roomId: string } }>(
     '/:roomId/layout',
-    { preHandler: requireAuth },
+    { preHandler: requireAuth, schema: { params: z.object({ roomId: Id }), response: { 200: RoomLayoutSchema.nullable() } } },
     async (request, reply) => {
       const { roomId } = request.params
       const user = getUser(request)
@@ -106,7 +107,7 @@ export async function roomRoutes(app: FastifyInstance) {
 
   app.get<{ Params: { roomId: string } }>(
     '/:roomId/layouts',
-    { preHandler: requireAuth },
+    { preHandler: requireAuth, schema: { params: z.object({ roomId: Id }), response: { 200: z.array(RoomLayoutSchema) } } },
     async (request, reply) => {
       const { roomId } = request.params
       const user = getUser(request)
@@ -279,7 +280,7 @@ export async function roomRoutes(app: FastifyInstance) {
 
   app.get<{ Params: { roomId: string; sessionId: string } }>(
     '/:roomId/sessions/:sessionId/spots',
-    { preHandler: requireAuth },
+    { preHandler: requireAuth, schema: { params: z.object({ roomId: Id, sessionId: Id }), response: { 200: SessionSpotsSchema } } },
     async (request, reply) => {
       const { roomId, sessionId } = request.params
       const user = getUser(request)

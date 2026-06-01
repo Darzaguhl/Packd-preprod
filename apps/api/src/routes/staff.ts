@@ -8,6 +8,7 @@ import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole, revokeUserSessi
 import { sendStaffInvite } from '../lib/email.js'
 import { assertStudioAccess } from './admin-shared.js'
 import { Id, MemberIdParam } from '../schemas.js'
+import { StaffMemberSchema } from '../schemas/responses.js'
 
 // ── Route validation schemas ──────────────────────────────────────────────────
 const StaffListQuery = z.object({ studioId: Id })
@@ -93,7 +94,7 @@ export async function staffRoutes(app: FastifyInstance) {
     '/',
     {
       preHandler: requireStudioAdmin,
-      schema: { querystring: StaffListQuery },
+      schema: { querystring: StaffListQuery, response: { 200: z.array(StaffMemberSchema) } },
     },
     async (request, reply) => {
       const { studioId } = request.query

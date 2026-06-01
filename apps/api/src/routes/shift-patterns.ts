@@ -5,6 +5,7 @@ import { requireAuth, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
 import { ROLE_RANK } from '@packd/types'
 import { Id, ISODateTime, StudioIdQuery } from '../schemas.js'
+import { StaffShiftPatternSchema } from '../schemas/responses.js'
 
 const GENERATE_WEEKS = 12
 
@@ -64,6 +65,7 @@ export async function shiftPatternsRoutes(app: FastifyInstance) {
       config: { studioIdFrom: 'querystring' },
       schema: {
         querystring: StudioIdQuery.extend({ memberId: z.string().min(1).optional() }),
+        response: { 200: z.array(StaffShiftPatternSchema) },
       },
     },
     async (request, reply) => {

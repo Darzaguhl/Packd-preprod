@@ -8,6 +8,7 @@ import { logger } from '../lib/logger.js'
 import { assertStudioAccess } from './admin-shared.js'
 import Stripe from 'stripe'
 import { Id, NonNegativeInt, StudioIdQuery, SubscriptionStatus } from '../schemas.js'
+import { MembershipPlanSchema, MembershipSubscriptionSchema } from '../schemas/responses.js'
 
 // Lazy-init so tests without STRIPE_SECRET_KEY don't blow up at import time
 let _stripe: Stripe | null = null
@@ -153,7 +154,7 @@ export async function membershipRoutes(app: FastifyInstance) {
   // GET /memberships/plans?studioId= — list plans for a studio (studio_admin+)
   app.get<{ Querystring: { studioId: string } }>(
     '/plans',
-    { preHandler: requireStudioAdmin, config: { studioIdFrom: 'querystring' }, schema: { querystring: StudioIdQuery } },
+    { preHandler: requireStudioAdmin, config: { studioIdFrom: 'querystring' }, schema: { querystring: StudioIdQuery, response: { 200: z.array(MembershipPlanSchema) } } },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
@@ -369,6 +370,7 @@ export async function membershipRoutes(app: FastifyInstance) {
           memberId: z.string().min(1).optional(),
           all: z.string().optional(),
         }),
+        response: { 200: z.array(MembershipSubscriptionSchema) },
       },
     },
     async (request, reply) => {

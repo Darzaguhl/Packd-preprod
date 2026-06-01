@@ -3,10 +3,11 @@ import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireAuth, getUser, requireRole } from '../lib/auth.js'
 import { Id } from '../schemas.js'
+import { NetworkWithStudiosSchema, MemberNetworkInfoSchema } from '../schemas/responses.js'
 
 export async function networkRoutes(app: FastifyInstance) {
   // GET /networks — list all networks (franchise_admin+)
-  app.get('/', { preHandler: requireRole('franchise_admin') }, async (_request, reply) => {
+  app.get('/', { preHandler: requireRole('franchise_admin'), schema: { response: { 200: z.array(NetworkWithStudiosSchema) } } }, async (_request, reply) => {
     const networks = await prisma.studioNetwork.findMany({
       include: {
         studios: {
@@ -116,7 +117,7 @@ export async function networkRoutes(app: FastifyInstance) {
   )
 
   // GET /networks/my — return the network (if any) for the current member's home studio
-  app.get('/my', { preHandler: requireAuth }, async (request, reply) => {
+  app.get('/my', { preHandler: requireAuth, schema: { response: { 200: MemberNetworkInfoSchema } } }, async (request, reply) => {
     const user = getUser(request)
     const member = await prisma.member.findUnique({
       where: { userId: user.id },

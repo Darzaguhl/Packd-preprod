@@ -6,6 +6,7 @@ import { ROLE_RANK } from '@packd/types'
 import { syncStripePrice, archiveStripeProduct } from '../lib/stripe-sync.js'
 import { logger } from '../lib/logger.js'
 import { Id, NonNegativeInt, StudioIdQuery } from '../schemas.js'
+import { ProductSchema } from '../schemas/responses.js'
 
 function ownsStudio(user: ReturnType<typeof getUser>, studioId: string): boolean {
   return ROLE_RANK[user.role as keyof typeof ROLE_RANK] >= ROLE_RANK['franchise_admin'] ||
@@ -19,6 +20,7 @@ export async function productRoutes(app: FastifyInstance) {
       preHandler: requireAuth,
       schema: {
         querystring: StudioIdQuery.extend({ all: z.string().optional() }),
+        response: { 200: z.array(ProductSchema) },
       },
     },
     async (request, reply) => {

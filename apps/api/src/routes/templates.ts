@@ -4,6 +4,7 @@ import { prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
 import { assertStudioAccess } from './franchise.js'
 import { Id, StudioIdQuery } from '../schemas.js'
+import { ClassTemplateSchema } from '../schemas/responses.js'
 
 type ScheduleDefaults = {
   defaultInstructorId?: string | null
@@ -24,7 +25,7 @@ export async function templateRoutes(app: FastifyInstance) {
     {
       preHandler: requireRole('instructor'),
       config: { studioIdFrom: 'querystring' },
-      schema: { querystring: StudioIdQuery },
+      schema: { querystring: StudioIdQuery, response: { 200: z.array(ClassTemplateSchema) } },
     },
     async (request, reply) => {
       const { studioId } = request.query

@@ -5,6 +5,7 @@ import { requireAuth, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
 import { ROLE_RANK } from '@packd/types'
 import { Id, ISODateTime, StudioIdQuery } from '../schemas.js'
+import { StaffShiftSchema } from '../schemas/responses.js'
 
 function isAdmin(role: string) {
   return ROLE_RANK[role as keyof typeof ROLE_RANK] >= ROLE_RANK['studio_admin']
@@ -21,6 +22,7 @@ const shiftSelect = {
   startsAt: true,
   endsAt: true,
   note: true,
+  patternId: true,
   createdAt: true,
   member: { select: { id: true, user: { select: { email: true } } } },
 } as const
@@ -42,6 +44,7 @@ async function enrichShifts(shifts: Awaited<ReturnType<typeof prisma.staffShift.
     startsAt: s.startsAt.toISOString(),
     endsAt: s.endsAt.toISOString(),
     note: s.note ?? null,
+    patternId: s.patternId ?? null,
     createdAt: s.createdAt.toISOString(),
   }))
 }
@@ -59,6 +62,7 @@ export async function shiftsRoutes(app: FastifyInstance) {
           from: ISODateTime.optional(),
           to: ISODateTime.optional(),
         }),
+        response: { 200: z.array(StaffShiftSchema) },
       },
     },
     async (request, reply) => {
@@ -84,7 +88,7 @@ export async function shiftsRoutes(app: FastifyInstance) {
 
   app.get<{ Querystring: { studioId?: string; from?: string; to?: string } }>(
     '/mine',
-    { preHandler: requireAuth },
+    { preHandler: requireAuth, schema: { response: { 200: z.array(StaffShiftSchema) } } },
     async (request, reply) => {
       const user = getUser(request)
       if (!isFronthost(user.role)) return reply.forbidden()

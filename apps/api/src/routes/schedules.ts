@@ -6,6 +6,7 @@ import { audit, AUDIT } from '../lib/audit.js'
 import { ROLE_RANK } from '@packd/types'
 import { sendSubstituteNotification } from '../lib/email.js'
 import { IdParam, StudioIdQuery } from '../schemas.js'
+import { CalendarWeekSchema, ClassScheduleSchema, OrphanedPatternSchema } from '../schemas/responses.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 const requireInstructor = requireRole('instructor')
@@ -108,6 +109,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
           studioId: z.string().min(1),
           weekStart: z.string().optional(),
         }),
+        response: { 200: CalendarWeekSchema },
       },
     },
     async (request, reply) => {
@@ -211,7 +213,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     {
       preHandler: requireInstructor,
       config: { studioIdFrom: 'querystring' },
-      schema: { querystring: StudioIdQuery },
+      schema: { querystring: StudioIdQuery, response: { 200: z.array(ClassScheduleSchema) } },
     },
     async (request, reply) => {
       const { studioId } = request.query
@@ -688,7 +690,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
     {
       preHandler: requireInstructor,
       config: { studioIdFrom: 'querystring' },
-      schema: { querystring: StudioIdQuery },
+      schema: { querystring: StudioIdQuery, response: { 200: z.array(OrphanedPatternSchema) } },
     },
     async (request, reply) => {
       const { studioId } = request.query

@@ -4,6 +4,7 @@ import { prisma, Prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { StudioIdQuery } from '../schemas.js'
+import { LeaderboardSchema, AnalyticsDataSchema, QueryResultSchema } from '../schemas/responses.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 const requireInstructor  = requireRole('instructor')
@@ -66,6 +67,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
           period: z.enum(['week', 'month', 'alltime']).optional(),
           limit:  z.coerce.number().int().min(1).max(100).optional(),
         }),
+        response: { 200: LeaderboardSchema },
       },
     },
     async (request, reply) => {
@@ -147,6 +149,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
           period: z.string().optional(),
           weeks:  z.coerce.number().int().min(4).max(52).optional(),
         }),
+        response: { 200: AnalyticsDataSchema },
       },
     },
     async (request, reply) => {

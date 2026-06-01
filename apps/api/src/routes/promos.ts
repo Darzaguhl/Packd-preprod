@@ -4,6 +4,7 @@ import { prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { Id, StudioIdQuery } from '../schemas.js'
+import { PromoCodeSchema } from '../schemas/responses.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 
@@ -19,7 +20,7 @@ export async function promoRoutes(app: FastifyInstance) {
 
   app.get<{ Querystring: { studioId: string } }>(
     '/',
-    { preHandler: requireStudioAdmin, schema: { querystring: StudioIdQuery } },
+    { preHandler: requireStudioAdmin, schema: { querystring: StudioIdQuery, response: { 200: z.array(PromoCodeSchema) } } },
     async (request, reply) => {
       const { studioId } = request.query
       if (!studioId) return reply.badRequest('studioId is required')

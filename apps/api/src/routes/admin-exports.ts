@@ -5,6 +5,7 @@ import { requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { assertStudioAccess, validateSelectQuery } from './admin-shared.js'
 import { StudioIdQuery, DateString } from '../schemas.js'
+import { QueryResultSchema } from '../schemas/responses.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 
@@ -34,6 +35,7 @@ export async function adminExportsRoutes(app: FastifyInstance) {
           sql:     z.string().min(1),
           studioId: z.string().min(1),
         }),
+        response: { 200: QueryResultSchema },
       },
     },
     async (request, reply) => {

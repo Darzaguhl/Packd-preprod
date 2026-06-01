@@ -4,6 +4,7 @@ import { prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { Id } from '../schemas.js'
+import { InstructorPhotoSchema } from '../schemas/responses.js'
 
 const SUPABASE_URL = process.env.SUPABASE_URL!
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -40,7 +41,7 @@ export async function photoRoutes(app: FastifyInstance) {
     '/instructors/:instructorId',
     {
       preHandler: requireAuth,
-      schema: { params: z.object({ instructorId: Id }) },
+      schema: { params: z.object({ instructorId: Id }), response: { 200: z.array(InstructorPhotoSchema) } },
     },
     async (request, reply) => {
       const { instructorId } = request.params

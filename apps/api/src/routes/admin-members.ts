@@ -7,6 +7,10 @@ import { audit, AUDIT } from '../lib/audit.js'
 import { assertStudioAccess } from './admin-shared.js'
 import Stripe from 'stripe'
 import { Id, StudioIdQuery, CursorQuery, MemberIdParam } from '../schemas.js'
+import {
+  AdminMemberProfileSchema, PaginatedMembersSchema, AdminMemberHistorySchema,
+  StaffNoteSchema, GuestPassEntrySchema, MemberListItemSchema,
+} from '../schemas/responses.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 const requireInstructor  = requireRole('instructor')
@@ -66,6 +70,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
         querystring: StudioIdQuery.merge(CursorQuery).extend({
           q: z.string().optional(),
         }),
+        response: { 200: PaginatedMembersSchema },
       },
     },
     async (request, reply) => {
@@ -124,6 +129,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
         querystring: StudioIdQuery.extend({
           q: z.string().min(1),
         }),
+        response: { 200: z.array(MemberListItemSchema) },
       },
     },
     async (request, reply) => {
@@ -163,7 +169,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
   // GET /admin/members/:memberId/profile — full profile (fronthost+)
   app.get<{ Params: { memberId: string } }>(
     '/members/:memberId/profile',
-    { preHandler: requireInstructor },
+    { preHandler: requireInstructor, schema: { params: MemberIdParam, response: { 200: AdminMemberProfileSchema } } },
     async (request, reply) => {
       const { memberId } = request.params
       const user = getUser(request)
@@ -228,7 +234,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
   // GET /admin/members/:memberId/history — booking + transaction history (fronthost+)
   app.get<{ Params: { memberId: string } }>(
     '/members/:memberId/history',
-    { preHandler: requireInstructor },
+    { preHandler: requireInstructor, schema: { params: MemberIdParam, response: { 200: AdminMemberHistorySchema } } },
     async (request, reply) => {
       const { memberId } = request.params
       const user = getUser(request)
@@ -355,7 +361,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
   // GET /admin/members/:memberId/notes
   app.get<{ Params: { memberId: string } }>(
     '/members/:memberId/notes',
-    { preHandler: requireInstructor },
+    { preHandler: requireInstructor, schema: { params: MemberIdParam, response: { 200: z.array(StaffNoteSchema) } } },
     async (request, reply) => {
       const { memberId } = request.params
       const user = getUser(request)
@@ -628,7 +634,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
   // GET /admin/members/:memberId/guest-passes — guest pass log (fronthost+)
   app.get<{ Params: { memberId: string } }>(
     '/members/:memberId/guest-passes',
-    { preHandler: requireInstructor },
+    { preHandler: requireInstructor, schema: { params: MemberIdParam, response: { 200: z.array(GuestPassEntrySchema) } } },
     async (request, reply) => {
       const { memberId } = request.params
       const user = getUser(request)

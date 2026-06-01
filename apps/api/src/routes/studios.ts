@@ -4,6 +4,7 @@ import { prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { Id, StudioIdParam } from '../schemas.js'
+import { RoomSummarySchema, StudioDetailSchema } from '../schemas/responses.js'
 
 const requireFranchiseAdmin = requireRole('franchise_admin')
 const requireStudioAdmin = requireRole('studio_admin')
@@ -72,7 +73,7 @@ export async function studioRoutes(app: FastifyInstance) {
 
   app.get<{ Params: { studioId: string } }>(
     '/:studioId',
-    { preHandler: requireStudioAdmin, config: { studioIdFrom: 'params' } },
+    { preHandler: requireStudioAdmin, config: { studioIdFrom: 'params' }, schema: { response: { 200: StudioDetailSchema } } },
     async (request, reply) => {
       const { studioId } = request.params
       const user = getUser(request)
@@ -284,7 +285,7 @@ export async function studioRoutes(app: FastifyInstance) {
 
   app.get<{ Params: { studioId: string } }>(
     '/:studioId/rooms',
-    { preHandler: requireStudioAdmin, config: { studioIdFrom: 'params' } },
+    { preHandler: requireStudioAdmin, config: { studioIdFrom: 'params' }, schema: { response: { 200: z.array(RoomSummarySchema) } } },
     async (request, reply) => {
       const { studioId } = request.params
       const user = getUser(request)

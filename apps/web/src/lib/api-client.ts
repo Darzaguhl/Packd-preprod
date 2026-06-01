@@ -4,6 +4,17 @@
  * This module provides compile-time type safety for API calls using the types
  * generated from the OpenAPI spec in `api-types.generated.ts`.
  *
+ * ## Response types
+ *
+ * Routes that have Zod response schemas in the API emit typed response bodies
+ * in `api-types.generated.ts`.  The `ApiResponseBody` helper below extracts the
+ * `application/json` content type for any given path + method.
+ *
+ * Previously these were hand-written interfaces in `api.ts`.  Routes covered by
+ * the generated types no longer need hand-written interfaces; the generated type
+ * is the authoritative source.  Remaining hand-written types in `api.ts` cover
+ * routes that have not yet received Zod response schemas.
+ *
  * ## Why two layers?
  *
  * The generated `paths` interface encodes exact request-body shapes for every
@@ -42,18 +53,67 @@ import type { ApiResponse, MemberProfile, SessionSlot } from '@packd/types'
 // consumers can use a single import: `from '@/lib/api-client'`
 export * from './api'
 
-// Import types needed within the api object implementation below.
+// ---------------------------------------------------------------------------
+// Generated response type helpers
+// ---------------------------------------------------------------------------
+// Extracts the application/json response body for a given path + method from
+// the generated OpenAPI types, replacing hand-written interfaces for routes
+// that now have Zod response schemas.
+type GetBody<P extends keyof paths> =
+  paths[P] extends { get: { responses: { 200: { content: { 'application/json': infer B } } } } }
+    ? B : never
+type PostBody<P extends keyof paths> =
+  paths[P] extends { post: { responses: { 200: { content: { 'application/json': infer B } } } } }
+    ? B : never
+
+// Routes with response schemas — use generated types
+export type AdminSession         = GetBody<'/admin/sessions'>[number]
+export type AdminBooking         = GetBody<'/admin/sessions/{id}/bookings'>[number]
+export type AdminMemberProfile   = GetBody<'/admin/members/{memberId}/profile'>
+export type AdminMemberHistory   = GetBody<'/admin/members/{memberId}/history'>
+export type StaffNote            = GetBody<'/admin/members/{memberId}/notes'>[number]
+export type GuestPassEntry       = GetBody<'/admin/members/{memberId}/guest-passes'>[number]
+export type AnalyticsData        = GetBody<'/admin/analytics'>
+export type QueryResult          = PostBody<'/admin/query'>
+export type Leaderboard          = GetBody<'/admin/leaderboard'>
+export type StudioSummary        = GetBody<'/franchise/studios'>[number]
+export type StaffWithPermissions = GetBody<'/franchise/studios/{studioId}/staff-permissions'>[number]
+export type RoomLayout           = GetBody<'/rooms/{roomId}/layouts'>[number]
+export type SessionSpots         = GetBody<'/rooms/{roomId}/sessions/{sessionId}/spots'>
+export type CalendarWeek         = GetBody<'/schedules/'>
+export type ClassSchedule        = GetBody<'/schedules/all'>[number]
+export type OrphanedPattern      = GetBody<'/schedules/orphaned'>[number]
+export type StaffMember          = GetBody<'/staff/'>[number]
+export type InstructorPhoto      = GetBody<'/photos/instructors/{instructorId}'>[number]
+export type ClassTemplate        = GetBody<'/templates/'>[number]
+export type Product              = GetBody<'/products/'>[number]
+export type MembershipPlan       = GetBody<'/memberships/plans'>[number]
+export type MembershipSubscription = GetBody<'/memberships/'>[number]
+export type StaffShift           = GetBody<'/admin/shifts/'>[number]
+export type StaffShiftPattern    = GetBody<'/admin/shift-patterns/'>[number]
+export type AvailabilityBlock    = GetBody<'/availability/'>[number]
+export type PromoCode            = GetBody<'/promos/'>[number]
+export type StudioDetail         = GetBody<'/studios/{studioId}'>
+export type NetworkWithStudios   = GetBody<'/networks/'>[number]
+export type StudioNetwork        = Omit<NetworkWithStudios, 'studios'>
+export type MemberNetworkInfo    = GetBody<'/networks/my'>
+export type RoomSummary          = GetBody<'/studios/{studioId}/rooms'>[number]
+
+// Sub-types inferred from generated schemas
+export type Station           = RoomLayout['stations'][number]
+export type SpotAssignment    = SessionSpots['assignments'][number]
+export type CalendarSession   = CalendarWeek['sessions'][number]
+export type CalendarTemplate  = CalendarWeek['templates'][number]
+export type CalendarInstructor = CalendarWeek['instructors'][number]
+export type CalendarRoom      = CalendarWeek['rooms'][number]
+
+// Import types still needed from api.ts (not yet covered by generated schemas)
 import type {
   UpcomingBooking, MemberHistory, MemberStats, ProductSale,
-  AdminSession, AdminBooking, AdminMemberProfile, AdminMemberHistory,
-  CartSaleItem, AnalyticsData, QueryResult, Leaderboard,
-  StaffNote, GuestPassEntry, StudioSummary, StudioDetail, RoomSummary,
-  InstructorPermissions, FronthostPermissions, StaffWithPermissions,
-  InstructorPhoto, ClassTemplate, RoomLayout, Station, SessionSpots,
-  CalendarWeek, ClassSchedule, OrphanedPattern, StaffMember,
-  LayoutTemplate, Product, MembershipPlan, MembershipSubscription,
-  AvailabilityBlock, PromoCode, StaffShift, StaffShiftPattern,
-  NetworkWithStudios, StudioNetwork, MemberNetworkInfo,
+  CartSaleItem,
+  InstructorPermissions, FronthostPermissions,
+  LayoutTemplate,
+  NetworkStudio,
   PlatformBrand, Brand, BrandStats, BrandMember, BrandSession,
 } from './api'
 

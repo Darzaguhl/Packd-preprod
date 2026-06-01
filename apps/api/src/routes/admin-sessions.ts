@@ -8,6 +8,7 @@ import { enqueueNoShowCheck } from '../jobs/index.js'
 import { sendSessionAnnouncement, sendBookingCancellation } from '../lib/email.js'
 import { assertStudioAccess } from './admin-shared.js'
 import { Id, StudioIdQuery, ISODateTime } from '../schemas.js'
+import { AdminSessionSchema, AdminBookingSchema } from '../schemas/responses.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 const requireInstructor  = requireRole('instructor')
@@ -49,6 +50,7 @@ export async function adminSessionRoutes(app: FastifyInstance) {
           date:         z.string().optional(),
           instructorId: z.string().min(1).optional(),
         }),
+        response: { 200: z.array(AdminSessionSchema) },
       },
     },
     async (request, reply) => {
@@ -145,6 +147,7 @@ export async function adminSessionRoutes(app: FastifyInstance) {
       preHandler: requireInstructor,
       schema: {
         params: z.object({ id: Id }),
+        response: { 200: z.array(AdminBookingSchema) },
       },
     },
     async (request, reply) => {

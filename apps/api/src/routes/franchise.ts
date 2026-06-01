@@ -8,6 +8,9 @@ import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole } from '../lib/s
 import { assertStudioAccess } from './admin-shared.js'
 import { enqueueBroadcast } from '../jobs/index.js'
 import { Id } from '../schemas.js'
+import {
+  StudioSummarySchema, StaffMemberSchema, StaffWithPermissionsSchema, PromoCodeSchema,
+} from '../schemas/responses.js'
 
 export { assertStudioAccess }
 
@@ -147,7 +150,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
 
   app.get(
     '/studios',
-    { preHandler: requireRole('franchise_admin') },
+    { preHandler: requireRole('franchise_admin'), schema: { response: { 200: z.array(StudioSummarySchema) } } },
     async (request, reply) => {
       const user = getUser(request)
       const todayStart = new Date()
@@ -374,7 +377,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
   // GET /studios/:studioId/staff-permissions — all staff (instructors + fronthosts) with their permissions
   app.get<{ Params: { studioId: string } }>(
     '/studios/:studioId/staff-permissions',
-    { preHandler: requireRole('studio_admin') },
+    { preHandler: requireRole('studio_admin'), schema: { response: { 200: z.array(StaffWithPermissionsSchema) } } },
     async (request, reply) => {
       const { studioId } = request.params
       const user = getUser(request)

@@ -4,6 +4,7 @@ import { prisma } from '@packd/db'
 import { requireAuth, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { Id } from '../schemas.js'
+import { AvailabilityBlockSchema } from '../schemas/responses.js'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,7 @@ export async function availabilityRoutes(app: FastifyInstance) {
           from: z.string().optional(),
           to: z.string().optional(),
         }),
+        response: { 200: z.array(AvailabilityBlockSchema) },
       },
     },
     async (request, reply) => {
@@ -88,6 +90,7 @@ export async function availabilityRoutes(app: FastifyInstance) {
           from: z.string().optional(),
           to: z.string().optional(),
         }),
+        response: { 200: z.array(AvailabilityBlockSchema) },
       },
     },
     async (request, reply) => {
