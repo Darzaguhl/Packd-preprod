@@ -48,6 +48,8 @@
     "@rollup/rollup-linux-x64-gnu": "^4.60.4"
   },
   "dependencies": {
-    "@sentry/node": "^10.55.0"
+    "@sentry/node": "^10.55.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
   }
 }
