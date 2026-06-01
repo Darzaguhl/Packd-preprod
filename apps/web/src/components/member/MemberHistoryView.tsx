@@ -433,7 +433,7 @@ export default function MemberHistoryView({
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4">
           <p className="text-xs text-gray-400 font-medium mb-1">Credits</p>
-          <p className="text-3xl font-bold tabular-nums text-gray-900">{creditBalance}</p>
+          <p data-testid="credit-balance" className="text-3xl font-bold tabular-nums text-gray-900">{creditBalance}</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4 flex flex-col justify-between gap-2">
           <p className="text-xs text-gray-400 font-medium">Membership</p>

@@ -15,7 +15,11 @@ async function goToFrontDesk(page: import('@playwright/test').Page) {
   const liveBtn = page.getByRole('button', { name: /^live$/i })
   await expect(liveBtn).toBeVisible({ timeout: 8000 })
   await liveBtn.click()
-  await expect(page.locator('div.animate-pulse').first()).not.toBeVisible({ timeout: 8000 })
+  // Wait for the live dashboard to finish loading — session rows or empty state
+  await expect(
+    page.locator('[data-testid="session-row"]').first()
+      .or(page.locator('text=/no sessions scheduled|no classes assigned/i'))
+  ).toBeVisible({ timeout: 12000 })
 }
 
 test.describe('Admin dashboard', () => {

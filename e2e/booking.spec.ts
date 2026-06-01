@@ -100,12 +100,9 @@ test.describe('Credit balance', () => {
         await expect(page.locator('[data-testid="toast"]')).not.toBeVisible({ timeout: 5000 })
         booked = true
 
-        // Verify balance decremented
+        // Verify balance decremented — poll until the account page shows the updated value
         await page.goto('/account')
-        await expect(balanceEl).toBeVisible({ timeout: 8000 })
-        const afterBookText = await balanceEl.textContent()
-        const afterBookBalance = parseInt(afterBookText?.match(/\d+/)?.[0] ?? '-1', 10)
-        expect(afterBookBalance).toBe(initialBalance - sessionCost)
+        await expect(balanceEl).toContainText(String(initialBalance - sessionCost), { timeout: 10000 })
 
         // Cancel and verify balance restored
         await page.goto('/schedule')
@@ -119,11 +116,9 @@ test.describe('Credit balance', () => {
         await expect(page.locator('[data-testid="toast"]')).toBeVisible({ timeout: 8000 })
         await expect(page.locator('[data-testid="toast"]')).not.toBeVisible({ timeout: 5000 })
 
+        // Poll until the account page shows the restored balance
         await page.goto('/account')
-        await expect(balanceEl).toBeVisible({ timeout: 8000 })
-        const restoredText = await balanceEl.textContent()
-        const restoredBalance = parseInt(restoredText?.match(/\d+/)?.[0] ?? '-1', 10)
-        expect(restoredBalance).toBe(initialBalance)
+        await expect(balanceEl).toContainText(String(initialBalance), { timeout: 10000 })
       }
     }
 
