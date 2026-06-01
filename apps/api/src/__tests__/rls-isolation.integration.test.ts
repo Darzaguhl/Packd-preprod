@@ -96,7 +96,6 @@ describe.skipIf(!RUN_INTEGRATION)('RLS row-level isolation (integration)', () =>
         capacity: 10,
         creditsRequired: 1,
         status: 'SCHEDULED',
-        instructorId: 'placeholder',
       },
     })
 

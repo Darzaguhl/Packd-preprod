@@ -291,6 +291,7 @@ CREATE TABLE "public"."Member" (
     "payRateHourlyCents" INTEGER,
     "emailPreferences" JSONB NOT NULL DEFAULT '{}',
     "lastWinbackAt" TIMESTAMP(3),
+    "creditWarningSentAt" TIMESTAMP(3),
     "referralCode" TEXT,
 
     CONSTRAINT "Member_pkey" PRIMARY KEY ("id")
