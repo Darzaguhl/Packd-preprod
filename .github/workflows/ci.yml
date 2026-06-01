@@ -58,8 +58,28 @@ jobs:
       - name: Generate Prisma client
         run: npm run db:generate
 
+      - name: Apply database migrations
+        run: npm run db:migrate:deploy
+        env:
+          DATABASE_URL: postgresql://packd:packd@localhost:5432/packd_test
+
+      - name: Set up packd_api role and RLS policies
+        run: |
+          psql postgresql://packd:packd@localhost:5432/packd_test << 'SQL'
+          CREATE ROLE packd_api;
+          GRANT USAGE ON SCHEMA public TO packd_api;
+          GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO packd_api;
+          GRANT packd_api TO packd;
+          SQL
+          psql postgresql://packd:packd@localhost:5432/packd_test -f packages/db/sql/rls_studio_isolation.sql
+
       - name: Run unit tests
         run: npm test -- --reporter=verbose
+
+      - name: Run RLS integration tests
+        run: npm run test:integration -- --reporter=verbose
+        env:
+          INTEGRATION: true
 
       - name: Check OpenAPI spec is up to date
         run: |

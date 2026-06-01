@@ -364,6 +364,16 @@ export async function setupJobs() {
       })
       await prisma.member.update({ where: { id: tx.memberId }, data: { creditWarningSentAt: new Date() } })
     }
+
+    // AuditLog retention: hard-delete entries older than 1 year
+    // See docs/log-retention.md for policy details.
+    const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000)
+    const deleted = await prisma.auditLog.deleteMany({
+      where: { createdAt: { lt: oneYearAgo } },
+    })
+    if (deleted.count > 0) {
+      logger.info({ count: deleted.count }, '[nightly] AuditLog retention: deleted old entries')
+    }
   })
 
   // Credit expiry sweep — deduct expired credits from balances
