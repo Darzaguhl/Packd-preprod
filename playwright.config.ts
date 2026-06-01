@@ -28,7 +28,7 @@ export default defineConfig({
       stderr: 'pipe',
     },
     {
-      command: 'cd apps/web && npm run dev',
+      command: 'cd apps/web && PORT=3000 npm run dev',
       url: 'http://localhost:3000',
       reuseExistingServer: false,
       timeout: 120_000,
