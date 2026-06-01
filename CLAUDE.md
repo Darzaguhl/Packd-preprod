@@ -145,7 +145,7 @@ Seed (`packages/db/src/seed.ts`): 1 studio (Packd Demo), Stockholm City location
 - **Roles**: `admin=5`, `brand_admin=5`, `franchise_admin=4`, `studio_admin=3`, `instructor=2`, `fronthost=2`, `member=1`
 - `fronthost` and `instructor` share rank 2 — both pass `requireRole('instructor')` but not `requireRole('studio_admin')`
 - **Dual-role**: `app_metadata.roles[]` for all roles, `app_metadata.role` for primary. `DualRoleDashboard` renders for users with both `fronthost` + `instructor`.
-- **Multi-studio**: `app_metadata.studioIds[]` — `assertStudioAccess` (in `routes/admin-shared.ts`) checks JWT `studioIds` first (fast path), then DB `member.studioId` + `member.studioIds` (fallback). Single authoritative copy — imported by admin-sessions, admin-members, admin-analytics, admin-exports, admin-sales, studios, franchise, integrations.
+- **Multi-studio**: `app_metadata.studioIds[]` — `assertStudioAccess` (in `routes/admin-shared.ts`) checks JWT `studioIds` first (fast path), then DB `member.studioId` + `member.studioIds` (fallback). Single authoritative copy. Most routes use `config: { studioIdFrom: 'querystring'|'params'|'body' }` so the `studio-access-plugin` enforces it automatically; routes that derive studioId from a DB lookup keep a manual call.
 - **Booking guards**: past-class booking blocked for members (400); privileged roles (rank ≥ fronthost) bypass. LATE_CANCELLED re-books via `update` not `create` (avoids P2002). Cancel clears `stationId`.
 - **Instructor permissions** (JSON on `Instructor`): `canCheckInMembers`, `canManageWaitlist` (true), `canManageBookings`, `canViewMemberContact`, `canEditSessionDetails`, `canCancelSession`, `canCreateSchedules` (all false default).
 - `StudioManagerDashboard`: reads role from `session.user.app_metadata.role` as `sessionRole` fallback; `effectiveRole = role ?? sessionRole`.
@@ -166,8 +166,10 @@ apps/
                            # referral reward, franchise broadcast, session announcement
       logger.ts            # pino logger instance
       stripe-sync.ts       # Stripe product/price create/update/archive
+      studio-access-plugin.ts  # Fastify plugin: config.studioIdFrom auto-enforces
+                               # studio access without manual assertStudioAccess() calls
       studio-ctx.ts        # withStudioCtx() — RLS context helper
-      supabase-admin.ts    # Supabase admin API helpers
+      supabase-admin.ts    # Supabase admin API helpers + revokeUserSessions()
     jobs/index.ts          # pg-boss handlers: no-show fee, late cancel, reminders,
                            # membership renewal, credit expiry sweep + warning,
                            # win-back emails, first-class followup
@@ -217,7 +219,9 @@ apps/
       studios.ts           # studio settings; POST /studios/:id/copy-from/:sourceId (franchise_admin)
       waitlist.ts          # waitlist join/leave/promote
       webhooks.ts          # Mariana Tek inbound webhooks
-    __tests__/             # 149 Vitest unit tests across 17 files
+    schemas.ts             # Shared Zod primitives: Id, StudioIdQuery, CursorQuery,
+                           # ISODateTime, DateString, IdParam, StaffRole, BookingStatus …
+    __tests__/             # 197 Vitest unit tests across 22 files
   web/src/
     app/
       accept-invite/       # /accept-invite — staff invitation acceptance page (auth + role apply)
@@ -301,6 +305,10 @@ e2e/
 - **allowMemberPause default**: changed to `false` — studios must opt in to allow member self-pause (previously defaulted to `true`, silently enabling it for all studios).
 - **Credit expiry warning dedup**: `Member.creditWarningSentAt DateTime?` — nightly job skips sending if a warning was already sent within the last 7 days.
 - **`GET /franchise/studios`** returns `revenueThisMonthCents` (product sales, non-refunded, this calendar month) alongside the existing member/session/fill-rate stats.
+- **Zod validation**: all routes carry `schema: { body, querystring, params }` using `@fastify/type-provider-zod`. Optional-body routes use `.nullish()` not `.optional()` — Fastify passes `null` (not `undefined`) for missing bodies. Shared primitives live in `src/schemas.ts`.
+- **Studio-access middleware**: `lib/studio-access-plugin.ts` — add `config: { studioIdFrom: 'querystring' | 'params' | 'body' }` to a route and studio access is enforced automatically as a `preHandler`. Only use manual `assertStudioAccess` when studioId must be resolved from a DB record (e.g. per-member endpoints, sale ownership checks).
+- **Session revocation**: `revokeUserSessions(userId)` in `supabase-admin.ts` — call after any role change (staff removal, role downgrade) so the user's JWT is immediately invalidated. Fire-and-forget, non-fatal.
+- **Connection pooling**: `DATABASE_URL` → Supabase pgBouncer pooler (port 6543, `?pgbouncer=true`). `PGBOSS_DATABASE_URL` → direct connection (port 5432, no pgBouncer) — pg-boss uses advisory locks + LISTEN/NOTIFY which break with transaction-mode pooling. `DIRECT_URL` → direct connection used by Prisma for migrations only.
 
 ## Security and architecture review protocol
 
@@ -344,69 +352,23 @@ For each file in `apps/api/src/routes/`, check:
 
 ## Backlog
 
-### Remaining
-- [ ] E2E tests in CI — all specs written; CI job exists but disabled (`if: false`). Needs 5 GitHub secrets configured in the repo: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `STUDIO_ID`. Once set, remove `if: false` from `.github/workflows/ci.yml`.
-- [ ] Conflict detection on bulk schedule creation — currently skipped (computing all occurrences upfront is complex); only applied on single-session edits and substitute assignment.
-- [ ] Minimum class threshold / auto-cancel — no `minCapacity` field or automated cancellation if bookings fall below threshold before class.
+### Product
+- [ ] E2E tests in CI — specs written; CI job exists but disabled. Needs 5 GitHub secrets: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `PGBOSS_DATABASE_URL`, `STUDIO_ID`. Remove `if: false` from `.github/workflows/ci.yml` once set.
+- [ ] Conflict detection on bulk schedule creation — skipped by design (computing all occurrences upfront is complex); applied only on single-session edits and substitute assignment.
+- [ ] Minimum class threshold / auto-cancel — no `minCapacity` field or automated cancellation if bookings fall below threshold.
 - [ ] Class series / multi-session bookings — no concept of booking a 6-week course as a unit.
-- [ ] Platform admin panel — creating Brands + assigning `brand_admin` still requires direct Supabase API access (one-time per brand, acceptable ops overhead).
+- [ ] Platform admin panel — creating Brands + assigning `brand_admin` still requires direct Supabase API access.
 - [ ] Receipt PDF generation — currently exposes Stripe's hosted receipt URL; no first-party PDF.
 - [ ] SMS notifications — email only; no SMS channel.
-- [ ] FranchiseDashboard split — component is large; each tab should be extracted to its own file (StudiosTab, AnalyticsTab, PromoTab, BroadcastTab, NetworksTab) imported by the shell. No behaviour change, just maintainability.
+- [ ] FranchiseDashboard split — component is large; each tab should be its own file (StudiosTab, AnalyticsTab, PromoTab, BroadcastTab, NetworksTab). No behaviour change.
 - [ ] Pagination on remaining high-volume endpoints — `GET /franchise/all-admins`, `GET /franchise/promos`, brand member lists.
 
-## Completed features
-
-### Infrastructure
-- Database migration history — `packages/db/prisma/migrations/0_baseline/` establishes the baseline; use `npm run db:migrate` (interactive) or `npm run db:migrate:deploy` (CI) going forward instead of `db push`
-- Analytics DB-side aggregation — `admin-analytics.ts` runs all heavy aggregations as raw `GROUP BY` SQL queries; only instructor loyalty rate (requires time-ordered sequential processing) runs in JS on a minimal dataset
-- Waitlist promotion email — `sendWaitlistPromotion` called in `bookings.ts` when a cancellation triggers a waitlist promotion; sends branded Resend email with booking details
-- Stripe credit purchase flow — `MembershipsTab` has "Sync" button per plan that calls `stripe-sync.ts` to create/update a Stripe product+price and store `stripePriceId`; plans show green "Stripe" badge when synced or amber "Not synced" warning; `POST /stripe/checkout` uses the `stripePriceId` for subscription checkout
-- RLS Option B — `packages/db/sql/rls_studio_isolation.sql` enables RLS on all tenant tables; `apps/api/src/lib/studio-ctx.ts` provides `withStudioCtx(studioId, fn)` which runs `SET LOCAL ROLE packd_api` + `set_config('app.current_studio_id', ...)` inside a transaction so policies are enforced
-- Expo mobile app — `apps/mobile/` with Expo Router; login (`app/(auth)/login.tsx`), schedule (`app/(tabs)/schedule.tsx`), account (`app/(tabs)/account.tsx`) screens; auth via Supabase, API calls via `src/lib/api.ts`
-
-### Staff scheduling (2026-05-30)
-- Staff shift scheduling — `StaffShift` + `StaffShiftPattern` models; one-off and recurring (every 1–4 weeks) shifts; full CRUD API at `/admin/shifts` and `/admin/shift-patterns`; StaffTab drawer has Shifts section with add/edit/delete for both; shift blocks visualised in CalendarView week view (colour-coded per fronthost, filter strip, click to edit)
-- Recurring shifts — `intervalWeeks` field; "Repeat every 1/2/3/4 weeks" segmented control in modal; generation anchored to `validFrom` Monday; PATCH drops future instances and regenerates
-- Hourly pay rate — `Member.payRateHourlyCents`; `PATCH /staff/:memberId/hourly-pay`; shown and editable in StaffTab drawer; estimated pay displayed per shift and per pattern
-- iCal feeds — instructor feed (`/ical/instructor/:id/:token`) and fronthost shift feed (`/ical/fronthost/:id/:token`); `/ical/token` returns `urls.instructor` / `urls.fronthost` based on DB role lookup; AccountView shows subscribe cards for each feed
-
-### Audit log (2026-05-30)
-- Audit log coverage — fixed `studioId = null` bug (entries were invisible in queries); added `audit()` calls to: schedule create/delete, session cancel/reschedule/checkin, bulk ops, booking cancel by admin, shift CRUD, shift pattern CRUD, staff role add/remove, staff pay update
-- Audit log UI — `AuditLogTab` wired into StudioManagerDashboard under "Audit Log" tab
-
-### E2E tests (2026-05-30)
-- `shifts.spec.ts` — add/edit/delete one-off shift; add/delete recurring pattern; verify audit log entry after shift actions
-- `account.spec.ts` — account page loads, iCal member card visible, upcoming section present
-- `global-setup.ts` — seeds fronthost role on `e2e-member` so shift tests have a target; `data-testid` attributes added to StaffTab, AuditLogTab, AccountView
-
-### UX polish (2026-05-30)
-- Bulk ops toggle moved into CalendarView toolbar (alongside "+ New schedule") — removes the standalone strip below the header
-- Live view name size — SessionRoomMap now has S / M / L / **XL** (18 px) option, persisted to localStorage
-
-### Session announcements + payroll export (2026-05-30)
-- Session announcements — `POST /admin/sessions/:id/announce` (studio_admin+, rate-limited 5/min); emails all confirmed attendees via Resend with admin-supplied subject + message; inline compose form in `SessionPanel` (blue "Announce" button → subject + textarea + send); audit-logged
-- Staff pay export — `GET /admin/export/staff-pay` combines instructor per-head earnings + fronthost shift-hours earnings in one CSV; "Staff Pay" download button added to AnalyticsTab alongside existing exports; `sendSessionAnnouncement` email template added to `email.ts`
-- 6 new unit tests across `announce.test.ts` and `exports.test.ts` (149 total, 17 files)
-
-### Franchise admin & onboarding (2026-05-31)
-- **Onboarding wizard** — `/onboarding` (franchise_admin only); 7 steps: Studio → Location → Rooms → Policy → Import from existing studio → Invite studio admin → Done. Cancel/finish-later button. Redirects to `/dashboard` on complete.
-- **Import from studio** — `POST /studios/:id/copy-from/:sourceId` (franchise_admin); copies plans, products, templates, policy in one transaction; Stripe IDs excluded.
-- **Staff invite fix** — `/accept-invite` page with inline auth form; `POST /staff/accept-invite` validates email match then writes `app_metadata.role + studioIds` via Supabase admin API. Invite URL now includes `studioId` param.
-- **Franchise dashboard** — "Add studio" button now routes to wizard (inline form removed). Revenue this month on studio cards. "Download payroll" button downloads aggregate CSV (`studioId=all`). New tabs: **Promos** (franchise-wide codes created across all studios simultaneously), **Broadcast** (bulk email to selected studios' members).
-- **People-first staff views** — `FranchiseStaffRoster`, `FranchisePermissionsRoster`, `FranchiseAdminsRoster` replace per-studio pickers. Studio membership shown as chips. Admins: click a studio chip to remove from that studio only. Permissions: instructor multi-studio context selector inline.
-- **Pay rates** — franchise_admin only (was studio_admin). StaffTab shows rates read-only. `FranchiseStaffRoster` has expandable pay editor per person (hourly for fronthosts/studio_admins, per-head per studio for instructors).
-- **New API endpoints**: `GET /franchise/staff`, `GET /franchise/all-admins`, `GET/POST/DELETE /franchise/promos`, `POST /franchise/broadcast`, `POST /studios/:id/copy-from/:sourceId`, `POST /staff/accept-invite`
-
-### Member features + studio settings (2026-05-31)
-- **Booking notes** — `Booking.memberNote String?`; member adds note in SessionDetailView before booking; staff see it in bookings list
-- **Staff conflict detection** — `checkInstructorConflict()` in schedules.ts + admin-sessions.ts; blocks double-booking on substitute assignment and session reschedule
-- **Tax / VAT** — `Studio.taxRatePct Float`, `stripeTaxRateId String?`; Stripe TaxRate auto-created and cached; applied as `default_tax_rates` on checkout; configurable in Settings → Policies
-- **Receipts** — `ProductSale.stripeReceiptUrl` captured from PaymentIntent in webhook; `GET /members/me/receipts`; shown in AccountExtrasSection
-- **Member self-pause** — `POST /memberships/subscriptions/:id/self-pause`; checks `studio.allowMemberPause` (admin-controlled toggle in Settings → Policies); enforces `maxPauseDays` + `maxPausesPerYear`; syncs to Stripe
-- **Referral programme** — `Member.referralCode String? @unique`; `Referral` model; `GET /members/me/referral` (auto-generates code); `POST /members/referral/apply`; reward fires on referee's first booking; `Studio.referralRewardCredits` controls credits; UI in AccountExtrasSection
-- **Lifecycle emails** — win-back (inactive 30+ days, no email in 60 days), credit expiry warning (7 days out), first-class follow-up (26h after first booking); all in nightly cron
-- **Email preferences** — `Member.emailPreferences Json`; `PATCH /members/me/email-preferences`; checked before sending reminders, win-back, followup; UI in AccountExtrasSection
-- **GDPR** — `GET /members/me/export` (JSON download); `DELETE /members/me` (anonymise + cancel subs + delete Supabase Auth user)
-- **Studio settings additions** — `allowMemberPause`, `taxRatePct`, `referralRewardCredits` in Settings → Policies; `GET /admin/stats` returns them so AccountView can gate features per studio config
-- **`TransactionType.REFERRAL`** added to Prisma enum
+### Enterprise / operational
+- [ ] Zero-downtime deploy strategy — no coordinated migration + API deploy process exists.
+- [ ] Alerting — Sentry captures errors but no alerting on pg-boss job failures, payment failures, or high error rates.
+- [ ] Session revocation on role _upgrade_ — currently only fires on removal. Role grants don't need it (new JWT picks up higher role on next auth refresh), but worth noting.
+- [ ] Cross-tenant isolation test suite — one Vitest test per sensitive table asserting a cross-tenant query returns 0 rows when RLS context is set to a different studio.
+- [ ] API versioning — no strategy. Breaking changes will be painful for mobile / third-party integrations.
+- [ ] E2E coverage for booking + payment flows — only shifts/frontdesk/schedule/auth covered; booking happy path, credit purchase, and waiver signing have no E2E tests.
+- [ ] SOC 2 documentation — audit logs and RLS in place; needs log retention policies, access reviews, and incident response runbooks.
+- [ ] Secret rotation mechanism — `ICAL_SECRET`, `INVITE_SECRET`, Stripe keys are static with no rotation path.
