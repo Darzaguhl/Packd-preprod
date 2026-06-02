@@ -604,6 +604,17 @@ async function apiFetch<T>(path: string, options: RequestInit & { token?: string
 // ---------------------------------------------------------------------------
 
 export const platform = {
+  stats: (token: string) =>
+    apiFetch<{
+      brands: number
+      franchises: number
+      studios: number
+      members: number
+      bookings30d: number
+      revenueThisMonth: number
+      activeStudios30d: number
+    }>('/admin/platform/stats', { token }),
+
   health: (token: string) =>
     apiFetch<{
       latencyMs: number

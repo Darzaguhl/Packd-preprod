@@ -5,6 +5,54 @@ import { requireRole } from '../lib/auth.js'
 
 export async function adminPlatformRoutes(app: FastifyInstance) {
 
+  // ── Platform stats ─────────────────────────────────────────────────────────
+  app.get('/platform/stats', { preHandler: requireRole('admin') }, async () => {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+
+    const [
+      brands,
+      franchises,
+      studios,
+      members,
+      bookings30d,
+      revenue30d,
+      activeStudios30d,
+    ] = await Promise.all([
+      prisma.brand.count(),
+      prisma.franchise.count(),
+      prisma.studio.count(),
+      prisma.member.count({ where: { staffRoles: { isEmpty: true } } }),
+      prisma.booking.count({ where: { bookedAt: { gte: thirtyDaysAgo }, status: { not: 'CANCELLED' } } }),
+      prisma.productSale.aggregate({
+        where: { soldAt: { gte: thirtyDaysAgo }, refundedAt: null },
+        _sum: { totalCents: true },
+      }),
+      prisma.booking.groupBy({
+        by: ['sessionId'],
+        where: { bookedAt: { gte: thirtyDaysAgo }, status: { not: 'CANCELLED' } },
+        _count: true,
+      }).then(async rows => {
+        if (!rows.length) return 0
+        const sessionIds = rows.map(r => r.sessionId)
+        const sessions = await prisma.classSession.findMany({
+          where: { id: { in: sessionIds } },
+          select: { studioId: true },
+        })
+        return new Set(sessions.map(s => s.studioId)).size
+      }),
+    ])
+
+    return {
+      brands,
+      franchises,
+      studios,
+      members,
+      bookings30d,
+      revenueThisMonth: (revenue30d._sum ?? {}).totalCents ?? 0,
+      activeStudios30d,
+    }
+  })
+
   // ── Health check ───────────────────────────────────────────────────────────
   app.get('/platform/health', { preHandler: requireRole('admin') }, async (_request, _reply) => {
     const startMs = Date.now()

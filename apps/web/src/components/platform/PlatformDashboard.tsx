@@ -815,8 +815,14 @@ function SystemTab({ token }: { token: string }) {
 }
 
 export default function PlatformDashboard() {
+  type PlatformStats = {
+    brands: number; franchises: number; studios: number; members: number
+    bookings30d: number; revenueThisMonth: number; activeStudios30d: number
+  }
+
   const [token, setToken] = useState<string | null>(null)
   const [brands, setBrands] = useState<PlatformBrand[]>([])
+  const [stats, setStats] = useState<PlatformStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [showNewBrand, setShowNewBrand] = useState(false)
   const [activeTab, setActiveTab] = useState<'brands' | 'system'>('brands')
@@ -838,7 +844,10 @@ export default function PlatformDashboard() {
     createClient().auth.getSession().then(async ({ data: { session } }) => {
       const t = session?.access_token ?? null
       setToken(t)
-      if (t) await loadBrands(t)
+      if (t) {
+        await loadBrands(t)
+        platform.stats(t).then(setStats).catch(() => {})
+      }
       setLoading(false)
     })
   }, [])
@@ -851,6 +860,22 @@ export default function PlatformDashboard() {
 
       <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
 
+        {/* Platform stats strip */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: 'Brands', value: stats?.brands, sub: `${stats?.franchises ?? '—'} franchises` },
+            { label: 'Studios', value: stats?.studios, sub: `${stats?.activeStudios30d ?? '—'} active 30d` },
+            { label: 'Members', value: stats?.members?.toLocaleString(), sub: 'registered' },
+            { label: 'Bookings', value: stats?.bookings30d?.toLocaleString(), sub: 'last 30 days' },
+          ].map(kpi => (
+            <div key={kpi.label} className={`bg-white rounded-2xl border border-gray-100 px-5 py-4 ${!stats ? 'animate-pulse' : ''}`}>
+              <p className="text-2xl font-bold text-gray-900">{stats ? kpi.value : <span className="text-gray-200">——</span>}</p>
+              <p className="text-xs font-medium text-gray-500 mt-0.5">{kpi.label}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">{stats ? kpi.sub : ''}</p>
+            </div>
+          ))}
+        </div>
+
         {/* Tab switcher */}
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
           {(['brands', 'system'] as const).map(t => (
@@ -862,19 +887,6 @@ export default function PlatformDashboard() {
         </div>
 
         {activeTab === 'brands' && <>
-          {/* Stats strip */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {[
-              { label: 'Brands', value: brands.length },
-              { label: 'Brand admins', value: brands.filter(b => b.admin).length },
-            ].map(kpi => (
-              <div key={kpi.label} className="bg-white rounded-2xl border border-gray-100 px-5 py-4">
-                <p className="text-2xl font-bold text-gray-900">{kpi.value}</p>
-                <p className="text-xs text-gray-400 mt-0.5">{kpi.label}</p>
-              </div>
-            ))}
-          </div>
-
           {/* Brands list */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
