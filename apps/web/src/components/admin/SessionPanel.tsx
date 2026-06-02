@@ -103,8 +103,9 @@ export default function SessionPanel({ session, token, onClose, onSessionUpdate,
       </div>
 
       {/* Check-in summary */}
-      <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
+      <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 space-y-2">
+        {/* Row 1: count + fill bar */}
+        <div className="flex items-center gap-3">
           <div className="shrink-0">
             <p className="text-2xl font-bold text-gray-900 tabular-nums">
               {checkedInCount}
@@ -112,16 +113,16 @@ export default function SessionPanel({ session, token, onClose, onSessionUpdate,
             </p>
             <p className="text-xs text-gray-400">checked in</p>
           </div>
-          {/* Three-segment bar: checked-in (black) · booked not in (amber) · empty (light gray) */}
+          {/* Three-segment bar */}
           <div className="flex-1 min-w-0 space-y-1">
             <div className="h-2 bg-gray-100 rounded-full overflow-hidden flex gap-px">
               {session.capacity > 0 && (() => {
-                const checkedInPct  = (checkedInCount / session.capacity) * 100
-                const bookedPct     = ((session.bookedCount - checkedInCount) / session.capacity) * 100
+                const checkedInPct = (checkedInCount / session.capacity) * 100
+                const bookedPct    = ((session.bookedCount - checkedInCount) / session.capacity) * 100
                 return (
                   <>
-                    {checkedInPct > 0  && <div className="h-full bg-gray-900 transition-all duration-300 rounded-l-full" style={{ width: `${checkedInPct}%` }} />}
-                    {bookedPct    > 0  && <div className="h-full bg-amber-400 transition-all duration-300" style={{ width: `${bookedPct}%` }} />}
+                    {checkedInPct > 0 && <div className="h-full bg-gray-900 transition-all duration-300 rounded-l-full" style={{ width: `${checkedInPct}%` }} />}
+                    {bookedPct    > 0 && <div className="h-full bg-amber-400 transition-all duration-300" style={{ width: `${bookedPct}%` }} />}
                   </>
                 )
               })()}
@@ -134,27 +135,28 @@ export default function SessionPanel({ session, token, onClose, onSessionUpdate,
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {!isCancelled && (
+        {/* Row 2: action buttons — separate row so they never crowd the stats */}
+        {!isCancelled && (
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setShowAnnounce(v => !v)}
-              className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${
+              className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
                 showAnnounce ? 'bg-blue-600 text-white border-blue-600' : 'text-blue-600 border-blue-200 hover:border-blue-400'
               }`}
             >
               Announce
             </button>
-          )}
-          {!isCancelled && canCancel && (
-            <button
-              onClick={cancelSession}
-              disabled={cancelling}
-              className="text-xs text-red-500 hover:text-red-700 border border-red-200 hover:border-red-300 px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-40"
-            >
-              {cancelling ? '…' : 'Cancel class'}
-            </button>
-          )}
-        </div>
+            {canCancel && (
+              <button
+                onClick={cancelSession}
+                disabled={cancelling}
+                className="text-xs text-red-500 hover:text-red-700 border border-red-200 hover:border-red-300 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40"
+              >
+                {cancelling ? '…' : 'Cancel class'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Announce form */}
