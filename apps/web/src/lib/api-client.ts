@@ -718,6 +718,18 @@ export const api = {
         `/admin/members?studioId=${studioId}${q ? `&q=${encodeURIComponent(q)}` : ''}${cursor ? `&cursor=${cursor}` : ''}`, { token }),
     analytics: (studioId: string, token: string, weeks = 12) =>
       apiFetch<AnalyticsData>(`/admin/analytics?studioId=${studioId}&weeks=${weeks}`, { token }),
+    retention: (studioId: string, token: string, months = 12) =>
+      apiFetch<{ cohorts: { month: string; size: number; offsets: { offset: number; pct: number }[] }[] }>(
+        `/admin/retention?studioId=${studioId}&months=${months}`, { token }),
+    revenue: (studioId: string, token: string, months = 12) =>
+      apiFetch<{
+        monthly: { month: string; revenue: number; orders: number; forecast: boolean }[]
+        mrr: { month: string; mrr: number }[]
+        forecast: { month: string; revenue: number; forecast: boolean }[]
+      }>(`/admin/revenue?studioId=${studioId}&months=${months}`, { token }),
+    churnRisk: (studioId: string, token: string) =>
+      apiFetch<{ members: { memberId: string; name: string; email: string; totalBookings: number; lastBookedAt: string | null; avgDaysBetween: number | null; daysSinceLast: number | null }[] }>(
+        `/admin/churn-risk?studioId=${studioId}`, { token }),
     query: (sql: string, studioId: string, token: string) =>
       apiFetch<QueryResult>('/admin/query', { token, method: 'POST', body: JSON.stringify({ sql, studioId }) }),
     memberUpcoming: (memberId: string, token: string) =>

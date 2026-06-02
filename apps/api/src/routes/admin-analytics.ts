@@ -462,4 +462,173 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
       })
     },
   )
+
+  // ── Retention cohort ──────────────────────────────────────────────────────
+  // Returns a grid: for members who joined in cohort month C, what % still
+  // booked in month C+N (N = 0..11). Rows = cohort months, cols = offset.
+  app.get('/retention', {
+    preHandler: requireStudioAdmin,
+    config: { studioIdFrom: 'querystring' },
+    schema: { querystring: StudioIdQuery.extend({ months: z.coerce.number().min(3).max(24).default(12) }) },
+  }, async (request) => {
+    const { studioId, months } = request.query as { studioId: string; months: number }
+    const cutoff = new Date()
+    cutoff.setMonth(cutoff.getMonth() - months)
+    cutoff.setDate(1); cutoff.setHours(0, 0, 0, 0)
+
+    const sf = studioId === 'all' ? Prisma.sql`1=1` : Prisma.sql`m."studioId" = ${studioId}`
+
+    // First booking date per member = cohort month
+    const rows = await prisma.$queryRaw<{ cohort: Date; offset_month: number; members: number }[]>`
+      WITH first_bookings AS (
+        SELECT b."memberId",
+               DATE_TRUNC('month', MIN(b."bookedAt")) AS cohort_month
+        FROM "Booking" b
+        JOIN "Member" m ON m.id = b."memberId"
+        WHERE ${sf} AND b.status IN ('CONFIRMED','CHECKED_IN')
+          AND b."bookedAt" >= ${cutoff}
+        GROUP BY b."memberId"
+      ),
+      activity AS (
+        SELECT b."memberId",
+               DATE_TRUNC('month', b."bookedAt") AS active_month
+        FROM "Booking" b
+        JOIN "Member" m ON m.id = b."memberId"
+        WHERE ${sf} AND b.status IN ('CONFIRMED','CHECKED_IN')
+        GROUP BY b."memberId", DATE_TRUNC('month', b."bookedAt")
+      )
+      SELECT
+        fb.cohort_month                                                          AS cohort,
+        EXTRACT(EPOCH FROM (a.active_month - fb.cohort_month))::int / 2592000  AS offset_month,
+        COUNT(DISTINCT fb."memberId")::int                                       AS members
+      FROM first_bookings fb
+      JOIN activity a ON a."memberId" = fb."memberId"
+        AND a.active_month >= fb.cohort_month
+      GROUP BY fb.cohort_month, offset_month
+      ORDER BY fb.cohort_month, offset_month
+    `
+
+    // Build cohort sizes (offset 0)
+    const cohortSizes = new Map<string, number>()
+    for (const r of rows) {
+      if (r.offset_month === 0) cohortSizes.set(r.cohort.toISOString(), r.members)
+    }
+
+    // Group into cohort rows
+    const cohortMap = new Map<string, { offset: number; pct: number }[]>()
+    for (const r of rows) {
+      const key = r.cohort.toISOString()
+      const size = cohortSizes.get(key) ?? 1
+      if (!cohortMap.has(key)) cohortMap.set(key, [])
+      cohortMap.get(key)!.push({ offset: r.offset_month, pct: Math.round((r.members / size) * 100) })
+    }
+
+    const cohorts = Array.from(cohortMap.entries())
+      .map(([month, offsets]) => ({ month, size: cohortSizes.get(month) ?? 0, offsets }))
+      .sort((a, b) => a.month.localeCompare(b.month))
+
+    return { cohorts }
+  })
+
+  // ── Revenue trend + MRR forecast ─────────────────────────────────────────
+  app.get('/revenue', {
+    preHandler: requireStudioAdmin,
+    config: { studioIdFrom: 'querystring' },
+    schema: { querystring: StudioIdQuery.extend({ months: z.coerce.number().min(3).max(24).default(12) }) },
+  }, async (request) => {
+    const { studioId, months } = request.query as { studioId: string; months: number }
+    const sf = studioId === 'all' ? Prisma.sql`1=1` : Prisma.sql`"studioId" = ${studioId}`
+    const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - months); cutoff.setDate(1); cutoff.setHours(0,0,0,0)
+
+    const [salesRows, mrrRows] = await Promise.all([
+      // One-time + card sales per month
+      prisma.$queryRaw<{ month: Date; revenue: number; orders: number }[]>`
+        SELECT DATE_TRUNC('month', "soldAt") AS month,
+               SUM("totalCents")::int        AS revenue,
+               COUNT(*)::int                 AS orders
+        FROM "ProductSale"
+        WHERE ${sf} AND "soldAt" >= ${cutoff} AND "refundedAt" IS NULL AND "failedAt" IS NULL
+        GROUP BY month ORDER BY month
+      `,
+      // Active subscriptions per month (MRR proxy)
+      prisma.$queryRaw<{ month: Date; mrr: number }[]>`
+        SELECT DATE_TRUNC('month', s."startDate") AS month,
+               SUM(p."priceInCents")::int          AS mrr
+        FROM "MembershipSubscription" s
+        JOIN "MembershipPlan" p ON p.id = s."planId"
+        WHERE ${sf === Prisma.sql`1=1` ? Prisma.sql`1=1` : Prisma.sql`p."studioId" = ${studioId}`}
+          AND s.status = 'ACTIVE'
+          AND p."intervalMonths" > 0
+          AND s."startDate" >= ${cutoff}
+        GROUP BY month ORDER BY month
+      `,
+    ])
+
+    // Simple 3-month moving average forecast for next 3 months
+    const last3 = salesRows.slice(-3)
+    const avgRevenue = last3.length ? last3.reduce((s, r) => s + r.revenue, 0) / last3.length : 0
+    const forecast = [1, 2, 3].map(i => {
+      const d = new Date(); d.setMonth(d.getMonth() + i); d.setDate(1); d.setHours(0,0,0,0)
+      return { month: d.toISOString(), revenue: Math.round(avgRevenue), forecast: true }
+    })
+
+    return {
+      monthly: salesRows.map(r => ({ month: r.month.toISOString(), revenue: r.revenue, orders: r.orders, forecast: false })),
+      mrr: mrrRows.map(r => ({ month: r.month.toISOString(), mrr: r.mrr })),
+      forecast,
+    }
+  })
+
+  // ── Churn risk — members who haven't booked recently vs their cadence ─────
+  app.get('/churn-risk', {
+    preHandler: requireStudioAdmin,
+    config: { studioIdFrom: 'querystring' },
+    schema: { querystring: StudioIdQuery },
+  }, async (request) => {
+    const { studioId } = request.query as { studioId: string }
+    const sf = studioId === 'all' ? Prisma.sql`1=1` : Prisma.sql`m."studioId" = ${studioId}`
+
+    const rows = await prisma.$queryRaw<{
+      memberId: string; firstName: string; lastName: string; email: string
+      totalBookings: number; lastBookedAt: Date | null
+      avgDaysBetween: number | null; daysSinceLast: number | null
+    }[]>`
+      SELECT
+        m.id                                                              AS "memberId",
+        u."firstName",
+        u."lastName",
+        u.email,
+        COUNT(b.id)::int                                                  AS "totalBookings",
+        MAX(b."bookedAt")                                                 AS "lastBookedAt",
+        AVG(gap)                                                          AS "avgDaysBetween",
+        EXTRACT(EPOCH FROM (now() - MAX(b."bookedAt")))::float / 86400   AS "daysSinceLast"
+      FROM "Member" m
+      JOIN "User" u ON u.id = m."userId"
+      LEFT JOIN (
+        SELECT "memberId", "bookedAt",
+               EXTRACT(EPOCH FROM ("bookedAt" - LAG("bookedAt") OVER (PARTITION BY "memberId" ORDER BY "bookedAt")))::float / 86400 AS gap
+        FROM "Booking" WHERE status IN ('CONFIRMED','CHECKED_IN')
+      ) b ON b."memberId" = m.id
+      WHERE ${sf} AND m."staffRoles" = '{}'
+      GROUP BY m.id, u."firstName", u."lastName", u.email
+      HAVING COUNT(b.id) >= 3
+         AND MAX(b."bookedAt") < now() - interval '21 days'
+         AND EXTRACT(EPOCH FROM (now() - MAX(b."bookedAt")))::float / 86400
+             > COALESCE(AVG(gap) * 2.5, 30)
+      ORDER BY "daysSinceLast" DESC
+      LIMIT 50
+    `
+
+    return {
+      members: rows.map(r => ({
+        memberId: r.memberId,
+        name: `${r.firstName} ${r.lastName}`.trim(),
+        email: r.email,
+        totalBookings: r.totalBookings,
+        lastBookedAt: r.lastBookedAt?.toISOString() ?? null,
+        avgDaysBetween: r.avgDaysBetween ? Math.round(r.avgDaysBetween) : null,
+        daysSinceLast: r.daysSinceLast ? Math.round(r.daysSinceLast) : null,
+      })),
+    }
+  })
 }

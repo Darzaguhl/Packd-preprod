@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { api, type AnalyticsData } from '@/lib/api-client'
 import QueryTab from './QueryTab'
 import LeaderboardTab from './LeaderboardTab'
@@ -213,7 +213,7 @@ interface Props {
 }
 
 export default function AnalyticsTab({ studioId: initialStudioId, token, canQuery = false, studios }: Props) {
-  const [view, setView]           = useState<'analytics' | 'leaderboard' | 'query'>('analytics')
+  const [view, setView]           = useState<'analytics' | 'leaderboard' | 'query' | 'retention' | 'revenue' | 'churn'>('analytics')
   const [selectedStudio, setSelectedStudio] = useState(initialStudioId)
   const [data, setData]           = useState<AnalyticsData | null>(null)
   const [loading, setLoading]     = useState(true)
@@ -295,9 +295,42 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
   // Custom Query is only available when a specific studio is selected
   const canShowQuery = canQuery && isPerStudio
 
-  type SubView = 'analytics' | 'leaderboard' | 'query'
+  // ── Deep analytics data ────────────────────────────────────────────────────
+  type RetentionData = { cohorts: { month: string; size: number; offsets: { offset: number; pct: number }[] }[] }
+  type RevenueData = {
+    monthly: { month: string; revenue: number; orders: number; forecast: boolean }[]
+    mrr: { month: string; mrr: number }[]
+    forecast: { month: string; revenue: number; forecast: boolean }[]
+  }
+  type ChurnMember = { memberId: string; name: string; email: string; totalBookings: number; lastBookedAt: string | null; avgDaysBetween: number | null; daysSinceLast: number | null }
+
+  const [retentionData, setRetentionData] = useState<RetentionData | null>(null)
+  const [revenueData, setRevenueData] = useState<RevenueData | null>(null)
+  const [churnData, setChurnData] = useState<{ members: ChurnMember[] } | null>(null)
+  const [deepLoading, setDeepLoading] = useState(false)
+
+  const loadDeep = useCallback((v: string) => {
+    if (v === 'retention' && !retentionData) {
+      setDeepLoading(true)
+      api.admin.retention(selectedStudio, token).then(setRetentionData).catch(() => {}).finally(() => setDeepLoading(false))
+    } else if (v === 'revenue' && !revenueData) {
+      setDeepLoading(true)
+      api.admin.revenue(selectedStudio, token).then(setRevenueData).catch(() => {}).finally(() => setDeepLoading(false))
+    } else if (v === 'churn' && !churnData) {
+      setDeepLoading(true)
+      api.admin.churnRisk(selectedStudio, token).then(setChurnData).catch(() => {}).finally(() => setDeepLoading(false))
+    }
+  }, [selectedStudio, token, retentionData, revenueData, churnData])
+
+  // Reset deep data when studio changes
+  useEffect(() => { setRetentionData(null); setRevenueData(null); setChurnData(null) }, [selectedStudio])
+
+  type SubView = 'analytics' | 'leaderboard' | 'query' | 'retention' | 'revenue' | 'churn'
   const subViews: { id: SubView; label: string; show: boolean }[] = [
     { id: 'analytics',   label: 'Overview',      show: true },
+    { id: 'retention',   label: 'Retention',     show: isPerStudio },
+    { id: 'revenue',     label: 'Revenue',       show: isPerStudio },
+    { id: 'churn',       label: 'Churn risk',    show: isPerStudio },
     { id: 'leaderboard', label: 'Leaderboard',   show: isPerStudio },
     { id: 'query',       label: 'Custom Query',  show: canShowQuery },
   ]
@@ -308,7 +341,7 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
       {subViews.filter(v => v.show).map(v => (
         <button
           key={v.id}
-          onClick={() => setView(v.id)}
+          onClick={() => { setView(v.id); loadDeep(v.id) }}
           className={`text-xs font-medium px-4 py-1.5 rounded-md transition-colors ${
             view === v.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
           }`}
@@ -318,6 +351,167 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
       ))}
     </div>
   )
+
+  // ── Retention cohort view ──────────────────────────────────────────────────
+  if (view === 'retention' && isPerStudio) {
+    if (!retentionData && !deepLoading) loadDeep('retention')
+    const maxOffset = retentionData
+      ? Math.max(...retentionData.cohorts.flatMap(c => c.offsets.map(o => o.offset)), 0)
+      : 11
+    const offsets = Array.from({ length: maxOffset + 1 }, (_, i) => i)
+
+    return (
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 space-y-4">
+        {studioPicker}
+        {subNav}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">Member retention by cohort</h3>
+          <p className="text-xs text-gray-400 mb-4">% of members from each signup month still booking in subsequent months.</p>
+          {deepLoading ? (
+            <div className="h-48 bg-white rounded-xl border border-gray-100 animate-pulse" />
+          ) : !retentionData?.cohorts.length ? (
+            <p className="text-sm text-gray-400 py-8 text-center">Not enough data yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="text-xs border-collapse">
+                <thead>
+                  <tr>
+                    <th className="text-left px-3 py-2 text-gray-500 font-medium whitespace-nowrap">Cohort</th>
+                    <th className="px-2 py-2 text-gray-500 font-medium">Size</th>
+                    {offsets.map(o => (
+                      <th key={o} className="px-2 py-2 text-gray-500 font-medium">M+{o}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {retentionData.cohorts.map(c => {
+                    const pctMap = new Map(c.offsets.map(o => [o.offset, o.pct]))
+                    return (
+                      <tr key={c.month}>
+                        <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap font-medium">
+                          {new Date(c.month).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' })}
+                        </td>
+                        <td className="px-2 py-1.5 text-center text-gray-500">{c.size}</td>
+                        {offsets.map(o => {
+                          const v = pctMap.get(o)
+                          const bg = v == null ? 'bg-gray-50' : v >= 70 ? 'bg-emerald-600 text-white' : v >= 40 ? 'bg-emerald-200 text-emerald-900' : v >= 20 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-50 text-red-700'
+                          return (
+                            <td key={o} className={`px-2 py-1.5 text-center rounded ${bg}`}>
+                              {v == null ? '—' : `${v}%`}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Revenue view ───────────────────────────────────────────────────────────
+  if (view === 'revenue' && isPerStudio) {
+    if (!revenueData && !deepLoading) loadDeep('revenue')
+    const allMonths = [...(revenueData?.monthly ?? []), ...(revenueData?.forecast ?? [])]
+    const maxRev = Math.max(...allMonths.map(m => m.revenue), 1)
+
+    return (
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 space-y-6">
+        {studioPicker}
+        {subNav}
+        {deepLoading ? (
+          <div className="h-64 bg-white rounded-xl border border-gray-100 animate-pulse" />
+        ) : !revenueData ? null : (
+          <>
+            {/* Revenue bar chart */}
+            <div className="bg-white rounded-xl border border-gray-100 p-5">
+              <h3 className="text-sm font-semibold text-gray-700 mb-4">Monthly revenue</h3>
+              <div className="flex items-end gap-1 h-40">
+                {allMonths.map(m => (
+                  <div key={m.month} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+                    <div
+                      className={`w-full rounded-t transition-all ${m.forecast ? 'bg-indigo-200' : 'bg-gray-800'}`}
+                      style={{ height: `${Math.round((m.revenue / maxRev) * 100)}%`, minHeight: m.revenue > 0 ? 4 : 0 }}
+                    />
+                    <span className="text-[9px] text-gray-400 truncate w-full text-center">
+                      {new Date(m.month).toLocaleDateString('en-GB', { month: 'short' })}
+                      {m.forecast ? '*' : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-gray-400 mt-2">* Forecast based on 3-month average</p>
+            </div>
+
+            {/* MRR */}
+            {revenueData.mrr.length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-100 p-5">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Subscription MRR</h3>
+                <div className="space-y-2">
+                  {revenueData.mrr.slice(-6).map(m => (
+                    <div key={m.month} className="flex items-center gap-3">
+                      <span className="text-xs text-gray-500 w-16 shrink-0">
+                        {new Date(m.month).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' })}
+                      </span>
+                      <div className="flex-1 bg-gray-100 rounded-full h-2">
+                        <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${Math.round((m.mrr / Math.max(...revenueData.mrr.map(r => r.mrr), 1)) * 100)}%` }} />
+                      </div>
+                      <span className="text-xs font-medium text-gray-700 w-20 text-right shrink-0">
+                        {(m.mrr / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    )
+  }
+
+  // ── Churn risk view ────────────────────────────────────────────────────────
+  if (view === 'churn' && isPerStudio) {
+    if (!churnData && !deepLoading) loadDeep('churn')
+    return (
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 space-y-4">
+        {studioPicker}
+        {subNav}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">At-risk members</h3>
+          <p className="text-xs text-gray-400 mb-4">Members with 3+ bookings whose last visit was 2.5× longer ago than their usual cadence.</p>
+          {deepLoading ? (
+            <div className="h-48 bg-white rounded-xl border border-gray-100 animate-pulse" />
+          ) : !churnData?.members.length ? (
+            <div className="bg-white rounded-xl border border-gray-100 py-10 text-center">
+              <p className="text-sm text-gray-400">No at-risk members right now.</p>
+            </div>
+          ) : (
+            <div className="bg-white border border-gray-100 rounded-xl divide-y divide-gray-50">
+              {churnData.members.map(m => (
+                <div key={m.memberId} className="flex items-center gap-4 px-4 py-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800">{m.name}</p>
+                    <p className="text-xs text-gray-400">{m.email}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-semibold text-red-500">{m.daysSinceLast}d since last visit</p>
+                    <p className="text-xs text-gray-400">
+                      usual: every {m.avgDaysBetween}d · {m.totalBookings} total bookings
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   if (view === 'leaderboard' && isPerStudio) {
     return (

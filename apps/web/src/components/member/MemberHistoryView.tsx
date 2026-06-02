@@ -431,9 +431,17 @@ export default function MemberHistoryView({
 
       {/* Stats row */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4">
+        <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4 flex flex-col justify-between">
           <p className="text-xs text-gray-400 font-medium mb-1">Credits</p>
-          <p data-testid="credit-balance" className="text-3xl font-bold tabular-nums text-gray-900">{creditBalance}</p>
+          <p data-testid="credit-balance" className={`text-3xl font-bold tabular-nums ${creditBalance === 0 ? 'text-red-500' : 'text-gray-900'}`}>{creditBalance}</p>
+          {onBuyCredits && creditBalance <= 2 && (
+            <button
+              onClick={() => setShowPlans(true)}
+              className="mt-2 text-xs font-medium text-indigo-600 hover:text-indigo-700 transition-colors text-left"
+            >
+              {creditBalance === 0 ? 'Buy credits →' : 'Running low — buy credits →'}
+            </button>
+          )}
         </div>
         <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4 flex flex-col justify-between gap-2">
           <p className="text-xs text-gray-400 font-medium">Membership</p>
@@ -639,23 +647,49 @@ export default function MemberHistoryView({
               </div>
             )}
 
-            <div className="px-5 py-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {plans.map(plan => (
-                <PlanCard
-                  key={plan.id}
-                  plan={plan}
-                  isCurrent={activeSubscription?.planName === plan.name}
-                  hasActivePlan={!!activeSubscription}
-                  onSelect={handleSubscribe}
-                  onBuy={onBuyCredits ? handleBuy : undefined}
-                  subscribing={subscribing === plan.id}
-                />
-              ))}
-            </div>
-            <p className="text-center text-xs text-gray-400 pb-6 px-5">
+            {/* Credit packs — one-time purchases */}
+            {plans.filter(p => p.intervalMonths === 0 && onBuyCredits).length > 0 && (
+              <div className="px-5 pt-4">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Credit packs</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {plans.filter(p => p.intervalMonths === 0).map(plan => (
+                    <PlanCard
+                      key={plan.id}
+                      plan={plan}
+                      isCurrent={false}
+                      hasActivePlan={!!activeSubscription}
+                      onSelect={handleSubscribe}
+                      onBuy={onBuyCredits ? handleBuy : undefined}
+                      subscribing={subscribing === plan.id}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Membership plans — subscriptions */}
+            {plans.filter(p => p.intervalMonths > 0).length > 0 && (
+              <div className="px-5 pt-4">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Membership plans</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {plans.filter(p => p.intervalMonths > 0).map(plan => (
+                    <PlanCard
+                      key={plan.id}
+                      plan={plan}
+                      isCurrent={activeSubscription?.planName === plan.name}
+                      hasActivePlan={!!activeSubscription}
+                      onSelect={handleSubscribe}
+                      onBuy={onBuyCredits ? handleBuy : undefined}
+                      subscribing={subscribing === plan.id}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            <p className="text-center text-xs text-gray-400 py-5 px-5">
               {activeSubscription
-                ? 'Your current plan will be cancelled and the new plan starts immediately.'
-                : 'Subscription starts immediately. Credits are added to your account right away.'}
+                ? 'Switching plans cancels your current subscription immediately.'
+                : 'Subscriptions start immediately. Credits are added right away.'}
             </p>
           </div>
         </>
