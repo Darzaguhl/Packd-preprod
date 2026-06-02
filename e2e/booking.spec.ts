@@ -98,17 +98,24 @@ test.describe('Credit balance', () => {
         if (sessionCost > initialBalance) continue
 
         await cards.nth(i).click()
+        // Wait for SessionDetailView to mount before checking for book-btn.
+        // The 'Back to schedule' button is always present once the detail renders,
+        // so we use it as a proxy for "the detail is open".
+        const backBtn = page.locator('button', { hasText: /back to schedule/i })
+        const detailVisible = await backBtn.isVisible({ timeout: 4000 }).catch(() => false)
+        if (!detailVisible) {
+          // Detail never opened (navigation may still be in progress) — hard-navigate
+          // back to schedule rather than relying on browser history which can overshoot.
+          await page.goto('/schedule')
+          continue
+        }
         const bookBtn = page.locator('[data-testid="book-btn"]')
         // Session may have a room layout (spot-picker instead of book-btn) — skip those.
-        // Keep timeout short (1500ms) so layout sessions don't consume budget.
-        const btnVisible = await bookBtn.isVisible({ timeout: 1500 }).catch(() => false)
+        const btnVisible = await bookBtn.isVisible({ timeout: 500 }).catch(() => false)
         if (!btnVisible || !await bookBtn.isEnabled()) {
-          // "Back to schedule" calls onBack (React state — no URL change), so
-          // page.goBack() would navigate to /account rather than the schedule.
-          // Click the button directly to close the detail view without navigation.
-          const backBtn = page.locator('button', { hasText: /back to schedule/i })
-          if (await backBtn.count() > 0) await backBtn.click()
-          else await page.goBack()
+          await backBtn.click()
+          // Wait for detail to close before trying the next card
+          await expect(backBtn).not.toBeVisible({ timeout: 4000 }).catch(() => {})
           continue
         }
 

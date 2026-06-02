@@ -206,19 +206,10 @@ export default async function globalSetup() {
   await seedMemberCredits(adminToken, E2E_MEMBER_EMAIL, 20)
 
   // 3b. Clean up test-polluted DB state from previous CI runs.
-  //     All of these accumulate across retries and need resetting before each run.
+  //     Only touches rows OWNED BY THE TEST MEMBER — never touches shared studio data
+  //     (room layouts, sessions, etc.) which would break the live preprod environment.
   try {
     const { prisma } = await import('@packd/db')
-
-    // Delete all room layouts — booking tests need the direct book-btn, not a spot-picker
-    const { count: layoutCount } = await prisma.roomLayout.deleteMany({
-      where: { room: { location: { studioId: STUDIO_ID } } },
-    })
-    await prisma.classSession.updateMany({
-      where: { studioId: STUDIO_ID, layoutId: { not: null } },
-      data: { layoutId: null },
-    })
-    if (layoutCount > 0) console.log(`[setup] Removed ${layoutCount} room layout(s)`)
 
     // Find the e2e member record so we can scope the shift cleanup
     const member = await prisma.member.findFirst({ where: { user: { email: E2E_MEMBER_EMAIL } }, select: { id: true } })
