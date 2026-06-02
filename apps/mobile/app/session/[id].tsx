@@ -4,7 +4,7 @@ import {
   SafeAreaView, StyleSheet, Alert,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { api, type SessionSpots } from '@/lib/api'
+import { api, type SessionSpots, type StationType } from '@/lib/api'
 import { sportColor } from '@/lib/constants'
 import SpotPicker from '@/components/SpotPicker'
 import WaiverModal from '@/components/WaiverModal'
@@ -127,7 +127,16 @@ export default function SessionDetailScreen() {
         }
       }
     } catch (e) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Something went wrong')
+      // Clear pending spot so it doesn't look assigned after a failed booking
+      setPendingStationId(null)
+      const msg = e instanceof Error ? e.message : 'Something went wrong'
+      const isCredits = msg.toLowerCase().includes('credit')
+      Alert.alert(
+        isCredits ? 'Not enough credits' : 'Booking failed',
+        isCredits
+          ? `This class requires ${creditsRequired} credit${creditsRequired !== 1 ? 's' : ''}. Top up your balance to book.`
+          : msg,
+      )
     } finally {
       setActionLoading(false)
     }
@@ -204,12 +213,30 @@ export default function SessionDetailScreen() {
   // The effective station for the spot picker (pending selection or already confirmed)
   const displayStationId = pendingStationId ?? myStationId
 
+  // Short label helper: BIKE→B, TREADMILL→T, ROWER→R, BENCH→BN, MAT→M, REFORMER→RF, BARRE→BR
+  function shortLabel(station: { type: StationType; label: string }): string {
+    const prefix: Record<StationType, string> = {
+      BIKE: 'B', TREADMILL: 'T', ROWER: 'R', BENCH: 'BN',
+      MAT: 'M', REFORMER: 'RF', BARRE: 'BR', OTHER: '',
+    }
+    const p = prefix[station.type]
+    // If label is already numeric or has the prefix, use it; otherwise prepend
+    const num = station.label.replace(/^\D+/, '')
+    return num ? `${p}${num}` : station.label
+  }
+
   // Button logic
   let primaryLabel = ''
   let primaryAction = () => {}
   let primaryStyle = styles.btnPrimary
+  let primaryDisabled = actionLoading
 
-  if (isBooked) {
+  if (spotsLoading) {
+    // Map still loading — show disabled placeholder
+    primaryLabel = 'Book a spot'
+    primaryStyle = styles.btnDisabledPrimary
+    primaryDisabled = true
+  } else if (isBooked) {
     primaryLabel = 'Cancel booking'
     primaryAction = handleCancel
     primaryStyle = styles.btnCancel
@@ -222,11 +249,14 @@ export default function SessionDetailScreen() {
     primaryAction = handleWaitlist
     primaryStyle = styles.btnWaitlist
   } else if (hasLayout && !pendingStationId) {
-    primaryLabel = 'Pick a spot to book'
+    primaryLabel = 'Book a spot'
     primaryAction = handleBook
     primaryStyle = styles.btnDisabledPrimary
+    primaryDisabled = true
   } else if (hasLayout && pendingStationId) {
-    primaryLabel = `Book spot ${spots?.layout?.stations.find(s => s.id === pendingStationId)?.label ?? ''}`
+    const station = spots?.layout?.stations.find(s => s.id === pendingStationId)
+    const label = station ? shortLabel(station) : pendingStationId
+    primaryLabel = `Book ${label}`
     primaryAction = handleBook
   } else {
     primaryLabel = 'Book class'
@@ -356,9 +386,9 @@ export default function SessionDetailScreen() {
           </View>
         )}
         <Pressable
-          onPress={primaryAction}
-          disabled={actionLoading}
-          style={({ pressed }) => [styles.btn, primaryStyle, (actionLoading || pressed) && styles.btnPressed]}
+          onPress={primaryDisabled ? undefined : primaryAction}
+          disabled={primaryDisabled}
+          style={({ pressed }) => [styles.btn, primaryStyle, (!primaryDisabled && pressed) && styles.btnPressed]}
         >
           {actionLoading
             ? <ActivityIndicator size="small" color={isBooked ? '#ef4444' : '#fff'} />
