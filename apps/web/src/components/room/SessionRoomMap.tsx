@@ -17,10 +17,11 @@ import type { RoomLayout, SpotAssignment, Station } from '@/lib/api-client'
 import { STATION_META } from './constants'
 
 const SCALE = 90 // px per metre
-// No hard minimum — use the station's actual metre dimensions so neighbours
-// never overlap when placed at their natural spacing in the room editor.
+// Width: no minimum — use exact metre dimensions so neighbours placed at
+// their natural spacing never overlap.
+// Height: keep a minimum so the label + member row always have room to breathe.
 const STATION_MIN_W = 0
-const STATION_MIN_H = 0
+const STATION_MIN_H = 100
 
 type NameSize = 's' | 'm' | 'l' | 'xl'
 const NAME_SIZE_CLASS: Record<NameSize, string> = {
