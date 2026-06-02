@@ -92,7 +92,20 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
     const n = w ? parseInt(w, 10) : 0
     return Number.isFinite(n) ? n : 0
   })
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  // Derive selected session from URL so the browser back button closes the detail view.
+  // Opening a session uses router.push (adds a history entry); the back button / onBack
+  // both call router.back() to pop that entry and return to the schedule list.
+  const selectedSessionId = searchParams.get('session')
+
+  const openSession = (sessionId: string) => {
+    const p = new URLSearchParams(searchParams.toString())
+    p.set('session', sessionId)
+    router.push(`?${p.toString()}`, { scroll: false })
+  }
+
+  const closeSession = () => {
+    router.back()
+  }
 
   // Keep URL in sync when day or week changes so refresh restores the same view.
   useEffect(() => {
@@ -100,6 +113,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
     p.set('day', selectedDay)
     if (weekOffset === 0) p.delete('week')
     else p.set('week', String(weekOffset))
+    // Preserve session param if a session is open
     router.replace(`?${p.toString()}`, { scroll: false })
   }, [selectedDay, weekOffset])
 
@@ -491,7 +505,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
               session={selectedSession}
               privileged={isPrivileged}
               cancelPolicy={cancelPolicy}
-              onBack={() => setSelectedSessionId(null)}
+              onBack={closeSession}
               onBook={handleBook}
               onCancel={handleCancel}
               onWaitlist={handleWaitlist}
@@ -522,7 +536,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
                   key={s.id}
                   session={s}
                   privileged={isPrivileged}
-                  onSelect={s => setSelectedSessionId(s.id)}
+                  onSelect={s => openSession(s.id)}
                 />
               ))}
             </div>
