@@ -215,8 +215,8 @@ function DroppableStation({
           {/* Station header */}
           <div className="flex items-center justify-between gap-1">
             <div className="flex items-center gap-1 min-w-0">
-              <span className="text-sm leading-none">{meta.icon}</span>
-              <span className="text-[10px] font-semibold truncate text-gray-700">{longLabel(station.type, station.label)}</span>
+              <span className="text-base leading-none shrink-0">{meta.icon}</span>
+              <span className="text-[10px] font-semibold truncate text-gray-700">{shortLabel(station.type, station.label)}</span>
             </div>
             <div className="flex items-center gap-1 shrink-0">
               {!isLocked && (
@@ -246,13 +246,13 @@ function DroppableStation({
           className="flex flex-col items-center justify-center h-full w-full gap-1 hover:bg-gray-100 transition-colors rounded-xl"
           onClick={() => onEmptyStationClick({ ...station, label: longLabel(station.type, station.label) })}
         >
-          <span className="text-xl leading-none opacity-40">{meta.icon}</span>
+          <span className="text-base leading-none opacity-40">{meta.icon}</span>
           <span className="text-[10px] font-semibold text-gray-400 truncate px-1 max-w-full">{longLabel(station.type, station.label)}</span>
           <span className="text-[9px] text-gray-400 font-medium">+ add</span>
         </button>
       ) : (
         <div className="flex flex-col items-center justify-center h-full gap-1 pointer-events-none">
-          <span className="text-xl leading-none opacity-60">{meta.icon}</span>
+          <span className="text-base leading-none opacity-60">{meta.icon}</span>
           <span className="text-[10px] font-semibold text-gray-500 truncate px-1 max-w-full">{longLabel(station.type, station.label)}</span>
           <span className="text-[9px] text-gray-400">{isOver ? 'Drop here' : 'Empty'}</span>
         </div>
