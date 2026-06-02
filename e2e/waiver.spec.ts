@@ -85,11 +85,17 @@ test.describe('Waiver gate', () => {
 
           await cards.nth(i).click()
           const bookBtn = memberPage.locator('[data-testid="book-btn"]')
-          if (!await bookBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-            await memberPage.goBack(); continue
+          if (!await bookBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+            const backBtn = memberPage.locator('button', { hasText: /back to schedule/i })
+            if (await backBtn.count() > 0) await backBtn.click()
+            else await memberPage.goBack()
+            continue
           }
           if (!await bookBtn.isEnabled()) {
-            await memberPage.goBack(); continue
+            const backBtn = memberPage.locator('button', { hasText: /back to schedule/i })
+            if (await backBtn.count() > 0) await backBtn.click()
+            else await memberPage.goBack()
+            continue
           }
 
           await bookBtn.click()
@@ -123,7 +129,9 @@ test.describe('Waiver gate', () => {
             }
           } else {
             // No modal — either booking completed or session unavailable
-            await memberPage.goBack()
+            const backBtn = memberPage.locator('button', { hasText: /back to schedule/i })
+            if (await backBtn.count() > 0) await backBtn.click()
+            else await memberPage.goBack()
           }
         }
       }
@@ -192,8 +200,16 @@ test.describe('Waiver gate', () => {
           await cards.nth(i).click()
 
           const bookBtn = memberPage.locator('[data-testid="book-btn"]')
-          if (!await bookBtn.isVisible({ timeout: 5000 }).catch(() => false)) { await memberPage.goBack(); continue }
-          if (!await bookBtn.isEnabled()) { await memberPage.goBack(); continue }
+          if (!await bookBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+            const bb = memberPage.locator('button', { hasText: /back to schedule/i })
+            if (await bb.count() > 0) await bb.click(); else await memberPage.goBack()
+            continue
+          }
+          if (!await bookBtn.isEnabled()) {
+            const bb = memberPage.locator('button', { hasText: /back to schedule/i })
+            if (await bb.count() > 0) await bb.click(); else await memberPage.goBack()
+            continue
+          }
 
           await bookBtn.click()
 

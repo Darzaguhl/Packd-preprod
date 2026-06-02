@@ -103,7 +103,13 @@ test.describe('Credit balance', () => {
         // Keep timeout short (1500ms) so layout sessions don't consume budget.
         const btnVisible = await bookBtn.isVisible({ timeout: 1500 }).catch(() => false)
         if (!btnVisible || !await bookBtn.isEnabled()) {
-          await page.goBack(); continue
+          // "Back to schedule" calls onBack (React state — no URL change), so
+          // page.goBack() would navigate to /account rather than the schedule.
+          // Click the button directly to close the detail view without navigation.
+          const backBtn = page.locator('button', { hasText: /back to schedule/i })
+          if (await backBtn.count() > 0) await backBtn.click()
+          else await page.goBack()
+          continue
         }
 
         await bookBtn.click()
