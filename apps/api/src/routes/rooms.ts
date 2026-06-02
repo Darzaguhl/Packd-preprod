@@ -178,22 +178,53 @@ export async function roomRoutes(app: FastifyInstance) {
       }
 
       const layout = await prisma.$transaction(async tx => {
-        await tx.station.deleteMany({ where: { layoutId } })
+        // Match incoming stations to existing ones by (type, label) so we can
+        // UPDATE position in-place rather than delete+recreate. This preserves
+        // station IDs — and therefore Booking.stationId assignments — when a
+        // station is merely moved or the layout is resized.
+        const existing = await tx.station.findMany({ where: { layoutId } })
+        const remaining = [...existing]
+        const toUpdate: { id: string; s: typeof stations[number] }[] = []
+        const toCreate: typeof stations[number][] = []
+
+        for (const s of stations) {
+          const idx = remaining.findIndex(e => e.type === s.type && e.label === s.label)
+          if (idx >= 0) {
+            toUpdate.push({ id: remaining[idx].id, s })
+            remaining.splice(idx, 1)
+          } else {
+            toCreate.push(s)
+          }
+        }
+        // remaining = stations removed from the layout → safe to delete
+        if (remaining.length > 0) {
+          await tx.station.deleteMany({ where: { id: { in: remaining.map(e => e.id) } } })
+        }
+        for (const { id, s } of toUpdate) {
+          await tx.station.update({
+            where: { id },
+            data: { xM: s.xM, yM: s.yM, rotation: s.rotation ?? 0 },
+          })
+        }
+        if (toCreate.length > 0) {
+          await tx.station.createMany({
+            data: toCreate.map(s => ({
+              layoutId,
+              type: s.type as 'BIKE' | 'TREADMILL' | 'BENCH' | 'ROWER' | 'MAT' | 'REFORMER' | 'BARRE' | 'OTHER',
+              label: s.label,
+              xM: s.xM,
+              yM: s.yM,
+              rotation: s.rotation ?? 0,
+            })),
+          })
+        }
+
         return tx.roomLayout.update({
           where: { id: layoutId },
           data: {
             ...(name !== undefined && { name }),
             widthM,
             lengthM,
-            stations: {
-              create: stations.map(s => ({
-                type: s.type as 'BIKE' | 'TREADMILL' | 'BENCH' | 'ROWER' | 'MAT' | 'REFORMER' | 'BARRE' | 'OTHER',
-                label: s.label,
-                xM: s.xM,
-                yM: s.yM,
-                rotation: s.rotation ?? 0,
-              })),
-            },
           },
           include: { stations: true },
         })
