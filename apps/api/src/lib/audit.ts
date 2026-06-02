@@ -19,6 +19,14 @@ export function audit(params: AuditParams): void {
   prisma.auditLog.create({ data: params }).catch(() => {})
 }
 
+/**
+ * Platform-level audit log (studioId = null).
+ * Use for brand/franchise/admin management events visible only to the platform admin.
+ */
+export function auditPlatform(params: Omit<AuditParams, 'studioId'>): void {
+  prisma.auditLog.create({ data: { ...params, studioId: undefined } }).catch(() => {})
+}
+
 // ─── Well-known action constants ─────────────────────────────────────────────
 export const AUDIT = {
   CREDIT_ADJUST:       'credit.adjust',
@@ -50,4 +58,13 @@ export const AUDIT = {
   SESSION_RESCHEDULE:    'session.reschedule',
   SESSION_CHECKIN:       'session.checkin',
   BOOKING_CANCEL_ADMIN:  'booking.cancel.admin',
+} as const
+
+export const PLATFORM_AUDIT = {
+  BRAND_CREATE:              'platform.brand.create',
+  BRAND_DELETE:              'platform.brand.delete',
+  BRAND_ADMIN_ASSIGN:        'platform.brand.admin.assign',
+  BRAND_ADMIN_REMOVE:        'platform.brand.admin.remove',
+  FRANCHISE_ADMIN_ASSIGN:    'platform.franchise.admin.assign',
+  FRANCHISE_ADMIN_REMOVE:    'platform.franchise.admin.remove',
 } as const

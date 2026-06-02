@@ -4,6 +4,7 @@ import { adminMembersRoutes }   from './admin-members.js'
 import { adminAnalyticsRoutes } from './admin-analytics.js'
 import { adminSalesRoutes }     from './admin-sales.js'
 import { adminExportsRoutes }   from './admin-exports.js'
+import { adminPlatformRoutes }  from './admin-platform.js'
 
 export async function adminRoutes(app: FastifyInstance) {
   await app.register(adminSessionRoutes)
@@ -11,4 +12,5 @@ export async function adminRoutes(app: FastifyInstance) {
   await app.register(adminAnalyticsRoutes)
   await app.register(adminSalesRoutes)
   await app.register(adminExportsRoutes)
+  await app.register(adminPlatformRoutes)
 }

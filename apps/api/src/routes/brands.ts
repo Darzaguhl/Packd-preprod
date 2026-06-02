@@ -5,6 +5,7 @@ import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole, createSupabaseUser, revokeUserSessions } from '../lib/supabase-admin.js'
 import { IdParam, CursorQuery } from '../schemas.js'
+import { auditPlatform, PLATFORM_AUDIT } from '../lib/audit.js'
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
@@ -262,6 +263,8 @@ export async function brandRoutes(app: FastifyInstance) {
     if (!body.success) return reply.badRequest(body.error.message)
 
     const brand = await prisma.brand.create({ data: body.data })
+    const actor = getUser(request)
+    auditPlatform({ actorId: actor.id, actorRole: actor.role, action: PLATFORM_AUDIT.BRAND_CREATE, targetId: brand.id, meta: { name: brand.name, slug: brand.slug } })
     reply.code(201)
     return { success: true, data: brand }
   })
@@ -282,7 +285,10 @@ export async function brandRoutes(app: FastifyInstance) {
   // ── Delete brand (admin only) ─────────────────────────────────────────────
   app.delete('/:id', { preHandler: requireRole('admin'), schema: { params: IdParam } }, async (request, reply) => {
     const { id } = request.params as { id: string }
+    const actor = getUser(request)
+    const brand = await prisma.brand.findUnique({ where: { id }, select: { name: true } })
     await prisma.brand.delete({ where: { id } })
+    auditPlatform({ actorId: actor.id, actorRole: actor.role, action: PLATFORM_AUDIT.BRAND_DELETE, targetId: id, meta: { name: brand?.name } })
     return { success: true }
   })
 
@@ -341,6 +347,8 @@ export async function brandRoutes(app: FastifyInstance) {
     }).catch(() => {})
 
     revokeUserSessions(targetUser!.id).catch(() => {})
+    const actor = getUser(request)
+    auditPlatform({ actorId: actor.id, actorRole: actor.role, action: PLATFORM_AUDIT.BRAND_ADMIN_ASSIGN, targetId: id, meta: { email: body.email, userId: targetUser!.id, created, brandName: brand.name } })
 
     return reply.code(created ? 201 : 200).send({
       success: true, created,
@@ -366,9 +374,12 @@ export async function brandRoutes(app: FastifyInstance) {
     const newRoles = existingRoles.filter((r: string) => r !== 'brand_admin')
     const newPrimary = newRoles.length > 0 ? getPrimaryRole(newRoles) : 'member'
 
+    const actor = getUser(request)
+    const removedUser = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
     await setSupabaseAppMeta(userId, { role: newPrimary, roles: newRoles, brandId: undefined, studioIds: [] })
     await prisma.member.updateMany({ where: { userId }, data: { staffRoles: newRoles } })
     revokeUserSessions(userId).catch(() => {})
+    auditPlatform({ actorId: actor.id, actorRole: actor.role, action: PLATFORM_AUDIT.BRAND_ADMIN_REMOVE, targetId: id, meta: { userId, email: removedUser?.email, brandName: brand.name } })
 
     return reply.send({ success: true })
   })
@@ -536,6 +547,9 @@ export async function brandRoutes(app: FastifyInstance) {
       }
     }
 
+    const actor = getUser(request)
+    auditPlatform({ actorId: actor.id, actorRole: actor.role, action: PLATFORM_AUDIT.FRANCHISE_ADMIN_ASSIGN, targetId: body.data.franchiseId, meta: { email: body.data.email, userId: targetUser!.id, created, brandId: id } })
+
     return reply.code(created ? 201 : 200).send({
       success: true,
       created,
@@ -585,6 +599,7 @@ export async function brandRoutes(app: FastifyInstance) {
     })
 
     revokeUserSessions(userId).catch(() => {})
+    auditPlatform({ actorId: user.id, actorRole: user.role, action: PLATFORM_AUDIT.FRANCHISE_ADMIN_REMOVE, targetId: userId, meta: { email: targetUser.email, brandId: id } })
 
     return reply.send({ success: true })
   })

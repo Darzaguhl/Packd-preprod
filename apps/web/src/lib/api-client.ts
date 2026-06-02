@@ -603,6 +603,40 @@ async function apiFetch<T>(path: string, options: RequestInit & { token?: string
 // api — all remaining namespaces migrated from api.ts
 // ---------------------------------------------------------------------------
 
+export const platform = {
+  health: (token: string) =>
+    apiFetch<{
+      latencyMs: number
+      services: Record<string, { status: string; error?: string }>
+      timestamp: string
+    }>('/admin/platform/health', { token }),
+
+  jobs: (token: string) =>
+    apiFetch<{
+      stats: { name: string; state: string; count: number }[]
+      failed: { id: string; name: string; data: unknown; output: unknown; createdon: string; completedon: string | null; retrycount: number }[]
+    }>('/admin/platform/jobs', { token }),
+
+  retryJob: (id: string, token: string) =>
+    apiFetch<{ success: boolean }>(`/admin/platform/jobs/${id}/retry`, { method: 'POST', token }),
+
+  purgeJob: (id: string, token: string) =>
+    apiFetch<{ success: boolean }>(`/admin/platform/jobs/${id}`, { method: 'DELETE', token }),
+
+  auditLog: (token: string, params?: { cursor?: string; take?: number; action?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.cursor) qs.set('cursor', params.cursor)
+    if (params?.take) qs.set('take', String(params.take))
+    if (params?.action) qs.set('action', params.action)
+    const q = qs.toString()
+    return apiFetch<{
+      items: { id: string; actorId: string; actorRole: string; action: string; targetId: string | null; meta: unknown; createdAt: string }[]
+      nextCursor: string | null
+      hasMore: boolean
+    }>(`/admin/platform/audit${q ? `?${q}` : ''}`, { token })
+  },
+}
+
 export const api = {
   schedule: {
     list: (studioId: string, from: string, to: string, token?: string) =>
