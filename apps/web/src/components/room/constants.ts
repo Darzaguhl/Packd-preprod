@@ -3,7 +3,7 @@ import type { StationType } from '@/lib/api-client'
 export const STATION_META: Record<StationType, { label: string; short: string; prefix: string; icon: string; color: string; w: number; h: number }> = {
   BIKE:       { label: 'Bike',       short: 'Bike', prefix: 'B',  icon: '🚴', color: 'bg-violet-100 border-violet-300 text-violet-800', w: 1.2, h: 0.8 },
   TREADMILL:  { label: 'Treadmill',  short: 'Mill', prefix: 'T',  icon: '🏃', color: 'bg-blue-100 border-blue-300 text-blue-800',     w: 1.6, h: 0.7 },
-  BENCH:      { label: 'Bench',      short: 'Bnch', prefix: 'Bn', icon: '🪑', color: 'bg-amber-100 border-amber-300 text-amber-800',  w: 1.2, h: 0.5 },
+  BENCH:      { label: 'Bench',      short: 'Bnch', prefix: 'Bn', icon: '🪑', color: 'bg-amber-100 border-amber-300 text-amber-800',  w: 1.6, h: 0.7 },
   ROWER:      { label: 'Rower',      short: 'Row',  prefix: 'R',  icon: '🚣', color: 'bg-cyan-100 border-cyan-300 text-cyan-800',     w: 1.8, h: 0.6 },
   MAT:        { label: 'Mat',        short: 'Mat',  prefix: 'M',  icon: '🟩', color: 'bg-emerald-100 border-emerald-300 text-emerald-800', w: 1.4, h: 0.6 },
   REFORMER:   { label: 'Reformer',   short: 'Ref',  prefix: 'Re', icon: '⬛', color: 'bg-gray-100 border-gray-400 text-gray-800',    w: 2.2, h: 0.7 },
