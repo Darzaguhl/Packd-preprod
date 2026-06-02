@@ -57,30 +57,48 @@ export async function adminPlatformRoutes(app: FastifyInstance) {
   app.get('/platform/health', { preHandler: requireRole('admin') }, async (_request, _reply) => {
     const startMs = Date.now()
 
-    const [db, jobs, stripe, resend] = await Promise.allSettled([
-      prisma.$queryRaw`SELECT 1`.then(() => 'ok' as const),
-
-      prisma.$queryRaw`SELECT 1 FROM pgboss.job LIMIT 1`.then(() => 'ok' as const),
-
+    const [db, jobs, stripe, resend, dbStats, queueSummary] = await Promise.allSettled([
+      // Service pings
+      prisma.$queryRaw`SELECT 1`.then(() => 'ok'),
+      prisma.$queryRaw`SELECT 1 FROM pgboss.job LIMIT 1`.then(() => 'ok'),
       process.env.STRIPE_SECRET_KEY
         ? fetch('https://api.stripe.com/v1/account', {
             headers: { Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}` },
             signal: AbortSignal.timeout(5000),
           }).then(r => (r.ok || r.status === 401 ? 'ok' : 'degraded'))
         : Promise.resolve('unconfigured'),
-
       process.env.RESEND_API_KEY
         ? fetch('https://api.resend.com/domains', {
             headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
             signal: AbortSignal.timeout(5000),
           }).then(r => (r.ok || r.status === 403 ? 'ok' : 'degraded'))
         : Promise.resolve('unconfigured'),
+
+      // DB size + connection count
+      prisma.$queryRaw<{ db_size: string; connections: number }[]>`
+        SELECT
+          pg_size_pretty(pg_database_size(current_database())) AS db_size,
+          (SELECT count(*)::int FROM pg_stat_activity WHERE datname = current_database()) AS connections
+      `.then(r => r[0]),
+
+      // pg-boss queue summary
+      prisma.$queryRaw<{ state: string; count: number }[]>`
+        SELECT state, count(*)::int AS count
+        FROM pgboss.job
+        WHERE createdon > now() - interval '24 hours'
+        GROUP BY state
+      `,
     ])
 
     function resolve(result: PromiseSettledResult<string>): { status: string; error?: string } {
       if (result.status === 'fulfilled') return { status: result.value }
       return { status: 'error', error: String(result.reason?.message ?? result.reason) }
     }
+
+    const mem = process.memoryUsage()
+    const queueCounts = queueSummary.status === 'fulfilled'
+      ? queueSummary.value.reduce<Record<string, number>>((a, r) => { a[r.state] = r.count; return a }, {})
+      : {}
 
     return {
       latencyMs: Date.now() - startMs,
@@ -90,6 +108,16 @@ export async function adminPlatformRoutes(app: FastifyInstance) {
         jobs:     resolve(jobs),
         stripe:   resolve(stripe),
         resend:   resolve(resend),
+      },
+      system: {
+        uptimeSeconds: Math.floor(process.uptime()),
+        memory: {
+          heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
+          heapTotalMb: Math.round(mem.heapTotal / 1024 / 1024),
+          rssMb: Math.round(mem.rss / 1024 / 1024),
+        },
+        database: dbStats.status === 'fulfilled' ? dbStats.value : null,
+        queue24h: queueCounts,
       },
       timestamp: new Date().toISOString(),
     }

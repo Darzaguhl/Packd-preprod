@@ -619,6 +619,12 @@ export const platform = {
     apiFetch<{
       latencyMs: number
       services: Record<string, { status: string; error?: string }>
+      system: {
+        uptimeSeconds: number
+        memory: { heapUsedMb: number; heapTotalMb: number; rssMb: number }
+        database: { db_size: string; connections: number } | null
+        queue24h: Record<string, number>
+      }
       timestamp: string
     }>('/admin/platform/health', { token }),
 

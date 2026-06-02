@@ -565,7 +565,17 @@ function BrandRow({
 
 // ── System tab types ─────────────────────────────────────────────────────────
 type ServiceStatus = { status: string; error?: string }
-type HealthData = { latencyMs: number; services: Record<string, ServiceStatus>; timestamp: string }
+type HealthData = {
+  latencyMs: number
+  services: Record<string, ServiceStatus>
+  system: {
+    uptimeSeconds: number
+    memory: { heapUsedMb: number; heapTotalMb: number; rssMb: number }
+    database: { db_size: string; connections: number } | null
+    queue24h: Record<string, number>
+  }
+  timestamp: string
+}
 type JobStat = { name: string; state: string; count: number }
 type FailedJob = { id: string; name: string; data: unknown; output: unknown; createdon: string; completedon: string | null; retrycount: number }
 type AuditEntry = { id: string; actorId: string; actorRole: string; action: string; targetId: string | null; meta: unknown; createdAt: string }
@@ -686,6 +696,49 @@ function SystemTab({ token }: { token: string }) {
               <div key={i} className="bg-white rounded-xl border border-gray-100 h-16 animate-pulse" />
             ))}
           </div>
+
+          {/* System metrics */}
+          {health && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                {
+                  label: 'API uptime',
+                  value: (() => {
+                    const s = health.system.uptimeSeconds
+                    if (s < 60) return `${s}s`
+                    if (s < 3600) return `${Math.floor(s / 60)}m`
+                    if (s < 86400) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`
+                    return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`
+                  })(),
+                  sub: 'since last restart',
+                },
+                {
+                  label: 'Heap memory',
+                  value: `${health.system.memory.heapUsedMb} MB`,
+                  sub: `of ${health.system.memory.heapTotalMb} MB · RSS ${health.system.memory.rssMb} MB`,
+                },
+                {
+                  label: 'DB size',
+                  value: health.system.database?.db_size ?? '—',
+                  sub: `${health.system.database?.connections ?? '—'} connections`,
+                },
+                {
+                  label: 'Queue (24h)',
+                  value: (health.system.queue24h.failed ?? 0) > 0
+                    ? `${health.system.queue24h.failed} failed`
+                    : `${health.system.queue24h.completed ?? 0} done`,
+                  sub: `${health.system.queue24h.active ?? 0} active · ${health.system.queue24h.created ?? 0} pending`,
+                  alert: (health.system.queue24h.failed ?? 0) > 0,
+                },
+              ].map(m => (
+                <div key={m.label} className="bg-white rounded-xl border border-gray-100 px-4 py-3">
+                  <p className={`text-lg font-bold ${(m as any).alert ? 'text-red-500' : 'text-gray-900'}`}>{m.value}</p>
+                  <p className="text-xs font-medium text-gray-500 mt-0.5">{m.label}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">{m.sub}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
