@@ -6,6 +6,8 @@ import { ROLE_RANK } from '@packd/types'
 import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole, createSupabaseUser, revokeUserSessions } from '../lib/supabase-admin.js'
 import { IdParam, CursorQuery } from '../schemas.js'
 import { auditPlatform, PLATFORM_AUDIT } from '../lib/audit.js'
+import { sendAdminInvite } from '../lib/email.js'
+import { generatePasswordSetupLink } from '../lib/supabase-admin.js'
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
@@ -348,14 +350,28 @@ export async function brandRoutes(app: FastifyInstance) {
     }).catch(() => {})
 
     revokeUserSessions(targetUser!.id).catch(() => {})
+
+    // Send invite email with password-setup link (fire-and-forget)
+    const webUrl = process.env.WEB_URL ?? 'http://localhost:3000'
+    generatePasswordSetupLink(body.email, `${webUrl}/login`)
+      .then(setupUrl => sendAdminInvite({
+        to: body.email,
+        firstName: targetUser!.firstName ?? body.email.split('@')[0],
+        role: 'brand_admin',
+        scopeName: brand.name,
+        setupUrl,
+        webUrl,
+      }))
+      .catch(err => console.warn('[brand-admin-invite] email failed:', err?.message))
+
     const actor = getUser(request)
     auditPlatform({ actorId: actor.id, actorRole: actor.role, action: PLATFORM_AUDIT.BRAND_ADMIN_ASSIGN, targetId: id, meta: { email: body.email, userId: targetUser!.id, created, brandName: brand.name } })
 
     return reply.code(created ? 201 : 200).send({
       success: true, created,
       message: created
-        ? `Account created for ${body.email}. They can set their password via "Forgot password".`
-        : `${body.email} has been assigned as brand admin.`,
+        ? `Account created for ${body.email}. An invite email has been sent.`
+        : `${body.email} has been assigned as brand admin. An invite email has been sent.`,
     })
   })
 
@@ -548,6 +564,20 @@ export async function brandRoutes(app: FastifyInstance) {
       }
     }
 
+    // Send invite email with password-setup link (fire-and-forget)
+    const webUrlF = process.env.WEB_URL ?? 'http://localhost:3000'
+    const franchiseName = franchise.name
+    generatePasswordSetupLink(body.data.email, `${webUrlF}/login`)
+      .then(setupUrl => sendAdminInvite({
+        to: body.data.email,
+        firstName: targetUser!.firstName ?? body.data.email.split('@')[0],
+        role: 'franchise_admin',
+        scopeName: franchiseName,
+        setupUrl,
+        webUrl: webUrlF,
+      }))
+      .catch(err => console.warn('[franchise-admin-invite] email failed:', err?.message))
+
     const actor = getUser(request)
     auditPlatform({ actorId: actor.id, actorRole: actor.role, action: PLATFORM_AUDIT.FRANCHISE_ADMIN_ASSIGN, targetId: body.data.franchiseId, meta: { email: body.data.email, userId: targetUser!.id, created, brandId: id } })
 
@@ -557,8 +587,8 @@ export async function brandRoutes(app: FastifyInstance) {
       roles: meta.roles,
       franchiseId: body.data.franchiseId,
       message: created
-        ? `Account created for ${body.data.email}. They can log in using "Forgot Password" to set their password.`
-        : `${body.data.email} has been promoted to franchise admin.`,
+        ? `Account created for ${body.data.email}. An invite email has been sent.`
+        : `${body.data.email} has been promoted to franchise admin. An invite email has been sent.`,
     })
   })
 

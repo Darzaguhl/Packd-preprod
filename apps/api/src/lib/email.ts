@@ -228,6 +228,40 @@ export async function sendStaffInvite(opts: {
   )
 }
 
+export async function sendAdminInvite(opts: {
+  to: string
+  firstName: string
+  role: 'brand_admin' | 'franchise_admin'
+  scopeName: string   // brand name or franchise name
+  setupUrl: string
+  webUrl: string
+}) {
+  const roleLabel = opts.role === 'brand_admin' ? 'Brand Admin' : 'Franchise Admin'
+  const scopeLabel = opts.role === 'brand_admin' ? 'brand' : 'franchise'
+  return send(
+    opts.to,
+    `You've been invited to manage ${opts.scopeName} on Packd`,
+    layout('Packd', `
+      <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111">Welcome to Packd 👋</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#555">Hi ${opts.firstName}, you've been set up as <strong>${roleLabel}</strong> for <strong>${opts.scopeName}</strong>.</p>
+      <div style="background:#f8f8f8;border-radius:8px;padding:16px 20px;margin-bottom:20px">
+        <p style="margin:0;font-size:14px;font-weight:600;color:#333">What you can do as ${roleLabel}:</p>
+        ${opts.role === 'brand_admin'
+          ? `<p style="margin:8px 0 0;font-size:14px;color:#555">• Manage franchises and franchise admins</p>
+             <p style="margin:4px 0 0;font-size:14px;color:#555">• View analytics across all studios</p>
+             <p style="margin:4px 0 0;font-size:14px;color:#555">• Manage promotions and broadcasts</p>`
+          : `<p style="margin:8px 0 0;font-size:14px;color:#555">• Set up and manage your studios</p>
+             <p style="margin:4px 0 0;font-size:14px;color:#555">• Invite studio admins and staff</p>
+             <p style="margin:4px 0 0;font-size:14px;color:#555">• View analytics for your ${scopeLabel}</p>`
+        }
+      </div>
+      <p style="margin:0 0 16px;font-size:14px;color:#555">Click below to set your password and get started:</p>
+      ${btn(opts.setupUrl, 'Set up your account')}
+      <p style="margin:16px 0 0;font-size:12px;color:#aaa">This link expires in 24 hours. If it does, use "Forgot password" on the login page.</p>
+    `),
+  )
+}
+
 export async function sendFranchiseBroadcast(opts: {
   to: string
   firstName: string

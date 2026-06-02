@@ -76,6 +76,37 @@ export default function FranchiseDashboard() {
     })
   }, [])
 
+  // Franchise admin with no studios yet → prompt onboarding
+  if (!loading && userRole === 'franchise_admin' && studios.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        <NavBar title={franchiseName ?? 'Franchise Dashboard'} subtitle="All studios" />
+        <div className="flex-1 flex items-center justify-center px-4">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 max-w-md w-full text-center space-y-4">
+            <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center mx-auto">
+              <svg className="w-7 h-7 text-indigo-500" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                <path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">Set up your first studio</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Welcome to {franchiseName ?? 'your franchise'}! Complete the setup wizard to create your first studio, add rooms, and invite staff.
+              </p>
+            </div>
+            <button
+              onClick={() => router.push('/onboarding')}
+              className="w-full py-3 bg-gray-900 text-white text-sm font-medium rounded-xl hover:bg-gray-700 transition-colors"
+            >
+              Start setup →
+            </button>
+            <p className="text-xs text-gray-400">Takes about 5 minutes</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // Drill-in: show full studio management shell
   if (activeStudio && token) {
     return (

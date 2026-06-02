@@ -19,6 +19,8 @@ export default async function DashboardPage() {
   const studioIds: string[] = appMeta?.studioIds ?? (appMeta?.studioId ? [appMeta.studioId] : [STUDIO_ID])
   const primaryStudioId = studioIds[0] ?? STUDIO_ID
 
+  if (role === 'admin') redirect('/platform')
+
   if (role === 'brand_admin') {
     return (
       <Suspense>

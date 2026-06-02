@@ -68,6 +68,30 @@ export async function setSupabaseAppMeta(userId: string, meta: SupabaseAppMeta):
 }
 
 /**
+ * Generate a password-setup (recovery) link for a user via the Supabase admin API.
+ * Use this when creating a new admin account — include the link in an invite email
+ * so they can set their password without going through "Forgot password" manually.
+ */
+export async function generatePasswordSetupLink(email: string, redirectTo: string): Promise<string> {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      apikey: SERVICE_ROLE_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ type: 'recovery', email, options: { redirectTo } }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(`generate_link error: ${(err as { message?: string }).message ?? res.statusText}`)
+  }
+  const data = await res.json() as { action_link?: string }
+  if (!data.action_link) throw new Error('No action_link returned from Supabase')
+  return data.action_link
+}
+
+/**
  * Revoke all active sessions for a Supabase user.
  *
  * Call this immediately after modifying app_metadata (role changes, removals)
