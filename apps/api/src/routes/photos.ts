@@ -68,7 +68,10 @@ export async function photoRoutes(app: FastifyInstance) {
         orderBy: { createdAt: 'desc' },
       })
 
-      return reply.send(photos)
+      return reply.send(photos.map(p => ({
+        ...p,
+        createdAt: p.createdAt.toISOString(),
+      })))
     },
   )
 
@@ -153,7 +156,7 @@ export async function photoRoutes(app: FastifyInstance) {
         },
       })
 
-      return reply.code(201).send(photo)
+      return reply.code(201).send({ ...photo, createdAt: photo.createdAt.toISOString() })
     },
   )
 

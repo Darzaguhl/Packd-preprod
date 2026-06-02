@@ -17,7 +17,13 @@ export async function networkRoutes(app: FastifyInstance) {
       },
       orderBy: { name: 'asc' },
     })
-    return reply.send(networks)
+    return reply.send(networks.map(n => ({
+      ...n,
+      studios: n.studios.map(m => ({
+        ...m,
+        joinedAt: m.joinedAt.toISOString(),
+      })),
+    })))
   })
 
   // POST /networks — create network (franchise_admin+)

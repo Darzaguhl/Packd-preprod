@@ -171,8 +171,8 @@ export async function classScheduleRoutes(app: FastifyInstance) {
             : null,
           roomId: s.roomId,
           roomName: s.room.name,
-          startsAt: s.startsAt,
-          endsAt: s.endsAt,
+          startsAt: s.startsAt.toISOString(),
+          endsAt: s.endsAt.toISOString(),
           capacity: s.capacity,
           creditsRequired: s.creditsRequired,
           status: s.status,
@@ -245,8 +245,8 @@ export async function classScheduleRoutes(app: FastifyInstance) {
         intervalWeeks: s.intervalWeeks,
         capacity: s.capacity,
         creditsRequired: s.creditsRequired,
-        validFrom: s.validFrom,
-        validUntil: s.validUntil,
+        validFrom: s.validFrom.toISOString(),
+        validUntil: s.validUntil?.toISOString() ?? null,
       })))
     },
   )
