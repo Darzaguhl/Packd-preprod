@@ -48,8 +48,17 @@ function initials(name: string) {
 
 // "Treadmill 1" → "T1", "Floor 2" → "F2"
 function shortLabel(label: string) {
-  const num = label.match(/\d+/)
-  return `${label.trim()[0].toUpperCase()}${num ? num[0] : ''}`
+  const trimmed = label.trim()
+  if (!trimmed) return '?'
+  const firstChar = trimmed[0]
+  // Label starts with a letter (e.g. "T1", "Bike 3") → letter + first number
+  if (/[A-Za-z]/.test(firstChar)) {
+    const num = trimmed.match(/\d+/)
+    return `${firstChar.toUpperCase()}${num ? num[0] : ''}`
+  }
+  // Label starts with a digit (e.g. "1", "22") → just the number, no duplication
+  const num = trimmed.match(/\d+/)
+  return num ? num[0] : trimmed.slice(0, 3)
 }
 
 function CheckInButton({
