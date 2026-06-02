@@ -48,19 +48,28 @@ function initials(name: string) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
-// "Treadmill 1" → "T1", "Floor 2" → "F2"
+/** Short list label: "T1", "Bn2", "M3" — uses the type's dedicated prefix */
 function shortLabel(type: Station['type'], label: string) {
   const trimmed = label.trim()
   if (!trimmed) return '?'
   const num = trimmed.match(/\d+/)
   const firstChar = trimmed[0]
   if (/[A-Za-z]/.test(firstChar)) {
-    // Label already has a letter prefix (e.g. "T1", "Bike 3") → use it
+    // Label already has a letter prefix (e.g. "T1", "Bike 3") → keep it
     return `${firstChar.toUpperCase()}${num ? num[0] : ''}`
   }
-  // Purely numeric label (e.g. "1", "3") → derive prefix from station type
-  const prefix = STATION_META[type].short[0].toUpperCase()
+  // Numeric label (e.g. "1", "3") → use the type's dedicated prefix
+  const { prefix } = STATION_META[type]
   return num ? `${prefix}${num[0]}` : trimmed.slice(0, 3)
+}
+
+/** Long map label: "Treadmill 1", "Bench 2" — full type name + number */
+function longLabel(type: Station['type'], label: string) {
+  const trimmed = label.trim()
+  if (!trimmed) return STATION_META[type].label
+  if (/[A-Za-z]/.test(trimmed[0])) return trimmed   // already descriptive
+  const num = trimmed.match(/\d+/)
+  return `${STATION_META[type].label} ${num ? num[0] : trimmed}`
 }
 
 function CheckInButton({
@@ -206,7 +215,7 @@ function DroppableStation({
           <div className="flex items-center justify-between gap-1">
             <div className="flex items-center gap-1 min-w-0">
               <span className="text-sm leading-none">{meta.icon}</span>
-              <span className="text-[10px] font-semibold truncate text-gray-700">{shortLabel(station.type, station.label)}</span>
+              <span className="text-[10px] font-semibold truncate text-gray-700">{longLabel(station.type, station.label)}</span>
             </div>
             <div className="flex items-center gap-1 shrink-0">
               {!isLocked && (
@@ -234,16 +243,16 @@ function DroppableStation({
       ) : onEmptyStationClick && !isOver ? (
         <button
           className="flex flex-col items-center justify-center h-full w-full gap-1 hover:bg-gray-100 transition-colors rounded-xl"
-          onClick={() => onEmptyStationClick(station)}
+          onClick={() => onEmptyStationClick({ ...station, label: longLabel(station.type, station.label) })}
         >
           <span className="text-xl leading-none opacity-40">{meta.icon}</span>
-          <span className="text-[10px] font-semibold text-gray-400 truncate px-1 max-w-full">{shortLabel(station.type, station.label)}</span>
+          <span className="text-[10px] font-semibold text-gray-400 truncate px-1 max-w-full">{longLabel(station.type, station.label)}</span>
           <span className="text-[9px] text-gray-400 font-medium">+ add</span>
         </button>
       ) : (
         <div className="flex flex-col items-center justify-center h-full gap-1 pointer-events-none">
           <span className="text-xl leading-none opacity-60">{meta.icon}</span>
-          <span className="text-[10px] font-semibold text-gray-500 truncate px-1 max-w-full">{shortLabel(station.type, station.label)}</span>
+          <span className="text-[10px] font-semibold text-gray-500 truncate px-1 max-w-full">{longLabel(station.type, station.label)}</span>
           <span className="text-[9px] text-gray-400">{isOver ? 'Drop here' : 'Empty'}</span>
         </div>
       )}
