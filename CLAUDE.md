@@ -375,7 +375,7 @@ For each file in `apps/api/src/routes/`, check:
 - [ ] Class series / multi-session bookings — no concept of booking a 6-week course as a unit.
 - [ ] Receipt PDF generation — currently exposes Stripe's hosted receipt URL; no first-party PDF.
 - [ ] SMS notifications — email only; no SMS channel.
-- [ ] Pagination on remaining high-volume endpoints — `GET /franchise/all-admins`, `GET /franchise/promos`, brand member lists.
+- [x] Pagination on remaining high-volume endpoints — `GET /franchise/all-admins`, `GET /franchise/promos`, `GET /brands/:id/members` all return `{ items, nextCursor, hasMore }` with cursor/take params.
 
 ### Enterprise / operational
 - [ ] Backup restore test — Supabase PITR enabled but restore procedure untested. Run a restore drill against a staging environment.
