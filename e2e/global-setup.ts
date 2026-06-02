@@ -205,6 +205,25 @@ export default async function globalSetup() {
   // 3. Give the member 20 credits so booking tests pass
   await seedMemberCredits(adminToken, E2E_MEMBER_EMAIL, 20)
 
+  // 3b. Delete all room layouts so booking tests find sessions with a direct book
+  //     button rather than a spot-picker.  Previous test runs (e.g. room-map tests)
+  //     may have created layouts that persist in the shared CI database.
+  try {
+    const { prisma } = await import('@packd/db')
+    const { count } = await prisma.roomLayout.deleteMany({
+      where: { room: { location: { studioId: STUDIO_ID } } },
+    })
+    // Also clear the layout snapshot on any sessions (so the schedule shows book-btn)
+    await prisma.classSession.updateMany({
+      where: { studioId: STUDIO_ID, layoutId: { not: null } },
+      data: { layoutId: null },
+    })
+    if (count > 0) console.log(`[setup] Removed ${count} room layout(s) so booking tests see book-btn, not spot-picker`)
+    await prisma.$disconnect()
+  } catch (e) {
+    console.warn('[setup] Could not clean room layouts (non-fatal):', e)
+  }
+
   // 4. Assign fronthost role to the e2e-member so shift tests can target them
   await fetch(`${API_URL}/staff`, {
     method: 'POST',

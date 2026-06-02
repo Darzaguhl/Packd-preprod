@@ -53,10 +53,20 @@ test.describe('Staff shifts — one-off', () => {
     await page.getByTestId('add-shift-btn').click()
 
     // Modal opens — fill tomorrow's date, 09:00–17:00
+    // Use nativeInputValueSetter so React's onChange fires reliably in headless Chromium.
     const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
-    await page.locator('input[type="date"]').fill(tomorrow)
-    await page.locator('input[type="time"]').nth(0).fill('09:00')
-    await page.locator('input[type="time"]').nth(1).fill('17:00')
+    await page.locator('input[type="date"]').evaluate((el: HTMLInputElement, v) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      setter?.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true }))
+    }, tomorrow)
+    await page.getByTestId('shift-start-time').evaluate((el: HTMLInputElement) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      setter?.call(el, '09:00'); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await page.getByTestId('shift-end-time').first().evaluate((el: HTMLInputElement) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      setter?.call(el, '17:00'); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true }))
+    })
     await page.getByTestId('shift-save-btn').click()
     // Wait for add modal to close (confirms the save completed and load() was triggered)
     await expect(page.getByTestId('shift-save-btn')).not.toBeVisible({ timeout: 8_000 })

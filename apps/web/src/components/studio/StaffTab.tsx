@@ -557,13 +557,16 @@ function ShiftsSection({ member, studioId, token, currency }: {
 
   async function handleDeleteShift(id: string) {
     await api.shifts.remove(id, token)
-    load()
+    // Remove immediately from local state — no round-trip wait for the user
+    setShifts(s => s.filter(x => x.id !== id))
   }
 
   async function handleDeletePattern(id: string) {
     const res = await api.shiftPatterns.remove(id, token)
+    // Always remove immediately — the user clicked delete, the API succeeded
+    setPatterns(p => p.filter(x => x.id !== id))
+    // If the delete also wiped out generated future shifts, reload shifts too
     if (res.futureShiftsDeleted > 0) load()
-    else setPatterns(p => p.filter(x => x.id !== id))
   }
 
   function shiftPay(shift: StaffShift): string | null {
@@ -740,7 +743,7 @@ function AddShiftModal({ member, studioId, token, onSaved, onClose }: {
         <div className="flex gap-3">
           <div className="flex-1 space-y-1">
             <label className="text-xs font-medium text-gray-600">Start</label>
-            <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)}
+            <input data-testid="shift-start-time" type="time" value={startTime} onChange={e => setStartTime(e.target.value)}
               className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300" />
           </div>
           <div className="flex-1 space-y-1">
@@ -827,7 +830,7 @@ function EditShiftModal({ shift, token, onSaved, onClose }: {
         <div className="flex gap-3">
           <div className="flex-1 space-y-1">
             <label className="text-xs font-medium text-gray-600">Start</label>
-            <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)}
+            <input data-testid="shift-start-time" type="time" value={startTime} onChange={e => setStartTime(e.target.value)}
               className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300" />
           </div>
           <div className="flex-1 space-y-1">
@@ -946,7 +949,7 @@ function EditRecurringModal({ pattern, token, onSaved, onClose }: {
         <div className="flex gap-3">
           <div className="flex-1 space-y-1">
             <label className="text-xs font-medium text-gray-600">Start</label>
-            <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)}
+            <input data-testid="shift-start-time" type="time" value={startTime} onChange={e => setStartTime(e.target.value)}
               className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300" />
           </div>
           <div className="flex-1 space-y-1">
@@ -1100,7 +1103,7 @@ function AddRecurringModal({ member, studioId, token, onSaved, onClose }: {
         <div className="flex gap-3">
           <div className="flex-1 space-y-1">
             <label className="text-xs font-medium text-gray-600">Start</label>
-            <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)}
+            <input data-testid="shift-start-time" type="time" value={startTime} onChange={e => setStartTime(e.target.value)}
               className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300" />
           </div>
           <div className="flex-1 space-y-1">
