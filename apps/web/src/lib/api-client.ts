@@ -615,6 +615,9 @@ export const platform = {
       activeStudios30d: number
     }>('/admin/platform/stats', { token }),
 
+  loginLink: (email: string, token: string) =>
+    apiFetch<{ link: string }>('/admin/platform/login-link', { method: 'POST', body: JSON.stringify({ email }), token }),
+
   health: (token: string) =>
     apiFetch<{
       latencyMs: number
@@ -768,6 +771,8 @@ export const api = {
         `/admin/audit-log?studioId=${studioId}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, { token }),
   },
   franchise: {
+    loginLink: (email: string, token: string) =>
+      apiFetch<{ link: string }>('/franchise/login-link', { method: 'POST', body: JSON.stringify({ email }), token }),
     info: (token: string) =>
       apiFetch<{ id: string | null; name: string | null }>('/franchise/info', { token }) as Promise<{ id: string | null; name: string | null }>,
     myStudios: (token: string) =>

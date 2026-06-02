@@ -4,7 +4,7 @@ import { Prisma } from '@packd/db'
 import { prisma } from '@packd/db'
 import { ROLE_RANK } from '@packd/types'
 import { requireRole, getUser } from '../lib/auth.js'
-import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole } from '../lib/supabase-admin.js'
+import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole, generatePasswordSetupLink } from '../lib/supabase-admin.js'
 import { assertStudioAccess } from './admin-shared.js'
 import { enqueueBroadcast } from '../jobs/index.js'
 import { Id, CursorQuery } from '../schemas.js'
@@ -934,4 +934,30 @@ export async function franchiseRoutes(app: FastifyInstance) {
       return reply.send({ success: true, queued: true, estimatedRecipients: total })
     },
   )
+
+  // ── Generate login link for a staff member within this franchise ───────────
+  app.post('/login-link', {
+    preHandler: requireRole('franchise_admin'),
+    schema: { body: z.object({ email: z.string().email() }) },
+  }, async (request, reply) => {
+    const { email } = request.body as { email: string }
+    const user = getUser(request)
+
+    // Verify the target user is a member of one of this franchise's studios
+    const franchiseStudioIds = await prisma.franchiseStudio.findMany({
+      where: { franchise: { id: user.franchiseId ?? '' } },
+      select: { studioId: true },
+    }).then(rows => rows.map(r => r.studioId))
+
+    if (franchiseStudioIds.length > 0) {
+      const target = await prisma.member.findFirst({
+        where: { user: { email }, studioId: { in: franchiseStudioIds } },
+      })
+      if (!target) return reply.forbidden('User not found in this franchise')
+    }
+
+    const webUrl = process.env.WEB_URL ?? 'http://localhost:3000'
+    const link = await generatePasswordSetupLink(email, `${webUrl}/login`)
+    return { link }
+  })
 }

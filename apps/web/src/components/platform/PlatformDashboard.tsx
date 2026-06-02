@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { api, platform, type PlatformBrand } from '@/lib/api-client'
+import LoginLinkButton from '@/components/LoginLinkButton'
 import NavBar from '@/components/NavBar'
 
 // ── New Brand Modal ──────────────────────────────────────────────────────────
@@ -370,10 +371,13 @@ function BrandRow({
               </div>
               <span className="text-[10px] bg-violet-50 text-violet-600 px-1.5 py-0.5 rounded font-medium">Brand admin</span>
             </div>
-            <button onClick={handleRemoveBrandAdmin} disabled={removingBrandAdmin}
-              className="text-[10px] text-red-400 hover:text-red-600 transition-colors disabled:opacity-50 shrink-0">
-              {removingBrandAdmin ? 'Removing…' : 'Remove'}
-            </button>
+            <div className="flex items-center gap-3 shrink-0">
+              <LoginLinkButton onGenerate={() => platform.loginLink(brand.admin!.email, token).then(r => r.link)} />
+              <button onClick={handleRemoveBrandAdmin} disabled={removingBrandAdmin}
+                className="text-[10px] text-red-400 hover:text-red-600 transition-colors disabled:opacity-50">
+                {removingBrandAdmin ? 'Removing…' : 'Remove'}
+              </button>
+            </div>
           </div>
         )}
 

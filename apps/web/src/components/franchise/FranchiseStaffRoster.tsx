@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { api } from '@/lib/api-client'
+import LoginLinkButton from '@/components/LoginLinkButton'
 
 // ── Payroll date helpers ──────────────────────────────────────────────────────
 
@@ -358,6 +359,10 @@ export default function FranchiseStaffRoster({ token }: Props) {
                       </span>
                     ))}
                   </div>
+                  <LoginLinkButton
+                    onGenerate={() => api.franchise.loginLink(s.email, token).then(r => r.link)}
+                    className="text-[10px] text-gray-400 hover:text-indigo-600 transition-colors shrink-0"
+                  />
                   <svg className={`w-3.5 h-3.5 text-gray-300 shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                     <path d="M19 9l-7 7-7-7" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>

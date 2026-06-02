@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { api } from '@/lib/api-client'
 import type { StudioSummary } from '@/lib/api-client'
+import LoginLinkButton from '@/components/LoginLinkButton'
 
 type Admin = {
   userId: string
@@ -263,6 +264,10 @@ export default function FranchiseAdminsRoster({ studios, token }: Props) {
                       <span className="text-[10px] text-gray-400">No studios</span>
                     )}
                   </div>
+                  <LoginLinkButton
+                    onGenerate={() => api.franchise.loginLink(admin.email, token).then(r => r.link)}
+                    className="text-[10px] text-gray-400 hover:text-indigo-600 transition-colors shrink-0"
+                  />
                   <svg
                     className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                     fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 16 16"

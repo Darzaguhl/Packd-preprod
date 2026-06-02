@@ -2,8 +2,20 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireRole } from '../lib/auth.js'
+import { generatePasswordSetupLink } from '../lib/supabase-admin.js'
 
 export async function adminPlatformRoutes(app: FastifyInstance) {
+
+  // ── Generate login link for any user (admin only) ─────────────────────────
+  app.post('/platform/login-link', {
+    preHandler: requireRole('admin'),
+    schema: { body: z.object({ email: z.string().email() }) },
+  }, async (request, reply) => {
+    const { email } = request.body as { email: string }
+    const webUrl = process.env.WEB_URL ?? 'http://localhost:3000'
+    const link = await generatePasswordSetupLink(email, `${webUrl}/login`)
+    return { link }
+  })
 
   // ── Platform stats ─────────────────────────────────────────────────────────
   app.get('/platform/stats', { preHandler: requireRole('admin') }, async () => {
