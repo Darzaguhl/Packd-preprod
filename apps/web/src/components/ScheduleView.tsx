@@ -103,8 +103,13 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
     router.push(`?${p.toString()}`, { scroll: false })
   }
 
+  // Closing via the "Back to schedule" button should remove the session param
+  // deterministically — not rely on history.back() which can overshoot to /account
+  // if router.replace() has been called since the push (e.g. the day-sync effect).
   const closeSession = () => {
-    router.back()
+    const p = new URLSearchParams(searchParams.toString())
+    p.delete('session')
+    router.replace(`?${p.toString()}`, { scroll: false })
   }
 
   // Keep URL in sync when day or week changes so refresh restores the same view.

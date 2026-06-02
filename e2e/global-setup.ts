@@ -205,23 +205,36 @@ export default async function globalSetup() {
   // 3. Give the member 20 credits so booking tests pass
   await seedMemberCredits(adminToken, E2E_MEMBER_EMAIL, 20)
 
-  // 3b. Delete all room layouts so booking tests find sessions with a direct book
-  //     button rather than a spot-picker.  Previous test runs (e.g. room-map tests)
-  //     may have created layouts that persist in the shared CI database.
+  // 3b. Clean up test-polluted DB state from previous CI runs.
+  //     All of these accumulate across retries and need resetting before each run.
   try {
     const { prisma } = await import('@packd/db')
-    const { count } = await prisma.roomLayout.deleteMany({
+
+    // Delete all room layouts — booking tests need the direct book-btn, not a spot-picker
+    const { count: layoutCount } = await prisma.roomLayout.deleteMany({
       where: { room: { location: { studioId: STUDIO_ID } } },
     })
-    // Also clear the layout snapshot on any sessions (so the schedule shows book-btn)
     await prisma.classSession.updateMany({
       where: { studioId: STUDIO_ID, layoutId: { not: null } },
       data: { layoutId: null },
     })
-    if (count > 0) console.log(`[setup] Removed ${count} room layout(s) so booking tests see book-btn, not spot-picker`)
+    if (layoutCount > 0) console.log(`[setup] Removed ${layoutCount} room layout(s)`)
+
+    // Find the e2e member record so we can scope the shift cleanup
+    const member = await prisma.member.findFirst({ where: { user: { email: E2E_MEMBER_EMAIL } }, select: { id: true } })
+    if (member) {
+      // Delete all one-off shifts — shift tests create these and must start clean
+      const { count: shiftCount } = await prisma.staffShift.deleteMany({ where: { memberId: member.id } })
+      // Delete all recurring patterns — same reason
+      const { count: patternCount } = await prisma.staffShiftPattern.deleteMany({ where: { memberId: member.id } })
+      if (shiftCount + patternCount > 0) {
+        console.log(`[setup] Removed ${shiftCount} shift(s) + ${patternCount} pattern(s) for e2e member`)
+      }
+    }
+
     await prisma.$disconnect()
   } catch (e) {
-    console.warn('[setup] Could not clean room layouts (non-fatal):', e)
+    console.warn('[setup] Could not clean DB state (non-fatal):', e)
   }
 
   // 4. Assign fronthost role to the e2e-member so shift tests can target them

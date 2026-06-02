@@ -556,17 +556,26 @@ function ShiftsSection({ member, studioId, token, currency }: {
   useEffect(() => { load() }, [load])
 
   async function handleDeleteShift(id: string) {
-    await api.shifts.remove(id, token)
-    // Remove immediately from local state — no round-trip wait for the user
+    // Optimistic: remove immediately so the UI responds instantly.
+    // If the API call fails, reload from the server to restore the item.
     setShifts(s => s.filter(x => x.id !== id))
+    try {
+      await api.shifts.remove(id, token)
+    } catch {
+      load()
+    }
   }
 
   async function handleDeletePattern(id: string) {
-    const res = await api.shiftPatterns.remove(id, token)
-    // Always remove immediately — the user clicked delete, the API succeeded
+    // Optimistic: remove immediately.
     setPatterns(p => p.filter(x => x.id !== id))
-    // If the delete also wiped out generated future shifts, reload shifts too
-    if (res.futureShiftsDeleted > 0) load()
+    try {
+      const res = await api.shiftPatterns.remove(id, token)
+      // If future generated shifts were also deleted, reload the shift list too.
+      if (res.futureShiftsDeleted > 0) load()
+    } catch {
+      load()
+    }
   }
 
   function shiftPay(shift: StaffShift): string | null {

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { api, FULL_LIVE_PERMISSIONS } from '@/lib/api-client'
-import type { AdminSession, LivePermissions } from '@/lib/api-client'
+import type { AdminSession, AdminBooking, LivePermissions } from '@/lib/api-client'
 import NavBar from '@/components/NavBar'
 import RoomMapView, { type RoomMapViewHandle } from '@/components/room/RoomMapView'
 import MemberDrawer from './MemberDrawer'
@@ -50,6 +50,8 @@ export default function LiveDashboard({ defaultStudioId, modeSwitch, myClassesOn
   const [mapRefreshKey, setMapRefreshKey] = useState(0)
   const mapRef = useRef<RoomMapViewHandle>(null)
   const [orderedMemberIds, setOrderedMemberIds] = useState<Set<string>>(new Set())
+  const [attendees, setAttendees] = useState<AdminBooking[]>([])
+  const [attendeesLoading, setAttendeesLoading] = useState(false)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string>('member')
   const [perms, setPerms] = useState<LivePermissions>(FULL_LIVE_PERMISSIONS)
@@ -183,6 +185,17 @@ export default function LiveDashboard({ defaultStudioId, modeSwitch, myClassesOn
     window.addEventListener('ai:data-changed', handleAiChange)
     return () => window.removeEventListener('ai:data-changed', handleAiChange)
   }, [token, studioId, date])
+
+  // Load attendees (confirmed bookings) whenever the selected session changes.
+  // This powers the flat list fallback view for sessions without a room map.
+  useEffect(() => {
+    if (!selectedSession || !token) { setAttendees([]); return }
+    setAttendeesLoading(true)
+    api.admin.bookings(selectedSession.id, token)
+      .then(setAttendees)
+      .catch(() => setAttendees([]))
+      .finally(() => setAttendeesLoading(false))
+  }, [selectedSession?.id, token])
 
   // Tick every 30 seconds so LIVE/NEXT badges update without a page refresh
   useEffect(() => {
@@ -336,10 +349,10 @@ export default function LiveDashboard({ defaultStudioId, modeSwitch, myClassesOn
           </div>
         </div>
 
-        {/* Main content — room map */}
+        {/* Main content — room map + attendee list */}
         <div className="flex-1 overflow-auto p-6">
           {token && studioId && selectedSession ? (
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div>
                 <h2 className="text-sm font-bold text-gray-900">{selectedSession.templateName}</h2>
                 <p className="text-xs text-gray-500">
@@ -370,6 +383,63 @@ export default function LiveDashboard({ defaultStudioId, modeSwitch, myClassesOn
                   setShowDrawer(true)
                 } : undefined}
               />
+
+              {/* Attendee list — always shown; primary check-in surface when no room layout */}
+              <div className="bg-white rounded-2xl border border-gray-100">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-50">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    Attendees
+                  </p>
+                  {!attendeesLoading && (
+                    <p className="text-xs text-gray-400">
+                      {attendees.filter(a => a.checkedIn).length} / {attendees.length} checked in
+                    </p>
+                  )}
+                </div>
+                {attendeesLoading ? (
+                  <div className="p-3 space-y-2">
+                    {[...Array(3)].map((_, i) => (
+                      <div key={i} className="h-9 bg-gray-50 rounded-lg animate-pulse" />
+                    ))}
+                  </div>
+                ) : attendees.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-6">No bookings yet</p>
+                ) : (
+                  <ul className="divide-y divide-gray-50">
+                    {attendees.map(a => (
+                      <li key={a.id} className="flex items-center gap-3 px-4 py-2.5">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">{a.memberName}</p>
+                          {a.memberNote && (
+                            <p className="text-xs text-amber-600 truncate">{a.memberNote}</p>
+                          )}
+                        </div>
+                        {a.checkedIn ? (
+                          <span className="shrink-0 text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                            Checked in
+                          </span>
+                        ) : canCheckIn ? (
+                          <button
+                            onClick={async () => {
+                              if (!token) return
+                              try {
+                                const res = await api.admin.checkin(selectedSession.id, a.id, token)
+                                setAttendees(prev => prev.map(x => x.id === a.id ? { ...x, checkedIn: res.checkedIn } : x))
+                                mapRef.current?.refresh()
+                              } catch { /* ignore — map will show state */ }
+                            }}
+                            className="shrink-0 text-xs font-medium text-gray-500 border border-gray-200 px-2 py-0.5 rounded-full hover:border-emerald-400 hover:text-emerald-600 transition-colors"
+                          >
+                            Check in
+                          </button>
+                        ) : (
+                          <span className="shrink-0 text-xs text-gray-300">Booked</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
           ) : !loading && (
             <div className="h-full flex items-center justify-center text-sm text-gray-400">
