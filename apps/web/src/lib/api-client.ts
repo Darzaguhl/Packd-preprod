@@ -1028,6 +1028,8 @@ export const api = {
       apiFetch<{ success: true; data: { id: string; name: string; slug: string } }>(`/brands/${brandId}/franchises`, { method: 'POST', body: JSON.stringify(body), token }),
     promoteFranchiseAdmin: (brandId: string, body: { email: string; franchiseId: string; firstName?: string; lastName?: string }, token: string) =>
       apiFetch<{ success: true; created: boolean; roles: string[]; franchiseId: string; message: string }>(`/brands/${brandId}/franchise-admins`, { method: 'POST', body: JSON.stringify(body), token }),
+    removeFranchiseAdmin: (brandId: string, userId: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/brands/${brandId}/franchise-admins/${userId}`, { method: 'DELETE', token }),
     stats: (id: string, period: string, token: string) =>
       apiFetch<{ success: true; data: BrandStats }>(`/brands/${id}/stats?period=${period}`, { token }),
     members: (id: string, params: { q?: string; studioId?: string; cursor?: string }, token: string) => {

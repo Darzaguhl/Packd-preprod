@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { prisma, type Prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
-import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole, createSupabaseUser } from '../lib/supabase-admin.js'
+import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole, createSupabaseUser, revokeUserSessions } from '../lib/supabase-admin.js'
 import { IdParam, CursorQuery } from '../schemas.js'
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -401,6 +401,48 @@ export async function brandRoutes(app: FastifyInstance) {
         ? `Account created for ${body.data.email}. They can log in using "Forgot Password" to set their password.`
         : `${body.data.email} has been promoted to franchise admin.`,
     })
+  })
+
+  // ── Remove franchise admin from a brand franchise ────────────────────────
+  app.delete('/:id/franchise-admins/:userId', {
+    preHandler: requireAuth,
+    schema: { params: z.object({ id: z.string(), userId: z.string() }) },
+  }, async (request, reply) => {
+    const { id, userId } = request.params as { id: string; userId: string }
+    const user = getUser(request)
+    await assertBrandAccess(id, user.id, user.role, user.brandId).catch(e => { throw reply.code(e.statusCode).send({ error: e.message }) })
+
+    if (!SERVICE_ROLE_KEY) return reply.internalServerError('SUPABASE_SERVICE_ROLE_KEY not configured')
+
+    const targetUser = await prisma.user.findUnique({ where: { id: userId } })
+    if (!targetUser) return reply.notFound('User not found')
+
+    const current = await getSupabaseAppMeta(userId)
+    const existingRoles: string[] = current.roles ?? (current.role ? [current.role] : [])
+    if (!existingRoles.includes('franchise_admin')) {
+      return reply.badRequest('User is not a franchise admin')
+    }
+
+    const newRoles = existingRoles.filter(r => r !== 'franchise_admin')
+    const newPrimary = newRoles.length > 0 ? getPrimaryRole(newRoles) : 'member'
+    // Clear all studioIds — a franchise_admin's studioIds come entirely from their franchise
+    const newStudioIds: string[] = []
+
+    await setSupabaseAppMeta(userId, {
+      role: newPrimary,
+      roles: newRoles,
+      studioIds: newStudioIds,
+      franchiseId: undefined,
+    })
+
+    await prisma.member.updateMany({
+      where: { userId },
+      data: { staffRoles: newRoles, studioIds: newStudioIds },
+    })
+
+    revokeUserSessions(userId).catch(() => {})
+
+    return reply.send({ success: true })
   })
 
   // ── Cross-brand analytics: aggregate stats across all studios ────────────

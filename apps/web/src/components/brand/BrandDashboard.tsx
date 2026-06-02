@@ -36,6 +36,7 @@ function FranchiseCard({
   const [adminFirstName, setAdminFirstName] = useState('')
   const [adminLastName, setAdminLastName] = useState('')
   const [promoting, setPromoting] = useState(false)
+  const [removing, setRemoving] = useState(false)
   const [adminError, setAdminError] = useState<string | null>(null)
   const [adminSuccess, setAdminSuccess] = useState<string | null>(null)
 
@@ -67,6 +68,22 @@ function FranchiseCard({
       setAdminError(e instanceof Error ? e.message : 'Failed to assign franchise admin')
     } finally {
       setPromoting(false)
+    }
+  }
+
+  async function handleRemove() {
+    if (!franchise.admin) return
+    if (!confirm(`Remove ${franchise.admin.firstName} ${franchise.admin.lastName} as franchise admin? They will lose access immediately.`)) return
+    setRemoving(true)
+    setAdminError(null)
+    try {
+      await api.brands.removeFranchiseAdmin(brandId, franchise.admin.id, token)
+      setAdminSuccess('Franchise admin removed.')
+      onAdminPromoted()
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : 'Failed to remove franchise admin')
+    } finally {
+      setRemoving(false)
     }
   }
 
@@ -121,13 +138,17 @@ function FranchiseCard({
       )}
 
       {/* Franchise admin section */}
-      <div className="border-t border-gray-50 px-4 py-3">
-        {adminSuccess && !showAdminForm ? (
+      <div className="border-t border-gray-50 px-4 py-3 space-y-2">
+        {/* Status / success message */}
+        {adminSuccess && (
           <div className="flex items-start justify-between gap-2">
             <p className="text-xs text-emerald-600">{adminSuccess}</p>
             <button onClick={() => setAdminSuccess(null)} className="text-[10px] text-gray-400 hover:text-gray-600 shrink-0">×</button>
           </div>
-        ) : !showAdminForm && franchise.admin ? (
+        )}
+
+        {/* Current admin row */}
+        {!adminSuccess && franchise.admin && (
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 text-[10px] font-semibold shrink-0">
@@ -140,16 +161,30 @@ function FranchiseCard({
                 <p className="text-[10px] text-gray-400">{franchise.admin.email}</p>
               </div>
             </div>
-            <button
-              onClick={() => setShowAdminForm(true)}
-              className="text-[10px] text-gray-400 hover:text-gray-600 shrink-0 transition-colors"
-            >
-              Change
-            </button>
+            <div className="flex items-center gap-3 shrink-0">
+              <button
+                onClick={handleRemove}
+                disabled={removing}
+                className="text-[10px] text-red-400 hover:text-red-600 transition-colors disabled:opacity-50"
+              >
+                {removing ? 'Removing…' : 'Remove'}
+              </button>
+              <button
+                onClick={() => setShowAdminForm(v => !v)}
+                className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                {showAdminForm ? 'Cancel' : 'Add another'}
+              </button>
+            </div>
           </div>
-        ) : showAdminForm ? (
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-gray-700">Assign franchise admin</p>
+        )}
+
+        {/* Assign form — shown when no admin, or when "Add another" is clicked */}
+        {(showAdminForm || (!franchise.admin && !adminSuccess)) && (
+          <div className="space-y-2 pt-1">
+            <p className="text-xs font-medium text-gray-700">
+              {franchise.admin ? 'Add another franchise admin' : 'Assign franchise admin'}
+            </p>
             <p className="text-xs text-gray-400">
               Enter their email address. If they don't have a Packd account yet, also provide their name — an account will be created and they can set their password via "Forgot password".
             </p>
@@ -185,15 +220,20 @@ function FranchiseCard({
               >
                 {promoting ? '…' : 'Assign'}
               </button>
-              <button onClick={closeAdminForm} className="text-xs text-gray-400 hover:text-gray-600 px-2">
-                Cancel
-              </button>
+              {franchise.admin && (
+                <button onClick={closeAdminForm} className="text-xs text-gray-400 hover:text-gray-600 px-2">
+                  Cancel
+                </button>
+              )}
             </div>
             {adminError && <p className="text-xs text-red-500">{adminError}</p>}
           </div>
-        ) : (
+        )}
+
+        {/* No admin, no form */}
+        {!franchise.admin && adminSuccess && (
           <button
-            onClick={() => setShowAdminForm(true)}
+            onClick={() => { setAdminSuccess(null); setShowAdminForm(true) }}
             className="text-xs text-gray-500 hover:text-gray-900 transition-colors"
           >
             + Assign franchise admin

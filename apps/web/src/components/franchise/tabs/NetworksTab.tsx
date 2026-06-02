@@ -72,11 +72,20 @@ export default function NetworksTab({ studios, token, showToast }: Props) {
       )}
 
       {networks.map(network => (
-        <div key={network.id} className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-50">
-            <div>
-              <p className="text-sm font-semibold text-gray-900">{network.name}</p>
-              <p className="text-xs text-gray-400 mt-0.5">/{network.slug} · {network.studios.length} studio{network.studios.length !== 1 ? 's' : ''}</p>
+        <div key={network.id} className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+          {/* Network header */}
+          <div className="px-5 py-4 bg-gray-900 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center shrink-0">
+                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <circle cx="12" cy="5" r="2" /><circle cx="5" cy="19" r="2" /><circle cx="19" cy="19" r="2" />
+                  <path d="M12 7v4M12 11l-5 6M12 11l5 6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white leading-tight">{network.name}</p>
+                <p className="text-xs text-gray-400 mt-0.5 font-mono">/{network.slug}</p>
+              </div>
             </div>
             <button
               onClick={async () => {
@@ -87,16 +96,29 @@ export default function NetworksTab({ studios, token, showToast }: Props) {
                   showToast('Network deleted')
                 } catch (e) { showToast(e instanceof Error ? e.message : 'Failed', false) }
               }}
-              className="text-xs text-red-500 hover:text-red-700 px-2 py-1 rounded"
+              className="text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded transition-colors"
             >Delete</button>
           </div>
 
-          <div className="divide-y divide-gray-50">
+          {/* Studios section */}
+          <div className="px-5 pt-3 pb-1">
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
+              Member studios · {network.studios.length}
+            </p>
+          </div>
+
+          <div className="divide-y divide-gray-50 mx-5 mb-3 border border-gray-100 rounded-xl overflow-hidden">
+            {network.studios.length === 0 && (
+              <p className="text-xs text-gray-400 px-4 py-3">No studios in this network yet.</p>
+            )}
             {network.studios.map(m => (
-              <div key={m.studioId} className="flex items-center justify-between px-5 py-3">
-                <div>
-                  <p className="text-sm font-medium text-gray-800">{m.studio.name}</p>
-                  <p className="text-xs text-gray-400">{m.studio.slug}</p>
+              <div key={m.studioId} className="flex items-center justify-between px-4 py-3 bg-white">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">{m.studio.name}</p>
+                    <p className="text-xs text-gray-400 font-mono">{m.studio.slug}</p>
+                  </div>
                 </div>
                 <button
                   onClick={async () => {
@@ -112,7 +134,8 @@ export default function NetworksTab({ studios, token, showToast }: Props) {
             ))}
           </div>
 
-          <div className="px-5 py-3 bg-gray-50 flex items-center gap-3">
+          {/* Add studio row */}
+          <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex items-center gap-3">
             <select
               className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-white flex-1"
               value={addingStudio?.networkId === network.id ? (addingStudio?.studioId ?? '') : ''}
