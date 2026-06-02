@@ -47,18 +47,18 @@ function initials(name: string) {
 }
 
 // "Treadmill 1" → "T1", "Floor 2" → "F2"
-function shortLabel(label: string) {
+function shortLabel(type: Station['type'], label: string) {
   const trimmed = label.trim()
   if (!trimmed) return '?'
+  const num = trimmed.match(/\d+/)
   const firstChar = trimmed[0]
-  // Label starts with a letter (e.g. "T1", "Bike 3") → letter + first number
   if (/[A-Za-z]/.test(firstChar)) {
-    const num = trimmed.match(/\d+/)
+    // Label already has a letter prefix (e.g. "T1", "Bike 3") → use it
     return `${firstChar.toUpperCase()}${num ? num[0] : ''}`
   }
-  // Label starts with a digit (e.g. "1", "22") → just the number, no duplication
-  const num = trimmed.match(/\d+/)
-  return num ? num[0] : trimmed.slice(0, 3)
+  // Purely numeric label (e.g. "1", "3") → derive prefix from station type
+  const prefix = STATION_META[type].short[0].toUpperCase()
+  return num ? `${prefix}${num[0]}` : trimmed.slice(0, 3)
 }
 
 function CheckInButton({
@@ -415,7 +415,7 @@ function DroppableListStation({
         className={`text-[10px] font-semibold w-6 shrink-0 ${isOver && !isLocked ? 'text-gray-300' : isLocked ? 'text-emerald-700' : 'text-gray-500'}`}
         title={station.label}
       >
-        {shortLabel(station.label)}
+        {shortLabel(station.type, station.label)}
       </span>
       {/* Member name — draggable when assigned and not checked in */}
       <div
