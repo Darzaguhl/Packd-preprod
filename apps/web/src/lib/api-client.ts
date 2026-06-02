@@ -1042,6 +1042,8 @@ export const api = {
   brands: {
     listAll: (token: string) =>
       apiFetch<{ success: true; data: PlatformBrand[] }>('/brands', { token }),
+    update: (id: string, body: { name?: string; slug?: string; description?: string }, token: string) =>
+      apiFetch<{ success: true; data: PlatformBrand }>(`/brands/${id}`, { method: 'PATCH', body: JSON.stringify(body), token }),
     list: (token: string) =>
       apiFetch<{ success: true; data: Brand[] }>('/brands', { token }),
     my: (token: string) =>
@@ -1050,8 +1052,6 @@ export const api = {
       apiFetch<{ success: true; data: Brand }>(`/brands/${id}`, { token }),
     create: (body: { name: string; slug: string; logoUrl?: string; description?: string }, token: string) =>
       apiFetch<{ success: true; data: Brand }>('/brands', { method: 'POST', body: JSON.stringify(body), token }),
-    update: (id: string, body: { name?: string; logoUrl?: string | null; description?: string }, token: string) =>
-      apiFetch<{ success: true; data: Brand }>(`/brands/${id}`, { method: 'PATCH', body: JSON.stringify(body), token }),
     delete: (id: string, token: string) =>
       apiFetch<{ success: boolean }>(`/brands/${id}`, { method: 'DELETE', token }),
     addStudio: (brandId: string, studioId: string, token: string) =>

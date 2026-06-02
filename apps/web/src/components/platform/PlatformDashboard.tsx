@@ -133,6 +133,32 @@ function BrandRow({
   const [deleting, setDeleting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
+  // Edit state
+  const [editing, setEditing] = useState(false)
+  const [editForm, setEditForm] = useState({ name: brand.name, slug: brand.slug, description: brand.description ?? '' })
+  const [saving, setSaving] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+
+  async function handleSaveEdit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editForm.name.trim() || !editForm.slug.trim()) return
+    setSaving(true)
+    setEditError(null)
+    try {
+      await api.brands.update(brand.id, {
+        name: editForm.name.trim(),
+        slug: editForm.slug.trim(),
+        description: editForm.description.trim() || undefined,
+      }, token)
+      setEditing(false)
+      onReload()
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   // Brand admin state
   const [showBrandAdminForm, setShowBrandAdminForm] = useState(false)
   const [brandAdminForm, setBrandAdminForm] = useState({ email: '', firstName: '', lastName: '' })
@@ -236,50 +262,97 @@ function BrandRow({
   return (
     <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
       {/* Brand header row */}
-      <div className="flex items-center gap-4 px-5 py-4">
-        <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center text-violet-700 font-bold text-sm shrink-0">
-          {brand.name.charAt(0).toUpperCase()}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-gray-900">{brand.name}</h3>
-            <span className="text-xs text-gray-400 font-mono">{brand.slug}</span>
+      {editing ? (
+        <form onSubmit={handleSaveEdit} className="px-5 py-4 flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center text-violet-700 font-bold text-sm shrink-0 mt-0.5">
+            {editForm.name.charAt(0).toUpperCase() || brand.name.charAt(0).toUpperCase()}
           </div>
-          {brand.description && (
-            <p className="text-xs text-gray-400 truncate mt-0.5">{brand.description}</p>
-          )}
-        </div>
-        <div className="flex items-center gap-4 shrink-0">
-          <button
-            onClick={handleExpand}
-            className="text-sm text-gray-500 hover:text-gray-900 transition-colors flex items-center gap-1"
-          >
-            {expanded ? 'Collapse' : 'Expand'}
-            <span className={`transition-transform ${expanded ? 'rotate-180' : ''}`}>▾</span>
-          </button>
-          {confirmDelete ? (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={handleDelete}
-                disabled={deleting}
-                className="text-xs text-red-600 hover:text-red-700 font-medium"
-              >
-                {deleting ? 'Deleting…' : 'Confirm delete'}
-              </button>
-              <button onClick={() => setConfirmDelete(false)} className="text-xs text-gray-400 hover:text-gray-600 ml-1">
-                ✕
-              </button>
+          <div className="flex-1 space-y-2">
+            <div className="flex gap-2">
+              <input
+                autoFocus
+                value={editForm.name}
+                onChange={e => {
+                  const v = e.target.value
+                  setEditForm(f => ({
+                    ...f, name: v,
+                    slug: f.slug === brand.slug
+                      ? v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+                      : f.slug,
+                  }))
+                }}
+                placeholder="Brand name"
+                className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-violet-500"
+              />
+              <input
+                value={editForm.slug}
+                onChange={e => setEditForm(f => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))}
+                placeholder="slug"
+                className="w-36 text-sm border border-gray-200 rounded-lg px-3 py-1.5 font-mono focus:outline-none focus:ring-2 focus:ring-violet-500"
+              />
             </div>
-          ) : (
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="text-xs text-gray-300 hover:text-red-500 transition-colors"
-            >
-              Delete
+            <input
+              value={editForm.description}
+              onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
+              placeholder="Description (optional)"
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-violet-500"
+            />
+            {editError && <p className="text-xs text-red-500">{editError}</p>}
+          </div>
+          <div className="flex items-center gap-2 shrink-0 mt-0.5">
+            <button type="submit" disabled={saving || !editForm.name.trim() || !editForm.slug.trim()}
+              className="text-xs font-medium px-3 py-1.5 bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-40 transition-colors">
+              {saving ? 'Saving…' : 'Save'}
             </button>
-          )}
+            <button type="button" onClick={() => { setEditing(false); setEditError(null); setEditForm({ name: brand.name, slug: brand.slug, description: brand.description ?? '' }) }}
+              className="text-xs text-gray-400 hover:text-gray-700 px-2 py-1.5">
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="flex items-center gap-4 px-5 py-4">
+          <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center text-violet-700 font-bold text-sm shrink-0">
+            {brand.name.charAt(0).toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-gray-900">{brand.name}</h3>
+              <span className="text-xs text-gray-400 font-mono">{brand.slug}</span>
+            </div>
+            {brand.description && (
+              <p className="text-xs text-gray-400 truncate mt-0.5">{brand.description}</p>
+            )}
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <button onClick={() => setEditing(true)}
+              className="text-xs text-gray-400 hover:text-gray-700 transition-colors">
+              Edit
+            </button>
+            <button
+              onClick={handleExpand}
+              className="text-sm text-gray-500 hover:text-gray-900 transition-colors flex items-center gap-1"
+            >
+              {expanded ? 'Collapse' : 'Expand'}
+              <span className={`transition-transform ${expanded ? 'rotate-180' : ''}`}>▾</span>
+            </button>
+            {confirmDelete ? (
+              <div className="flex items-center gap-1">
+                <button onClick={handleDelete} disabled={deleting}
+                  className="text-xs text-red-600 hover:text-red-700 font-medium">
+                  {deleting ? 'Deleting…' : 'Confirm delete'}
+                </button>
+                <button onClick={() => setConfirmDelete(false)} className="text-xs text-gray-400 hover:text-gray-600 ml-1">✕</button>
+              </div>
+            ) : (
+              <button onClick={() => setConfirmDelete(true)}
+                className="text-xs text-gray-300 hover:text-red-500 transition-colors">
+                Delete
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Brand admin section */}
       <div className="border-t border-gray-50 px-5 py-4 space-y-3">
