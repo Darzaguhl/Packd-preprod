@@ -29,6 +29,9 @@ export default function FranchiseAdminsRoster({ studios, token }: Props) {
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [assignStudioId, setAssignStudioId] = useState<Record<string, string>>({})
+  const [assigning, setAssigning] = useState<string | null>(null)
 
   // Invite form
   const [showInvite, setShowInvite] = useState(false)
@@ -81,6 +84,20 @@ export default function FranchiseAdminsRoster({ studios, token }: Props) {
       setInviteMsg({ ok: false, text: e instanceof Error ? e.message : 'Failed to send invite' })
     } finally {
       setInviting(false)
+    }
+  }
+
+  async function handleAssignToStudio(admin: Admin, studioId: string) {
+    if (!studioId) return
+    setAssigning(admin.userId)
+    try {
+      await api.franchise.addAdmin(studioId, admin.email, token)
+      await reload()
+      showToast(`Assigned to ${studios.find(s => s.id === studioId)?.name ?? studioId}`)
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Failed to assign', false)
+    } finally {
+      setAssigning(null)
     }
   }
 
@@ -218,31 +235,100 @@ export default function FranchiseAdminsRoster({ studios, token }: Props) {
         </p>
       ) : (
         <div className="bg-white border border-gray-100 rounded-2xl divide-y divide-gray-50 overflow-hidden">
-          {filtered.map(admin => (
-            <div key={admin.userId} className="flex items-center gap-3 px-5 py-3.5">
-              <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold shrink-0">
-                {initials(admin.name)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900">{admin.name}</p>
-                <p className="text-xs text-gray-400 truncate">{admin.email}</p>
-              </div>
-              {/* Studio chips — click to remove from that studio */}
-              <div className="flex flex-wrap gap-1 justify-end max-w-[240px]">
-                {admin.studios.map(st => (
-                  <button
-                    key={st.id}
-                    onClick={() => handleRemoveFromStudio(admin, st.id)}
-                    title={`Remove from ${st.name}`}
-                    className="group flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 hover:bg-red-50 hover:text-red-600 transition-colors"
+          {filtered.map(admin => {
+            const isExpanded = expandedId === admin.userId
+            const unassignedStudios = studios.filter(s => !admin.studios.find(a => a.id === s.id))
+            const currentAssignId = assignStudioId[admin.userId] ?? unassignedStudios[0]?.id ?? ''
+            return (
+              <div key={admin.userId}>
+                {/* Summary row — click to expand */}
+                <button
+                  onClick={() => setExpandedId(isExpanded ? null : admin.userId)}
+                  className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50 transition-colors text-left"
+                >
+                  <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold shrink-0">
+                    {initials(admin.name)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900">{admin.name}</p>
+                    <p className="text-xs text-gray-400 truncate">{admin.email}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-1 justify-end max-w-[200px]">
+                    {admin.studios.map(st => (
+                      <span key={st.id} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
+                        {st.name}
+                      </span>
+                    ))}
+                    {admin.studios.length === 0 && (
+                      <span className="text-[10px] text-gray-400">No studios</span>
+                    )}
+                  </div>
+                  <svg
+                    className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                    fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 16 16"
                   >
-                    {st.name}
-                    <span className="opacity-0 group-hover:opacity-100 transition-opacity">×</span>
-                  </button>
-                ))}
+                    <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+
+                {/* Expanded management panel */}
+                {isExpanded && (
+                  <div className="px-5 pb-4 pt-1 bg-gray-50 border-t border-gray-100 space-y-3">
+                    {/* Current studios */}
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 mb-2">Studio access</p>
+                      {admin.studios.length === 0 ? (
+                        <p className="text-xs text-gray-400">Not assigned to any studio.</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {admin.studios.map(st => (
+                            <div key={st.id} className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-gray-700">
+                              {st.name}
+                              <button
+                                onClick={() => handleRemoveFromStudio(admin, st.id)}
+                                title={`Remove from ${st.name}`}
+                                className="text-gray-300 hover:text-red-500 transition-colors font-bold leading-none"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Assign to another studio */}
+                    {unassignedStudios.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-gray-500 mb-2">Assign to another studio</p>
+                        <div className="flex gap-2">
+                          <select
+                            value={currentAssignId}
+                            onChange={e => setAssignStudioId(prev => ({ ...prev, [admin.userId]: e.target.value }))}
+                            className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-gray-900"
+                          >
+                            {unassignedStudios.map(s => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => handleAssignToStudio(admin, currentAssignId)}
+                            disabled={assigning === admin.userId || !currentAssignId}
+                            className="text-xs font-medium bg-gray-900 text-white px-4 py-1.5 rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors shrink-0"
+                          >
+                            {assigning === admin.userId ? 'Assigning…' : 'Assign'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {unassignedStudios.length === 0 && (
+                      <p className="text-xs text-gray-400">Assigned to all studios in the franchise.</p>
+                    )}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
