@@ -4,7 +4,7 @@ import { prisma, type Prisma } from '@packd/db'
 import { requireAuth, requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole, createSupabaseUser } from '../lib/supabase-admin.js'
-import { IdParam } from '../schemas.js'
+import { IdParam, CursorQuery } from '../schemas.js'
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
@@ -479,15 +479,14 @@ export async function brandRoutes(app: FastifyInstance) {
     preHandler: requireAuth,
     schema: {
       params: IdParam,
-      querystring: z.object({
+      querystring: CursorQuery.extend({
         q: z.string().optional(),
         studioId: z.string().min(1).optional(),
-        limit: z.string().optional(),
       }),
     },
   }, async (request, reply) => {
     const { id } = request.params as { id: string }
-    const { q = '', studioId: filterStudio, limit = '50' } = request.query as { q?: string; studioId?: string; limit?: string }
+    const { q = '', studioId: filterStudio, cursor, take } = request.query as { q?: string; studioId?: string; cursor?: string; take: number }
     const user = getUser(request)
     await assertBrandAccess(id, user.id, user.role, user.brandId).catch(e => { throw reply.code(e.statusCode).send({ error: e.message }) })
 
@@ -518,13 +517,16 @@ export async function brandRoutes(app: FastifyInstance) {
         creditBalance: { select: { balance: true } },
         _count: { select: { bookings: true } },
       },
-      take: Math.min(parseInt(limit, 10) || 50, 200),
-      orderBy: [{ user: { lastName: 'asc' } }, { user: { firstName: 'asc' } }],
+      take: take + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      orderBy: { id: 'asc' },
     })
 
+    const hasMore = members.length > take
+    const items = hasMore ? members.slice(0, take) : members
+
     return {
-      success: true,
-      data: members.map(m => ({
+      items: items.map(m => ({
         id: m.id,
         firstName: m.user.firstName,
         lastName: m.user.lastName,
@@ -535,6 +537,8 @@ export async function brandRoutes(app: FastifyInstance) {
         bookingCount: m._count.bookings,
         createdAt: m.joinedAt,
       })),
+      nextCursor: hasMore ? items[items.length - 1].id : null,
+      hasMore,
     }
   })
 

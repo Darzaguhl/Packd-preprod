@@ -745,12 +745,12 @@ export const api = {
     allStaff: (token: string, cursor?: string) =>
       apiFetch<{ items: { id: string; userId: string; name: string; email: string; roles: string[]; studioIds: string[]; studios: { id: string; name: string }[]; payRateHourlyCents: number | null; instructorRates: { instructorId: string; studioId: string; studioName: string; payRatePerHeadCents: number | null }[] }[]; nextCursor: string | null; hasMore: boolean }>(
         `/franchise/staff${cursor ? `?cursor=${cursor}` : ''}`, { token }),
-    allAdmins: (token: string) =>
-      apiFetch<{ userId: string; name: string; email: string; studioIds: string[]; studios: { id: string; name: string }[] }[]>(
-        '/franchise/all-admins', { token }),
-    listPromos: (token: string) =>
-      apiFetch<{ code: string; description: string | null; type: string; value: number; maxUses: number | null; usageCount: number; studios: string[]; isActive: boolean; validUntil: string | null }[]>(
-        '/franchise/promos', { token }),
+    allAdmins: (token: string, cursor?: string) =>
+      apiFetch<{ items: { userId: string; name: string; email: string; studioIds: string[]; studios: { id: string; name: string }[] }[]; nextCursor: string | null; hasMore: boolean }>(
+        `/franchise/all-admins${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, { token }),
+    listPromos: (token: string, cursor?: string) =>
+      apiFetch<{ items: { code: string; description: string | null; type: string; value: number; maxUses: number | null; usageCount: number; studios: string[]; isActive: boolean; validUntil: string | null }[]; nextCursor: string | null; hasMore: boolean }>(
+        `/franchise/promos${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, { token }),
     createPromo: (body: { code: string; description?: string; type: string; value: number; maxUses?: number | null; validUntil?: string | null }, token: string) =>
       apiFetch<{ success: boolean; studios: number }>('/franchise/promos', { method: 'POST', body: JSON.stringify(body), token }),
     deletePromo: (code: string, token: string) =>
@@ -1030,11 +1030,12 @@ export const api = {
       apiFetch<{ success: true; created: boolean; roles: string[]; franchiseId: string; message: string }>(`/brands/${brandId}/franchise-admins`, { method: 'POST', body: JSON.stringify(body), token }),
     stats: (id: string, period: string, token: string) =>
       apiFetch<{ success: true; data: BrandStats }>(`/brands/${id}/stats?period=${period}`, { token }),
-    members: (id: string, params: { q?: string; studioId?: string }, token: string) => {
+    members: (id: string, params: { q?: string; studioId?: string; cursor?: string }, token: string) => {
       const qs = new URLSearchParams()
       if (params.q) qs.set('q', params.q)
       if (params.studioId) qs.set('studioId', params.studioId)
-      return apiFetch<{ success: true; data: BrandMember[] }>(`/brands/${id}/members?${qs}`, { token })
+      if (params.cursor) qs.set('cursor', params.cursor)
+      return apiFetch<{ items: BrandMember[]; nextCursor: string | null; hasMore: boolean }>(`/brands/${id}/members?${qs}`, { token })
     },
     sessions: (id: string, params: { studioId?: string; from?: string; to?: string }, token: string) => {
       const qs = new URLSearchParams()

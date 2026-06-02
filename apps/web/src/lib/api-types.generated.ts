@@ -3535,7 +3535,10 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    cursor?: string;
+                    take?: number;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -3568,7 +3571,10 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    cursor?: string;
+                    take?: number;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -7344,9 +7350,10 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
+                    cursor?: string;
+                    take?: number;
                     q?: string;
                     studioId?: string;
-                    limit?: string;
                 };
                 header?: never;
                 path: {

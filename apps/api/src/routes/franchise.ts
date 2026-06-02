@@ -7,7 +7,7 @@ import { requireRole, getUser } from '../lib/auth.js'
 import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole } from '../lib/supabase-admin.js'
 import { assertStudioAccess } from './admin-shared.js'
 import { enqueueBroadcast } from '../jobs/index.js'
-import { Id } from '../schemas.js'
+import { Id, CursorQuery } from '../schemas.js'
 import {
   StudioSummarySchema, StaffMemberSchema, StaffWithPermissionsSchema, PromoCodeSchema,
 } from '../schemas/responses.js'
@@ -726,9 +726,14 @@ export async function franchiseRoutes(app: FastifyInstance) {
   // GET /franchise/all-admins — all studio_admins aggregated across studios with studio names
   app.get(
     '/all-admins',
-    { preHandler: requireRole('franchise_admin') },
-    async (_request, reply) => {
+    {
+      preHandler: requireRole('franchise_admin'),
+      schema: { querystring: CursorQuery },
+    },
+    async (request, reply) => {
       if (!SERVICE_ROLE_KEY) return reply.internalServerError('SUPABASE_SERVICE_ROLE_KEY not configured')
+
+      const { cursor, take } = request.query as { cursor?: string; take: number }
 
       const [studios, sbUsers, members] = await Promise.all([
         prisma.studio.findMany({ select: { id: true, name: true } }),
@@ -749,7 +754,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
         return roles.includes('studio_admin')
       })
 
-      return reply.send(adminSbUsers.map(su => {
+      const all = adminSbUsers.map(su => {
         const meta = su.app_metadata ?? {}
         const studioIds: string[] = (meta.studioIds as string[] | undefined) ?? (meta.studioId ? [meta.studioId as string] : [])
         const m = memberByUserId.get(su.id)
@@ -761,7 +766,14 @@ export async function franchiseRoutes(app: FastifyInstance) {
           studioIds,
           studios: studioIds.map(id => ({ id, name: studioMap.get(id) ?? id })),
         }
-      }).sort((a, b) => a.name.localeCompare(b.name)))
+      }).sort((a, b) => a.name.localeCompare(b.name))
+
+      // Paginate by userId cursor (stable sort key after name sort)
+      const startIdx = cursor ? all.findIndex(x => x.userId === cursor) + 1 : 0
+      const page = all.slice(startIdx, startIdx + take + 1)
+      const hasMore = page.length > take
+      const items = hasMore ? page.slice(0, take) : page
+      return reply.send({ items, nextCursor: hasMore ? items[items.length - 1].userId : null, hasMore })
     },
   )
 
@@ -770,8 +782,12 @@ export async function franchiseRoutes(app: FastifyInstance) {
   // GET /franchise/promos — list promo codes, aggregated across all franchise studios
   app.get(
     '/promos',
-    { preHandler: requireRole('franchise_admin') },
-    async (_request, reply) => {
+    {
+      preHandler: requireRole('franchise_admin'),
+      schema: { querystring: CursorQuery },
+    },
+    async (request, reply) => {
+      const { cursor, take } = request.query as { cursor?: string; take: number }
       const codes = await prisma.promoCode.findMany({
         orderBy: { code: 'asc' },
         include: { _count: { select: { redemptions: true } } },
@@ -797,7 +813,13 @@ export async function franchiseRoutes(app: FastifyInstance) {
           })
         }
       }
-      return reply.send([...byCode.values()])
+      // Paginate the grouped result by code string (cursor = last seen code)
+      const all = [...byCode.values()]
+      const startIdx = cursor ? all.findIndex(x => x.code === cursor) + 1 : 0
+      const page = all.slice(startIdx, startIdx + take + 1)
+      const hasMore = page.length > take
+      const items = hasMore ? page.slice(0, take) : page
+      return reply.send({ items, nextCursor: hasMore ? items[items.length - 1].code : null, hasMore })
     },
   )
 

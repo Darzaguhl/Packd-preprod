@@ -36,7 +36,7 @@ export default function FranchiseAdminsRoster({ studios, token }: Props) {
   }
 
   function reload() {
-    return api.franchise.allAdmins(token).then(setAdmins).catch(() => {})
+    return api.franchise.allAdmins(token).then(r => setAdmins(r.items)).catch(() => {})
   }
 
   useEffect(() => {

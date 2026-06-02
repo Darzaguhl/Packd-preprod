@@ -3911,6 +3911,27 @@
     },
     "/franchise/all-admins": {
       "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "cursor",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "in": "query",
+            "name": "take",
+            "required": false
+          }
+        ],
         "responses": {
           "200": {
             "description": "Default Response"
@@ -3920,6 +3941,27 @@
     },
     "/franchise/promos": {
       "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "cursor",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "in": "query",
+            "name": "take",
+            "required": false
+          }
+        ],
         "responses": {
           "200": {
             "description": "Default Response"
@@ -8870,6 +8912,25 @@
               "type": "string"
             },
             "in": "query",
+            "name": "cursor",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "in": "query",
+            "name": "take",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
             "name": "q",
             "required": false
           },
@@ -8880,14 +8941,6 @@
             },
             "in": "query",
             "name": "studioId",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "query",
-            "name": "limit",
             "required": false
           },
           {

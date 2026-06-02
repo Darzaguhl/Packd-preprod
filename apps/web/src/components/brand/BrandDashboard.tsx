@@ -267,7 +267,7 @@ export default function BrandDashboard() {
     const tid = setTimeout(() => {
       const studioId = filteredStudioIds.length === 1 ? filteredStudioIds[0] : undefined
       api.brands.members(brand.id, { q: memberSearch || undefined, studioId }, token)
-        .then(res => { if (res.success) setMembers(res.data) })
+        .then(res => setMembers(res.items))
         .catch(() => {})
     }, 250)
     return () => clearTimeout(tid)

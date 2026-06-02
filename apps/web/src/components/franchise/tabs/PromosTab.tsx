@@ -18,7 +18,7 @@ export default function PromosTab({ studioCount, token, showToast }: Props) {
   const [adding, setAdding] = useState(false)
 
   useEffect(() => {
-    api.franchise.listPromos(token).then(setPromos).catch(() => {})
+    api.franchise.listPromos(token).then(r => setPromos(r.items)).catch(() => {})
   }, [token])
 
   return (
@@ -85,7 +85,7 @@ export default function PromosTab({ studioCount, token, showToast }: Props) {
                   maxUses: form.maxUses ? Number(form.maxUses) : null,
                   validUntil: form.validUntil || null,
                 }, token)
-                setPromos(await api.franchise.listPromos(token))
+                setPromos((await api.franchise.listPromos(token)).items)
                 setForm({ code: '', description: '', type: 'CREDIT_GRANT', value: 0, maxUses: '', validUntil: '' })
                 setShowAdd(false)
                 showToast('Promo created across all studios')
