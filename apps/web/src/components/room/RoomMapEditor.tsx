@@ -111,11 +111,18 @@ export default function RoomMapEditor({ roomId: _roomId, initial, roomLayouts = 
   // Moving an existing station
   const movingRef = useRef<{
     tempId: string
+    type: StationType
     startXM: number
     startYM: number
     pointerStartX: number
     pointerStartY: number
+    el: HTMLElement
+    widthM: number
+    lengthM: number
   } | null>(null)
+  // Tracks the last snapped position during a drag — committed to state on pointer-up.
+  // This avoids calling setStations on every pointermove (which re-renders all stations).
+  const pendingPosRef = useRef<{ xM: number; yM: number } | null>(null)
 
   // ─── Palette drag ────────────────────────────────────────────────────────────
 
@@ -176,14 +183,20 @@ export default function RoomMapEditor({ roomId: _roomId, initial, roomLayouts = 
     e.preventDefault()
     e.stopPropagation()
     const station = stations.find(s => s.tempId === tempId)!
+    const el = e.currentTarget as HTMLElement
     movingRef.current = {
       tempId,
+      type: station.type,
       startXM: station.xM,
       startYM: station.yM,
       pointerStartX: e.clientX,
       pointerStartY: e.clientY,
+      el,
+      widthM,
+      lengthM,
     }
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    pendingPosRef.current = { xM: station.xM, yM: station.yM }
+    el.setPointerCapture(e.pointerId)
   }
 
   function onStationPointerMove(e: React.PointerEvent) {
@@ -192,21 +205,35 @@ export default function RoomMapEditor({ roomId: _roomId, initial, roomLayouts = 
     const canvas = canvasRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
-    const pxPerM = rect.width / widthM
+    const pxPerM = rect.width / d.widthM
     const dx = (e.clientX - d.pointerStartX) / pxPerM
     const dy = (e.clientY - d.pointerStartY) / pxPerM
-    const meta = STATION_META[stations.find(s => s.tempId === d.tempId)!.type]
-    const newX = Math.max(0, Math.min(widthM - meta.w, snapToGrid(d.startXM + dx)))
-    const newY = Math.max(0, Math.min(lengthM - meta.h, snapToGrid(d.startYM + dy)))
-    setStations(prev => prev.map(s => {
-      if (s.tempId !== d.tempId) return s
-      if (hasCollision(newX, newY, meta.w, meta.h, prev, d.tempId)) return s
-      return { ...s, xM: newX, yM: newY }
-    }))
+    const meta = STATION_META[d.type]
+    const newX = Math.max(0, Math.min(d.widthM - meta.w, snapToGrid(d.startXM + dx)))
+    const newY = Math.max(0, Math.min(d.lengthM - meta.h, snapToGrid(d.startYM + dy)))
+    // Move the element directly — no React setState = no re-render during drag
+    d.el.style.left = `${(newX / d.widthM) * 100}%`
+    d.el.style.top  = `${(newY / d.lengthM) * 100}%`
+    pendingPosRef.current = { xM: newX, yM: newY }
   }
 
   function endMove() {
+    const d = movingRef.current
+    const pending = pendingPosRef.current
     movingRef.current = null
+    pendingPosRef.current = null
+    if (!d || !pending) return
+    const meta = STATION_META[d.type]
+    setStations(prev => prev.map(s => {
+      if (s.tempId !== d.tempId) return s
+      // Collision on drop → revert element to original position
+      if (hasCollision(pending.xM, pending.yM, meta.w, meta.h, prev, d.tempId)) {
+        d.el.style.left = `${(d.startXM / d.widthM) * 100}%`
+        d.el.style.top  = `${(d.startYM / d.lengthM) * 100}%`
+        return s
+      }
+      return { ...s, xM: pending.xM, yM: pending.yM }
+    }))
   }
 
   // ─── Label editing ────────────────────────────────────────────────────────────
