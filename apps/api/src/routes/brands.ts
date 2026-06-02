@@ -58,17 +58,40 @@ export async function brandRoutes(app: FastifyInstance) {
       },
       orderBy: { name: 'asc' },
     })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return { success: true, data: (brands as any[]).map((b: any) => ({
-      id: b.id,
-      name: b.name,
-      slug: b.slug,
-      logoUrl: b.logoUrl,
-      description: b.description,
-      createdAt: b.createdAt,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      studios: b.studios.map((bs: any) => ({ ...bs.studio, joinedAt: bs.joinedAt })),
-    }))}
+
+    // Look up brand admins from auth.users
+    const brandIds = brands.map((b: any) => b.id)
+    const brandAdminRows = brandIds.length > 0
+      ? await prisma.$queryRaw<{ id: string; brandId: string }[]>`
+          SELECT id::text, raw_app_meta_data->>'brandId' AS "brandId"
+          FROM auth.users
+          WHERE raw_app_meta_data->>'role' = 'brand_admin'
+            AND raw_app_meta_data->>'brandId' = ANY(${brandIds}::text[])
+        `
+      : []
+    const brandAdminUserIds = brandAdminRows.map((r: any) => r.id)
+    const brandAdminUsers = brandAdminUserIds.length > 0
+      ? await prisma.user.findMany({ where: { id: { in: brandAdminUserIds } }, select: { id: true, firstName: true, lastName: true, email: true } })
+      : []
+    const brandAdminByBrandId = new Map<string, typeof brandAdminUsers[number]>()
+    for (const row of brandAdminRows) {
+      const u = brandAdminUsers.find((u: any) => u.id === row.id)
+      if (u) brandAdminByBrandId.set(row.brandId, u)
+    }
+
+    return { success: true, data: (brands as any[]).map((b: any) => {
+      const admin = brandAdminByBrandId.get(b.id) ?? null
+      return {
+        id: b.id,
+        name: b.name,
+        slug: b.slug,
+        logoUrl: b.logoUrl,
+        description: b.description,
+        createdAt: b.createdAt,
+        admin: admin ? { id: admin.id, email: admin.email, firstName: admin.firstName, lastName: admin.lastName } : null,
+        studios: b.studios.map((bs: any) => ({ ...bs.studio, joinedAt: bs.joinedAt })),
+      }
+    })}
   })
 
   // ── Get brand for the logged-in brand_admin ───────────────────────────────
@@ -180,9 +203,31 @@ export async function brandRoutes(app: FastifyInstance) {
             },
           },
         },
+        franchises: {
+          include: {
+            studios: { include: { studio: { select: { id: true, name: true, slug: true, timezone: true } } } },
+          },
+        },
       },
     })
     if (!brand) return reply.notFound('Brand not found')
+
+    // Look up franchise admins
+    const franchiseIds = brand.franchises.map((f: any) => f.id)
+    const adminRows = franchiseIds.length > 0
+      ? await prisma.$queryRaw<{ id: string; franchiseId: string }[]>`
+          SELECT id::text, raw_app_meta_data->>'franchiseId' AS "franchiseId"
+          FROM auth.users
+          WHERE raw_app_meta_data->>'role' = 'franchise_admin'
+            AND raw_app_meta_data->>'franchiseId' = ANY(${franchiseIds}::text[])
+        `
+      : []
+    const adminUserIds = adminRows.map((r: any) => r.id)
+    const prismaAdmins = adminUserIds.length > 0
+      ? await prisma.user.findMany({ where: { id: { in: adminUserIds } }, select: { id: true, firstName: true, lastName: true, email: true } })
+      : []
+    const adminMap = new Map(adminRows.map((r: any) => [r.franchiseId, r.id]))
+    const prismaAdminMap = new Map(prismaAdmins.map((u: any) => [u.id, u]))
 
     return { success: true, data: {
       id: brand.id,
@@ -196,6 +241,18 @@ export async function brandRoutes(app: FastifyInstance) {
         sessionCount: bs.studio._count.classSessions,
         joinedAt: bs.joinedAt,
       })),
+      franchises: brand.franchises.map((f: any) => {
+        const adminUserId = adminMap.get(f.id)
+        const adminPrisma = adminUserId ? prismaAdminMap.get(adminUserId) : null
+        return {
+          id: f.id,
+          name: f.name,
+          slug: f.slug,
+          description: f.description,
+          admin: adminPrisma ? { id: adminPrisma.id, email: adminPrisma.email, firstName: adminPrisma.firstName, lastName: adminPrisma.lastName } : null,
+          studios: f.studios.map((fs: any) => ({ id: fs.studio.id, name: fs.studio.name, slug: fs.studio.slug, timezone: fs.studio.timezone })),
+        }
+      }),
     }}
   })
 
@@ -227,6 +284,93 @@ export async function brandRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string }
     await prisma.brand.delete({ where: { id } })
     return { success: true }
+  })
+
+  // ── Assign brand admin ────────────────────────────────────────────────────
+  app.post('/:id/brand-admins', {
+    preHandler: requireRole('admin'),
+    schema: { params: IdParam, body: z.object({
+      email: z.string().email(),
+      firstName: z.string().min(1).optional(),
+      lastName: z.string().min(1).optional(),
+    }) },
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    if (!SERVICE_ROLE_KEY) return reply.internalServerError('SUPABASE_SERVICE_ROLE_KEY not configured')
+
+    const brand = await prisma.brand.findUnique({ where: { id } })
+    if (!brand) return reply.notFound('Brand not found')
+
+    const body = request.body as { email: string; firstName?: string; lastName?: string }
+    const meta = { role: 'brand_admin', roles: ['brand_admin'], brandId: id, studioIds: [] }
+
+    let targetUser = await prisma.user.findUnique({ where: { email: body.email } })
+    let created = false
+
+    if (!targetUser) {
+      const authRows = await prisma.$queryRaw<{ id: string; raw_user_meta_data: Record<string, unknown> }[]>`
+        SELECT id::text, raw_user_meta_data FROM auth.users WHERE lower(email) = lower(${body.email}) LIMIT 1
+      `
+      const authUser = authRows[0] ?? null
+      if (authUser) {
+        const md = (authUser.raw_user_meta_data ?? {}) as Record<string, unknown>
+        targetUser = await prisma.user.create({ data: {
+          id: authUser.id, email: body.email,
+          firstName: body.firstName || (md.first_name as string) || body.email.split('@')[0],
+          lastName: body.lastName || (md.last_name as string) || '',
+        }})
+      } else {
+        if (!body.firstName || !body.lastName) return reply.badRequest('No account found. Provide first and last name to create one.')
+        const supaUser = await createSupabaseUser(body.email, meta)
+        targetUser = await prisma.user.create({ data: { id: supaUser.id, email: body.email, firstName: body.firstName, lastName: body.lastName } })
+        created = true
+      }
+    }
+
+    if (!created) {
+      const current = await getSupabaseAppMeta(targetUser!.id)
+      const existingRoles: string[] = current.roles ?? (current.role ? [current.role] : [])
+      const merged = [...new Set([...existingRoles.filter((r: string) => r !== 'brand_admin'), 'brand_admin'])]
+      await setSupabaseAppMeta(targetUser!.id, { ...meta, roles: merged, role: getPrimaryRole(merged) })
+    }
+
+    await prisma.member.upsert({
+      where: { userId: targetUser!.id },
+      update: { staffRoles: ['brand_admin'] },
+      create: { userId: targetUser!.id, studioId: (await prisma.brandStudio.findFirst({ where: { brandId: id } }))?.studioId ?? '', staffRoles: ['brand_admin'], source: 'packd' },
+    }).catch(() => {})
+
+    revokeUserSessions(targetUser!.id).catch(() => {})
+
+    return reply.code(created ? 201 : 200).send({
+      success: true, created,
+      message: created
+        ? `Account created for ${body.email}. They can set their password via "Forgot password".`
+        : `${body.email} has been assigned as brand admin.`,
+    })
+  })
+
+  // ── Remove brand admin ────────────────────────────────────────────────────
+  app.delete('/:id/brand-admins/:userId', {
+    preHandler: requireRole('admin'),
+    schema: { params: z.object({ id: z.string(), userId: z.string() }) },
+  }, async (request, reply) => {
+    const { id, userId } = request.params as { id: string; userId: string }
+    if (!SERVICE_ROLE_KEY) return reply.internalServerError('SUPABASE_SERVICE_ROLE_KEY not configured')
+
+    const brand = await prisma.brand.findUnique({ where: { id } })
+    if (!brand) return reply.notFound('Brand not found')
+
+    const current = await getSupabaseAppMeta(userId)
+    const existingRoles: string[] = current.roles ?? (current.role ? [current.role] : [])
+    const newRoles = existingRoles.filter((r: string) => r !== 'brand_admin')
+    const newPrimary = newRoles.length > 0 ? getPrimaryRole(newRoles) : 'member'
+
+    await setSupabaseAppMeta(userId, { role: newPrimary, roles: newRoles, brandId: undefined, studioIds: [] })
+    await prisma.member.updateMany({ where: { userId }, data: { staffRoles: newRoles } })
+    revokeUserSessions(userId).catch(() => {})
+
+    return reply.send({ success: true })
   })
 
   // ── Add studio to brand (admin only) ─────────────────────────────────────

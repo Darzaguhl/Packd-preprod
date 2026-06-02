@@ -36,7 +36,7 @@ function NewBrandModal({
       const res = await api.brands.create({ name: name.trim(), slug: slug.trim(), description: description.trim() || undefined }, token)
       if (res.success) {
         // The create endpoint returns brand without studios[]
-        onCreated({ ...res.data, studios: [], createdAt: new Date().toISOString() } as PlatformBrand)
+        onCreated({ ...res.data, studios: [], admin: null, createdAt: new Date().toISOString() } as PlatformBrand)
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to create brand')
@@ -117,27 +117,66 @@ function BrandRow({
   brand,
   token,
   onDelete,
-  onFranchiseCreated,
-  onFranchiseAdminAssigned,
+  onReload,
 }: {
   brand: PlatformBrand
   token: string
   onDelete: (id: string) => void
-  onFranchiseCreated: (brandId: string) => void
-  onFranchiseAdminAssigned: (brandId: string) => void
+  onReload: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const [showNewFranchise, setShowNewFranchise] = useState(false)
   const [showAssignAdmin, setShowAssignAdmin] = useState<string | null>(null) // franchiseId
-  const [franchiseForm, setFranchiseForm] = useState({ name: '', slug: '', description: '' })
-  const [creatingFranchise, setCreatingFranchise] = useState(false)
-  const [franchiseError, setFranchiseError] = useState<string | null>(null)
   const [adminForm, setAdminForm] = useState({ email: '', firstName: '', lastName: '' })
   const [assigningAdmin, setAssigningAdmin] = useState(false)
   const [adminError, setAdminError] = useState<string | null>(null)
   const [adminSuccess, setAdminSuccess] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+
+  // Brand admin state
+  const [showBrandAdminForm, setShowBrandAdminForm] = useState(false)
+  const [brandAdminForm, setBrandAdminForm] = useState({ email: '', firstName: '', lastName: '' })
+  const [assigningBrandAdmin, setAssigningBrandAdmin] = useState(false)
+  const [removingBrandAdmin, setRemovingBrandAdmin] = useState(false)
+  const [brandAdminError, setBrandAdminError] = useState<string | null>(null)
+  const [brandAdminSuccess, setBrandAdminSuccess] = useState<string | null>(null)
+
+  async function handleAssignBrandAdmin() {
+    if (!brandAdminForm.email.trim()) return
+    setAssigningBrandAdmin(true)
+    setBrandAdminError(null)
+    try {
+      const res = await api.brands.assignBrandAdmin(brand.id, {
+        email: brandAdminForm.email.trim(),
+        firstName: brandAdminForm.firstName.trim() || undefined,
+        lastName: brandAdminForm.lastName.trim() || undefined,
+      }, token)
+      setBrandAdminSuccess(res.message ?? 'Done')
+      setBrandAdminForm({ email: '', firstName: '', lastName: '' })
+      setShowBrandAdminForm(false)
+      onReload()
+    } catch (e) {
+      setBrandAdminError(e instanceof Error ? e.message : 'Failed')
+    } finally {
+      setAssigningBrandAdmin(false)
+    }
+  }
+
+  async function handleRemoveBrandAdmin() {
+    if (!brand.admin) return
+    if (!confirm(`Remove ${brand.admin.firstName} ${brand.admin.lastName} as brand admin? They will lose access immediately.`)) return
+    setRemovingBrandAdmin(true)
+    setBrandAdminError(null)
+    try {
+      await api.brands.removeBrandAdmin(brand.id, brand.admin.id, token)
+      setBrandAdminSuccess('Brand admin removed.')
+      onReload()
+    } catch (e) {
+      setBrandAdminError(e instanceof Error ? e.message : 'Failed')
+    } finally {
+      setRemovingBrandAdmin(false)
+    }
+  }
 
   // Fetch full brand with franchises when expanded
   const [franchises, setFranchises] = useState<Array<{
@@ -162,23 +201,6 @@ function BrandRow({
     if (next && franchises.length === 0) loadFranchises()
   }
 
-  async function handleCreateFranchise() {
-    if (!franchiseForm.name || !franchiseForm.slug) return
-    setCreatingFranchise(true)
-    setFranchiseError(null)
-    try {
-      await api.brands.createFranchise(brand.id, franchiseForm, token)
-      await loadFranchises()
-      setFranchiseForm({ name: '', slug: '', description: '' })
-      setShowNewFranchise(false)
-      onFranchiseCreated(brand.id)
-    } catch (e) {
-      setFranchiseError(e instanceof Error ? e.message : 'Failed to create franchise')
-    } finally {
-      setCreatingFranchise(false)
-    }
-  }
-
   async function handleAssignAdmin(franchiseId: string) {
     if (!adminForm.email.trim()) return
     setAssigningAdmin(true)
@@ -195,7 +217,6 @@ function BrandRow({
       setAdminForm({ email: '', firstName: '', lastName: '' })
       setShowAssignAdmin(null)
       await loadFranchises()
-      onFranchiseAdminAssigned(brand.id)
     } catch (e) {
       setAdminError(e instanceof Error ? e.message : 'Failed to assign admin')
     } finally {
@@ -229,10 +250,6 @@ function BrandRow({
           )}
         </div>
         <div className="flex items-center gap-4 shrink-0">
-          <div className="text-right hidden sm:block">
-            <p className="text-sm font-semibold text-gray-900">{brand.studios.length}</p>
-            <p className="text-xs text-gray-400">studio{brand.studios.length !== 1 ? 's' : ''}</p>
-          </div>
           <button
             onClick={handleExpand}
             className="text-sm text-gray-500 hover:text-gray-900 transition-colors flex items-center gap-1"
@@ -260,6 +277,94 @@ function BrandRow({
             >
               Delete
             </button>
+          )}
+        </div>
+      </div>
+
+      {/* Brand admin section */}
+      <div className="border-t border-gray-50 px-5 py-4 space-y-3">
+
+        {/* Current admin + remove/add-another */}
+        {brand.admin && (
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 text-[10px] font-bold shrink-0">
+                {(brand.admin.firstName?.[0] ?? brand.admin.email[0]).toUpperCase()}
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-800">{brand.admin.firstName} {brand.admin.lastName}</p>
+                <p className="text-[10px] text-gray-400">{brand.admin.email}</p>
+              </div>
+              <span className="text-[10px] bg-violet-50 text-violet-600 px-1.5 py-0.5 rounded font-medium">Brand admin</span>
+            </div>
+            <button onClick={handleRemoveBrandAdmin} disabled={removingBrandAdmin}
+              className="text-[10px] text-red-400 hover:text-red-600 transition-colors disabled:opacity-50 shrink-0">
+              {removingBrandAdmin ? 'Removing…' : 'Remove'}
+            </button>
+          </div>
+        )}
+
+        {/* Invite someone new — collapsible */}
+        <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-sm font-semibold text-gray-900">
+              {brand.admin ? 'Invite another brand admin' : 'Invite brand admin'}
+            </p>
+            <button
+              onClick={() => { setShowBrandAdminForm(v => !v); setBrandAdminError(null) }}
+              className="text-xs text-gray-500 hover:text-gray-800 transition-colors"
+            >
+              {showBrandAdminForm ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          {!showBrandAdminForm ? (
+            <p className="text-xs text-gray-400">
+              {brand.admin
+                ? 'Add another person as brand admin for a transition.'
+                : 'Assign someone to manage this brand and its franchises.'}
+            </p>
+          ) : (
+            <>
+              <p className="text-xs text-gray-400 mb-3">
+                If they don't have a Packd account yet, provide their name — an account will be created and they can set their password via "Forgot password".
+              </p>
+              <form onSubmit={e => { e.preventDefault(); handleAssignBrandAdmin() }} className="flex gap-2 flex-wrap">
+                <input
+                  type="text"
+                  placeholder="First name"
+                  value={brandAdminForm.firstName}
+                  onChange={e => setBrandAdminForm(v => ({ ...v, firstName: e.target.value }))}
+                  className="w-28 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                />
+                <input
+                  type="text"
+                  placeholder="Last name"
+                  value={brandAdminForm.lastName}
+                  onChange={e => setBrandAdminForm(v => ({ ...v, lastName: e.target.value }))}
+                  className="w-28 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                />
+                <input
+                  type="email"
+                  placeholder="email@example.com"
+                  value={brandAdminForm.email}
+                  onChange={e => setBrandAdminForm(v => ({ ...v, email: e.target.value }))}
+                  required
+                  className="flex-1 min-w-48 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                />
+                <button
+                  type="submit"
+                  disabled={assigningBrandAdmin || !brandAdminForm.email.trim()}
+                  className="text-sm font-medium bg-violet-600 text-white px-4 py-2 rounded-lg hover:bg-violet-500 disabled:opacity-40 transition-colors flex items-center gap-1.5 shrink-0"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none">
+                    <path d="M2 8h12M8 2l6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  {assigningBrandAdmin ? 'Assigning…' : 'Assign'}
+                </button>
+              </form>
+              {brandAdminError && <p className="mt-2 text-xs text-red-500">{brandAdminError}</p>}
+              {brandAdminSuccess && <p className="mt-2 text-xs text-emerald-600">{brandAdminSuccess}</p>}
+            </>
           )}
         </div>
       </div>
@@ -297,17 +402,10 @@ function BrandRow({
                             Cancel
                           </button>
                         ) : f.admin ? (
-                          <div className="flex items-center gap-2 shrink-0">
-                            <div className="text-right">
-                              <p className="text-xs font-medium text-gray-700">{f.admin.firstName} {f.admin.lastName}</p>
-                              <p className="text-[10px] text-gray-400">{f.admin.email}</p>
-                            </div>
-                            <button
-                              onClick={() => { setShowAssignAdmin(f.id); setAdminSuccess(null) }}
-                              className="text-[10px] text-gray-400 hover:text-gray-600 shrink-0"
-                            >
-                              Change
-                            </button>
+                          <div className="text-right shrink-0">
+                            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Franchise admin</p>
+                            <p className="text-xs font-medium text-gray-700">{f.admin.firstName} {f.admin.lastName}</p>
+                            <p className="text-[10px] text-gray-400">{f.admin.email}</p>
                           </div>
                         ) : (
                           <button
@@ -375,66 +473,12 @@ function BrandRow({
                 </div>
               )}
 
-              {/* Admin success toast */}
+              {/* Franchise admin success toast */}
               {adminSuccess && (
                 <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
                   <p className="text-xs text-emerald-700">{adminSuccess}</p>
                   <button onClick={() => setAdminSuccess(null)} className="text-emerald-400 hover:text-emerald-600 ml-2">✕</button>
                 </div>
-              )}
-
-              {/* Add franchise */}
-              {showNewFranchise ? (
-                <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 space-y-3">
-                  <p className="text-sm font-medium text-gray-700">Add franchise</p>
-                  <input
-                    autoFocus
-                    placeholder="Franchise name (e.g. Barry's Norway)"
-                    value={franchiseForm.name}
-                    onChange={e => {
-                      const v = e.target.value
-                      setFranchiseForm(f => ({
-                        ...f,
-                        name: v,
-                        slug: v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
-                      }))
-                    }}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
-                  />
-                  <input
-                    placeholder="Slug (e.g. barrys-norway)"
-                    value={franchiseForm.slug}
-                    onChange={e => setFranchiseForm(f => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 font-mono"
-                  />
-                  <input
-                    placeholder="Description (optional)"
-                    value={franchiseForm.description}
-                    onChange={e => setFranchiseForm(f => ({ ...f, description: e.target.value }))}
-                    onKeyDown={e => e.key === 'Enter' && handleCreateFranchise()}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
-                  />
-                  {franchiseError && <p className="text-xs text-red-500">{franchiseError}</p>}
-                  <div className="flex gap-2">
-                    <button
-                      disabled={!franchiseForm.name || !franchiseForm.slug || creatingFranchise}
-                      onClick={handleCreateFranchise}
-                      className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-gray-800 transition-colors"
-                    >
-                      {creatingFranchise ? 'Creating…' : 'Create'}
-                    </button>
-                    <button onClick={() => { setShowNewFranchise(false); setFranchiseError(null) }} className="text-sm text-gray-400 hover:text-gray-600 px-2">
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowNewFranchise(true)}
-                  className="text-sm text-gray-500 hover:text-gray-900 transition-colors font-medium"
-                >
-                  + Add franchise
-                </button>
               )}
             </>
           )}
@@ -486,7 +530,7 @@ export default function PlatformDashboard() {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {[
             { label: 'Brands', value: brands.length },
-            { label: 'Studios', value: totalStudios },
+            { label: 'Brand admins', value: brands.filter(b => b.admin).length },
           ].map(kpi => (
             <div key={kpi.label} className="bg-white rounded-2xl border border-gray-100 px-5 py-4">
               <p className="text-2xl font-bold text-gray-900">{kpi.value}</p>
@@ -536,11 +580,7 @@ export default function PlatformDashboard() {
                   setBrands(prev => prev.filter(b => b.id !== id))
                   showToast('Brand deleted')
                 }}
-                onFranchiseCreated={() => {
-                  if (token) loadBrands(token)
-                  showToast('Franchise created')
-                }}
-                onFranchiseAdminAssigned={() => showToast('Admin assigned')}
+                onReload={() => token && loadBrands(token)}
               />
             ))
           )}

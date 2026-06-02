@@ -287,6 +287,7 @@ export interface PlatformBrand {
   logoUrl: string | null
   description: string | null
   createdAt: string
+  admin: { id: string; email: string; firstName: string; lastName: string } | null
   studios: { id: string; name: string; slug: string; timezone: string }[]
 }
 

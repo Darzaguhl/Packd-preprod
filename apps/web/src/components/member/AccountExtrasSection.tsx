@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { api, members as membersClient } from '@/lib/api-client'
 
 interface Props {
@@ -236,6 +237,65 @@ function ReceiptsSection({ token }: { token: string }) {
   )
 }
 
+// ── Change password section ───────────────────────────────────────────────────
+function ChangePasswordSection() {
+  const [newPw, setNewPw] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
+  const [showNew, setShowNew] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (newPw !== confirm) { setError('Passwords do not match.'); return }
+    if (newPw.length < 8) { setError('Password must be at least 8 characters.'); return }
+    setSaving(true)
+    setError(null)
+    const { error: updateErr } = await createClient().auth.updateUser({ password: newPw })
+    if (updateErr) { setError(updateErr.message) } else { setSuccess(true); setNewPw(''); setConfirm('') }
+    setSaving(false)
+  }
+
+  const Eye = ({ show, onToggle }: { show: boolean; onToggle: () => void }) => (
+    <button type="button" onClick={onToggle} tabIndex={-1} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+      {show ? (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+      ) : (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+      )}
+    </button>
+  )
+
+  if (success) return (
+    <div className="pt-4 flex items-center justify-between">
+      <p className="text-sm text-green-600 font-medium">Password updated successfully.</p>
+      <button onClick={() => setSuccess(false)} className="text-xs text-gray-400 hover:text-gray-600">×</button>
+    </div>
+  )
+
+  return (
+    <form onSubmit={handleSubmit} className="pt-4 space-y-3">
+      <div className="relative">
+        <label className="block text-xs font-medium text-gray-500 mb-1">New password</label>
+        <input type={showNew ? 'text' : 'password'} value={newPw} onChange={e => setNewPw(e.target.value)} required minLength={8}
+          className="w-full px-3 py-2 pr-10 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black" />
+        <Eye show={showNew} onToggle={() => setShowNew(v => !v)} />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-500 mb-1">Confirm new password</label>
+        <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black" />
+      </div>
+      {error && <p className="text-xs text-red-500">{error}</p>}
+      <button type="submit" disabled={saving || !newPw || !confirm}
+        className="w-full py-2 bg-black text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-40 transition-colors">
+        {saving ? 'Saving…' : 'Set password'}
+      </button>
+    </form>
+  )
+}
+
 // ── GDPR section ──────────────────────────────────────────────────────────────
 function GdprSection({ token }: { token: string }) {
   const [exporting, setExporting] = useState(false)
@@ -307,7 +367,7 @@ function GdprSection({ token }: { token: string }) {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 export default function AccountExtrasSection({ token, activeSubscriptionId, allowMemberPause = true, referralEnabled = false }: Props) {
-  type Section = 'referral' | 'email' | 'pause' | 'receipts' | 'privacy'
+  type Section = 'referral' | 'email' | 'pause' | 'receipts' | 'password' | 'privacy'
   const [open, setOpen] = useState<Section | null>(null)
 
   const sections = ([
@@ -315,6 +375,7 @@ export default function AccountExtrasSection({ token, activeSubscriptionId, allo
     { id: 'email' as Section, label: 'Email preferences', show: true },
     { id: 'pause' as Section, label: 'Pause membership', show: allowMemberPause && !!activeSubscriptionId },
     { id: 'receipts' as Section, label: 'Purchase receipts', show: true },
+    { id: 'password' as Section, label: 'Change password', show: true },
     { id: 'privacy' as Section, label: 'Privacy & data', show: true },
   ] as { id: Section; label: string; show: boolean }[]).filter(s => s.show)
 
@@ -337,6 +398,7 @@ export default function AccountExtrasSection({ token, activeSubscriptionId, allo
               {s.id === 'email' && <div className="pt-4"><EmailPrefsSection token={token} /></div>}
               {s.id === 'pause' && activeSubscriptionId && <div className="pt-4"><SelfPauseSection token={token} subscriptionId={activeSubscriptionId} /></div>}
               {s.id === 'receipts' && <div className="pt-4"><ReceiptsSection token={token} /></div>}
+              {s.id === 'password' && <ChangePasswordSection />}
               {s.id === 'privacy' && <div className="pt-4"><GdprSection token={token} /></div>}
             </div>
           )}

@@ -41,13 +41,12 @@ export default function NavBar({ title, subtitle, leading, action, children }: P
     router.push('/login')
   }
 
-  const isElevated = ELEVATED.has(role ?? '')
+  const isAdmin = role === 'admin'
+  const isElevated = !isAdmin && ELEVATED.has(role ?? '')
   const isFronthost = FRONTHOST.has(role ?? '')
 
-  const isAdmin = role === 'admin'
-
   const navLinks: { label: string; href: string }[] = [
-    { label: 'Schedule', href: '/schedule' },
+    ...(!isAdmin ? [{ label: 'Schedule', href: '/schedule' }] : []),
     ...(isElevated ? [{ label: 'Dashboard', href: '/dashboard' }] : []),
     ...(isFronthost ? [{ label: 'Live', href: '/fronthost' }] : []),
     ...(isAdmin ? [{ label: 'Platform', href: '/platform' }] : []),

@@ -7,10 +7,10 @@ import { useRouter } from 'next/navigation'
 function roleHomePath(role: string | undefined): string {
   switch (role) {
     case 'admin':
+      return '/platform'
     case 'brand_admin':
     case 'franchise_admin':
     case 'studio_admin':
-      return '/dashboard'
     case 'instructor':
       return '/dashboard'
     case 'fronthost':

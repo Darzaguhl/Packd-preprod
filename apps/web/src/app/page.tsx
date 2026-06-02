@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 function roleHomePath(role: string | undefined): string {
   switch (role) {
     case 'admin':
+      return '/platform'
     case 'franchise_admin':
     case 'studio_admin':
     case 'instructor':
