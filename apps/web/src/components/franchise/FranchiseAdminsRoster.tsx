@@ -30,6 +30,14 @@ export default function FranchiseAdminsRoster({ studios, token }: Props) {
   const [addError, setAddError] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
 
+  // Invite form
+  const [showInvite, setShowInvite] = useState(false)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteFirstName, setInviteFirstName] = useState('')
+  const [inviteStudioId, setInviteStudioId] = useState(studios[0]?.id ?? '')
+  const [inviting, setInviting] = useState(false)
+  const [inviteMsg, setInviteMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
   function showToast(msg: string, ok = true) {
     setToast({ msg, ok })
     setTimeout(() => setToast(null), 3500)
@@ -56,6 +64,23 @@ export default function FranchiseAdminsRoster({ studios, token }: Props) {
       setAddError(e instanceof Error ? e.message : 'Failed to add admin')
     } finally {
       setAdding(false)
+    }
+  }
+
+  async function handleInvite(e: React.FormEvent) {
+    e.preventDefault()
+    if (!inviteEmail.trim() || !inviteFirstName.trim() || !inviteStudioId) return
+    setInviting(true)
+    setInviteMsg(null)
+    try {
+      const res = await api.staff.invite(inviteEmail.trim(), inviteFirstName.trim(), 'studio_admin', inviteStudioId, token)
+      setInviteMsg({ ok: true, text: res.message })
+      setInviteEmail('')
+      setInviteFirstName('')
+    } catch (e) {
+      setInviteMsg({ ok: false, text: e instanceof Error ? e.message : 'Failed to send invite' })
+    } finally {
+      setInviting(false)
     }
   }
 
@@ -108,6 +133,64 @@ export default function FranchiseAdminsRoster({ studios, token }: Props) {
           </button>
         </div>
         {addError && <p className="text-xs text-red-500">{addError}</p>}
+      </div>
+
+      {/* Invite someone new */}
+      <div className="bg-white border border-gray-100 rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-sm font-semibold text-gray-900">Invite someone new</p>
+          <button
+            onClick={() => { setShowInvite(v => !v); setInviteMsg(null) }}
+            className="text-xs text-gray-500 hover:text-gray-800 transition-colors"
+          >
+            {showInvite ? 'Hide' : 'Show'}
+          </button>
+        </div>
+        {!showInvite ? (
+          <p className="text-xs text-gray-400">Send an invitation email to someone who doesn't have a Packd account yet.</p>
+        ) : (
+          <>
+            <p className="text-xs text-gray-400 mb-4">They'll receive an email with a link to sign up and join as a studio admin.</p>
+            <form onSubmit={handleInvite} className="flex gap-2 flex-wrap">
+              <input
+                type="text"
+                placeholder="First name"
+                value={inviteFirstName}
+                onChange={e => setInviteFirstName(e.target.value)}
+                required
+                className="w-32 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
+              />
+              <input
+                type="email"
+                placeholder="email@example.com"
+                value={inviteEmail}
+                onChange={e => setInviteEmail(e.target.value)}
+                required
+                className="flex-1 min-w-48 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
+              />
+              <select
+                value={inviteStudioId}
+                onChange={e => setInviteStudioId(e.target.value)}
+                className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 shrink-0"
+              >
+                {studios.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <button
+                type="submit"
+                disabled={inviting || !inviteEmail.trim() || !inviteFirstName.trim()}
+                className="text-sm font-medium bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-500 disabled:opacity-40 transition-colors flex items-center gap-1.5 shrink-0"
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none">
+                  <path d="M2 8h12M8 2l6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                {inviting ? 'Sending…' : 'Send invite'}
+              </button>
+            </form>
+            {inviteMsg && (
+              <p className={`mt-3 text-xs ${inviteMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>{inviteMsg.text}</p>
+            )}
+          </>
+        )}
       </div>
 
       {/* Search */}
