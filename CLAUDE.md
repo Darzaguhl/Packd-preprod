@@ -404,6 +404,7 @@ For each file in `apps/api/src/routes/`, check:
 - [x] Pagination on remaining high-volume endpoints — `GET /franchise/all-admins`, `GET /franchise/promos`, `GET /brands/:id/members` all return `{ items, nextCursor, hasMore }` with cursor/take params.
 
 ### Enterprise / operational
+- [ ] **Platform deployment** — no hosting platform configured yet. Recommended: Railway (both services) or Vercel (web) + Railway (API). Runbook is in `docs/deploy-runbook.md`. Pending migration `20260603000001_cache_subscription_next_billing_date` must be applied on first deploy (`npm run db:migrate:deploy`).
 - [ ] Backup restore test — Supabase PITR enabled but restore procedure untested. Run a restore drill against a staging environment.
 - [ ] Business continuity plan — define what happens if Supabase, Stripe, or Resend are unavailable.
 - [ ] External penetration test — internal audit found 30 issues (all fixed). Schedule a third-party pen test before enterprise launch.
