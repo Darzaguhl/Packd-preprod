@@ -11,6 +11,91 @@ import MemberHistoryView from '@/components/member/MemberHistoryView'
 import AccountExtrasSection from '@/components/member/AccountExtrasSection'
 import { TimeFormatProvider } from '@/lib/time-format-context'
 
+// ─── Activity feed ────────────────────────────────────────────────────────────
+
+type FeedItem =
+  | { kind: 'booking'; date: string; name: string; status: PastBooking['status']; checkedIn: boolean }
+  | { kind: 'credit';  date: string; amount: number; type: CreditTransaction['type']; note: string | null }
+
+function ActivityFeed({ pastBookings, transactions }: { pastBookings: PastBooking[]; transactions: CreditTransaction[] }) {
+  const items: FeedItem[] = [
+    ...pastBookings.slice(0, 30).map(b => ({
+      kind: 'booking' as const,
+      date: b.startsAt,
+      name: b.templateName,
+      status: b.status,
+      checkedIn: b.checkedIn,
+    })),
+    ...transactions.slice(0, 30).map(t => ({
+      kind: 'credit' as const,
+      date: t.createdAt,
+      amount: t.amount,
+      type: t.type,
+      note: t.note,
+    })),
+  ]
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 8)
+
+  if (!items.length) return null
+
+  function bookingIcon(status: PastBooking['status'], checkedIn: boolean) {
+    if (checkedIn) return { icon: '✓', color: 'text-emerald-600 bg-emerald-50' }
+    if (status === 'CANCELLED') return { icon: '×', color: 'text-gray-400 bg-gray-100' }
+    if (status === 'LATE_CANCELLED') return { icon: '!', color: 'text-amber-600 bg-amber-50' }
+    if (status === 'NO_SHOW') return { icon: '—', color: 'text-red-500 bg-red-50' }
+    return { icon: '✓', color: 'text-gray-500 bg-gray-100' }
+  }
+
+  function creditIcon(type: CreditTransaction['type'], amount: number) {
+    if (type === 'REFERRAL')    return { icon: '★', color: 'text-purple-600 bg-purple-50' }
+    if (type === 'EXPIRY')      return { icon: '↓', color: 'text-red-500 bg-red-50' }
+    if (amount > 0)             return { icon: '+', color: 'text-emerald-600 bg-emerald-50' }
+    return                               { icon: '−', color: 'text-gray-400 bg-gray-100' }
+  }
+
+  function label(item: FeedItem) {
+    if (item.kind === 'booking') {
+      if (item.status === 'CANCELLED')      return `Cancelled · ${item.name}`
+      if (item.status === 'LATE_CANCELLED') return `Late cancel · ${item.name}`
+      if (item.status === 'NO_SHOW')        return `No-show · ${item.name}`
+      return item.checkedIn ? `Attended ${item.name}` : `Booked ${item.name}`
+    }
+    const sign = item.amount > 0 ? `+${item.amount}` : `${item.amount}`
+    const base = `${sign} credit${Math.abs(item.amount) !== 1 ? 's' : ''}`
+    if (item.note)                           return `${base} · ${item.note}`
+    if (item.type === 'MEMBERSHIP_RENEWAL') return `${base} · Membership renewal`
+    if (item.type === 'REFERRAL')           return `${base} · Referral reward`
+    if (item.type === 'EXPIRY')             return `${base} · Credits expired`
+    if (item.type === 'PURCHASE')           return `${base} · Purchase`
+    return base
+  }
+
+  return (
+    <div className="bg-white border border-gray-100 rounded-2xl px-5 py-4">
+      <h3 className="text-sm font-semibold text-gray-900 mb-3">Recent activity</h3>
+      <ul className="space-y-2">
+        {items.map((item, i) => {
+          const { icon, color } = item.kind === 'booking'
+            ? bookingIcon(item.status, item.checkedIn)
+            : creditIcon(item.type, item.amount)
+          return (
+            <li key={i} className="flex items-center gap-3">
+              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${color}`}>
+                {icon}
+              </span>
+              <span className="flex-1 text-xs text-gray-700 truncate">{label(item)}</span>
+              <span className="text-[11px] text-gray-400 shrink-0 tabular-nums">
+                {new Date(item.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 // ─── Edit profile modal ───────────────────────────────────────────────────────
 
 function EditProfileModal({
@@ -374,6 +459,9 @@ export default function AccountView() {
             emergencyContactPhone={profileExtended?.emergencyContactPhone}
           />
 
+          {/* ══ MY PLAN ══════════════════════════════════════════════════════ */}
+          <p className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase px-1 pt-2">My Plan</p>
+
           {/* ── My stats ── */}
           {memberStats && (
             <div className="bg-white border border-gray-100 rounded-2xl px-5 py-4 space-y-3">
@@ -438,6 +526,12 @@ export default function AccountView() {
               Manage payment methods →
             </button>
           </div>
+
+          {/* ══ ACTIVITY ═════════════════════════════════════════════════════ */}
+          <p className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase px-1 pt-2">Activity</p>
+
+          {/* ── Activity feed ── */}
+          <ActivityFeed pastBookings={pastBookings} transactions={transactions} />
 
           {/* ── Purchase history ── */}
           {purchases.length > 0 && (
@@ -551,10 +645,12 @@ export default function AccountView() {
             </div>
           )}
 
+          {/* ══ SETTINGS ═════════════════════════════════════════════════════ */}
+          <p className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase px-1 pt-2">Settings</p>
+
           {/* ── Account extras (referral, email prefs, self-pause, receipts, privacy) ── */}
           {token && (
             <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-gray-900 px-1">Account settings</h3>
               <AccountExtrasSection
                 token={token}
                 activeSubscriptionId={profile?.activeSubscription?.id ?? null}

@@ -139,30 +139,78 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       const user = getUser(request)
 
       const term = q.trim()
+
+      // ── Trigram fuzzy search via pg_trgm ─────────────────────────────────
+      // Scoring:
+      //   3 = name starts with the term  (best — "erik" → "Erik A.")
+      //   2 = term appears anywhere in name/email  (good — substring)
+      //   1 = trigram similarity only  (fuzzy — "eric" finds "Erik", misspellings)
+      //
+      // The similarity threshold 0.25 is deliberately low for short names.
+      // For term length ≥ 4 the trigram algorithm is reliable; for shorter
+      // terms we rely on the ILIKE clause so there are no spurious matches.
+      const rows = await prisma.$queryRaw<{
+        id: string; score: number; sim: number
+      }[]>`
+        SELECT
+          m.id,
+          CASE
+            WHEN lower(u."firstName") LIKE lower(${term}) || '%'
+              OR lower(u."lastName")  LIKE lower(${term}) || '%'
+            THEN 3
+            WHEN lower(u."firstName") LIKE '%' || lower(${term}) || '%'
+              OR lower(u."lastName")  LIKE '%' || lower(${term}) || '%'
+              OR lower(u.email)       LIKE '%' || lower(${term}) || '%'
+            THEN 2
+            ELSE 1
+          END AS score,
+          GREATEST(
+            similarity(lower(u."firstName"),                            lower(${term})),
+            similarity(lower(u."lastName"),                             lower(${term})),
+            similarity(lower(u."firstName" || ' ' || u."lastName"),    lower(${term}))
+          ) AS sim
+        FROM "Member" m
+        JOIN "User" u ON u.id = m."userId"
+        WHERE m."studioId" = ${studioId}
+          AND (
+            lower(u."firstName") LIKE '%' || lower(${term}) || '%'
+            OR lower(u."lastName")  LIKE '%' || lower(${term}) || '%'
+            OR lower(u.email)       LIKE '%' || lower(${term}) || '%'
+            OR (
+              ${term.length} >= 4
+              AND (
+                similarity(lower(u."firstName"),                         lower(${term})) > 0.25
+                OR similarity(lower(u."lastName"),                       lower(${term})) > 0.25
+                OR similarity(lower(u."firstName" || ' ' || u."lastName"), lower(${term})) > 0.25
+              )
+            )
+          )
+        ORDER BY score DESC, sim DESC
+        LIMIT 10
+      `
+
+      if (rows.length === 0) return []
+
+      // Fetch full member data for matched IDs, preserving ranked order
+      const order = new Map(rows.map((r, i) => [r.id, i]))
       const members = await prisma.member.findMany({
-        where: {
-          studioId,
-          OR: [
-            { user: { firstName: { contains: term, mode: 'insensitive' } } },
-            { user: { lastName:  { contains: term, mode: 'insensitive' } } },
-            { user: { email:     { contains: term, mode: 'insensitive' } } },
-          ],
-        },
+        where: { id: { in: rows.map(r => r.id) } },
         include: {
           user: { select: { firstName: true, lastName: true, email: true } },
           creditBalance: { select: { balance: true } },
           memberships: { where: { status: { in: ['ACTIVE', 'PAUSED'] } }, orderBy: { startDate: 'desc' }, take: 1, select: { status: true } },
         },
-        take: 10,
       })
 
-      return members.map(m => ({
-        id: m.id,
-        name: `${m.user.firstName} ${m.user.lastName}`,
-        email: m.user.email,
-        creditBalance: m.creditBalance?.balance ?? 0,
-        membershipStatus: m.memberships[0]?.status ?? null,
-      }))
+      return members
+        .sort((a, b) => (order.get(a.id) ?? 99) - (order.get(b.id) ?? 99))
+        .map(m => ({
+          id: m.id,
+          name: `${m.user.firstName} ${m.user.lastName}`,
+          email: m.user.email,
+          creditBalance: m.creditBalance?.balance ?? 0,
+          membershipStatus: m.memberships[0]?.status ?? null,
+        }))
     },
   )
 

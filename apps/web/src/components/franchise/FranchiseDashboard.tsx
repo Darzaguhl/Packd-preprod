@@ -18,14 +18,36 @@ import BroadcastTab from './tabs/BroadcastTab'
 import FranchiseStaffRoster from './FranchiseStaffRoster'
 import FranchisePermissionsRoster from './FranchisePermissionsRoster'
 import FranchiseAdminsRoster from './FranchiseAdminsRoster'
+import PoliciesTab from './tabs/PoliciesTab'
 
-type Tab = 'studios' | 'admins' | 'staff' | 'permissions' | 'analytics' | 'networks' | 'brands' | 'promos' | 'broadcast'
+// Top-level navigation tabs (collapsed from 9 → 5)
+type Tab = 'studios' | 'analytics' | 'people' | 'settings' | 'brands'
+type PeopleSubTab    = 'admins' | 'staff' | 'permissions'
+type SettingsSubTab  = 'networks' | 'promos' | 'broadcast' | 'policies'
+
+// Legacy deep-link tabs that now live inside People or Settings
+const PEOPLE_TABS   = new Set<string>(['admins', 'staff', 'permissions'])
+const SETTINGS_TABS = new Set<string>(['networks', 'promos', 'broadcast', 'policies'])
 
 export default function FranchiseDashboard() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
-  const [tab, setTab] = useState<Tab>(() => (searchParams.get('tab') as Tab) ?? 'studios')
+  const [tab, setTab] = useState<Tab>(() => {
+    const raw = searchParams.get('tab') ?? ''
+    if (PEOPLE_TABS.has(raw))   return 'people'
+    if (SETTINGS_TABS.has(raw)) return 'settings'
+    return (raw as Tab) || 'studios'
+  })
+  const [peopleSubTab,   setPeopleSubTab]   = useState<PeopleSubTab>(() => {
+    const raw = searchParams.get('tab') ?? ''
+    return PEOPLE_TABS.has(raw) ? raw as PeopleSubTab : 'admins'
+  })
+  const [settingsSubTab, setSettingsSubTab] = useState<SettingsSubTab>(() => {
+    const raw = searchParams.get('tab') ?? ''
+    return SETTINGS_TABS.has(raw) ? raw as SettingsSubTab : 'networks'
+  })
+
   const [token, setToken] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [franchiseName, setFranchiseName] = useState<string | null>(null)
@@ -123,16 +145,46 @@ export default function FranchiseDashboard() {
   }
 
   const TABS: { id: Tab; label: string }[] = [
-    { id: 'studios', label: 'Studios' },
-    ...(userRole === 'admin' ? [{ id: 'brands' as Tab, label: 'Brands' }] : []),
-    { id: 'networks', label: 'Networks' },
+    { id: 'studios',   label: 'Studios' },
     { id: 'analytics', label: 'Analytics' },
-    { id: 'promos', label: 'Promos' },
-    { id: 'broadcast', label: 'Broadcast' },
-    { id: 'admins', label: 'Studio Admins' },
-    { id: 'staff', label: 'Staff' },
+    { id: 'people',    label: 'People' },
+    { id: 'settings',  label: 'Settings' },
+    ...(userRole === 'admin' ? [{ id: 'brands' as Tab, label: 'Brands' }] : []),
+  ]
+
+  const PEOPLE_SUB:   { id: PeopleSubTab;   label: string }[] = [
+    { id: 'admins',      label: 'Studio Admins' },
+    { id: 'staff',       label: 'Staff' },
     { id: 'permissions', label: 'Permissions' },
   ]
+  const SETTINGS_SUB: { id: SettingsSubTab; label: string }[] = [
+    { id: 'networks',  label: 'Networks' },
+    { id: 'promos',    label: 'Promos' },
+    { id: 'broadcast', label: 'Broadcast' },
+    { id: 'policies',  label: 'Policies' },
+  ]
+
+  function SubNav<T extends string>({
+    items, active, onSelect,
+  }: { items: { id: T; label: string }[]; active: T; onSelect: (id: T) => void }) {
+    return (
+      <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5 w-fit">
+        {items.map(it => (
+          <button
+            key={it.id}
+            onClick={() => onSelect(it.id)}
+            className={`text-xs font-medium px-4 py-1.5 rounded-md transition-colors ${
+              active === it.id
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {it.label}
+          </button>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -165,39 +217,56 @@ export default function FranchiseDashboard() {
 
       {tab === 'brands' && token && <BrandsTab token={token} showToast={showToast} />}
 
-      {tab === 'networks' && token && <NetworksTab studios={studios} token={token} showToast={showToast} />}
-
       {tab === 'analytics' && token && (
         <AnalyticsTab studioId="all" token={token} canQuery={false} studios={studios.map(s => ({ id: s.id, name: s.name }))} />
       )}
 
-      {tab === 'promos' && token && (
-        <PromosTab studioCount={studios.length} token={token} showToast={showToast} />
-      )}
-
-      {tab === 'broadcast' && token && (
-        <BroadcastTab studios={studios} token={token} showToast={showToast} />
-      )}
-
-      {tab === 'admins' && token && (
-        <div className="max-w-3xl mx-auto w-full px-6 py-6">
-          {studios.length === 0
-            ? <p className="text-sm text-gray-400">No studios yet. Create a studio first.</p>
-            : <FranchiseAdminsRoster studios={studios} token={token} />}
+      {/* ── People: Admins / Staff / Permissions ── */}
+      {tab === 'people' && token && (
+        <div className="flex flex-col flex-1">
+          <div className="max-w-5xl mx-auto w-full px-6 pt-5">
+            <SubNav items={PEOPLE_SUB} active={peopleSubTab} onSelect={setPeopleSubTab} />
+          </div>
+          {peopleSubTab === 'admins' && (
+            <div className="max-w-3xl mx-auto w-full px-6 py-4">
+              {studios.length === 0
+                ? <p className="text-sm text-gray-400">No studios yet. Create a studio first.</p>
+                : <FranchiseAdminsRoster studios={studios} token={token} />}
+            </div>
+          )}
+          {peopleSubTab === 'staff' && (
+            <div className="max-w-4xl mx-auto w-full px-6 py-4">
+              <FranchiseStaffRoster token={token} />
+            </div>
+          )}
+          {peopleSubTab === 'permissions' && (
+            <div className="max-w-5xl mx-auto w-full px-6 py-4">
+              {studios.length > 0
+                ? <FranchisePermissionsRoster studios={studios} token={token} />
+                : <p className="text-sm text-gray-400 text-center py-16">No studios yet.</p>}
+            </div>
+          )}
         </div>
       )}
 
-      {tab === 'staff' && token && (
-        <div className="max-w-4xl mx-auto w-full px-6 py-6">
-          <FranchiseStaffRoster token={token} />
-        </div>
-      )}
-
-      {tab === 'permissions' && token && (
-        <div className="max-w-5xl mx-auto w-full px-6 py-6">
-          {studios.length > 0
-            ? <FranchisePermissionsRoster studios={studios} token={token} />
-            : <p className="text-sm text-gray-400 text-center py-16">No studios yet.</p>}
+      {/* ── Settings: Networks / Promos / Broadcast / Policies ── */}
+      {tab === 'settings' && token && (
+        <div className="flex flex-col flex-1">
+          <div className="max-w-5xl mx-auto w-full px-6 pt-5">
+            <SubNav items={SETTINGS_SUB} active={settingsSubTab} onSelect={setSettingsSubTab} />
+          </div>
+          {settingsSubTab === 'networks' && (
+            <NetworksTab studios={studios} token={token} showToast={showToast} />
+          )}
+          {settingsSubTab === 'promos' && (
+            <PromosTab studioCount={studios.length} token={token} showToast={showToast} />
+          )}
+          {settingsSubTab === 'broadcast' && (
+            <BroadcastTab studios={studios} token={token} showToast={showToast} />
+          )}
+          {settingsSubTab === 'policies' && (
+            <PoliciesTab token={token} showToast={showToast} />
+          )}
         </div>
       )}
 

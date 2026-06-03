@@ -16,6 +16,7 @@ Boutique fitness studio management platform (think Zingfit / Mariana Tek). Full-
 | Email | Resend |
 | Error tracking | Sentry (`@sentry/node`) |
 | DnD | @dnd-kit/core + @dnd-kit/sortable |
+| Mobile | Expo (Expo Router, React Native) |
 | Tests | Vitest 3 (unit) + Playwright 1.60 (E2E) |
 | CI | GitHub Actions (unit tests + typecheck on every push; E2E on PRs when secrets configured) |
 
@@ -23,6 +24,7 @@ Boutique fitness studio management platform (think Zingfit / Mariana Tek). Full-
 
 - Web: `http://localhost:3000`
 - API: `http://localhost:4000`
+- Mobile: Expo Go / `npx expo start` in `apps/mobile/`
 
 ## Running the project
 
@@ -31,6 +33,7 @@ npm install              # also runs prisma generate via postinstall
 
 cd apps/api && npm run dev           # API on :4000
 cd apps/web && npm run dev           # Web on :3000
+cd apps/mobile && npx expo start     # Mobile (Expo Go or simulator)
 
 npm test                             # Vitest unit tests (205 passing | 7 skipped across 23 files)
 npm run test:e2e                     # Playwright (needs both servers + .auth/ state files)
@@ -287,6 +290,28 @@ docs/
   deploy-runbook.md        # Zero-downtime deploy strategy + expand/contract migration pattern
   secret-rotation.md       # Rotation procedures for ICAL_SECRET, INVITE_SECRET, Stripe, Supabase
   soc2-controls.md         # SOC 2 TSC control mapping + gap list for formal audit
+apps/
+  mobile/
+    app.json / babel.config.js / metro.config.js / tsconfig.json
+    app/
+      (auth)/login.tsx     # Email/password login screen; Supabase auth
+      (tabs)/_layout.tsx   # Bottom tab navigator: Schedule, Bookings, Account
+      (tabs)/schedule.tsx  # Week view: day tabs, session cards, pull-to-refresh, sport colour dots
+      (tabs)/bookings.tsx  # Upcoming bookings list; cancel with confirmation alert
+      (tabs)/account.tsx   # Member profile: credit balance, subscription, sign-out
+      session/[id].tsx     # Session detail: book/cancel/waitlist, spot picker, waiver modal,
+                           # late-cancel warning, credit display
+    src/
+      components/
+        SpotPicker.tsx     # Native room map — touch to select a station
+        WaiverModal.tsx    # Full-screen waiver sign modal (mirrors web WaiverModal)
+      lib/
+        api.ts             # Typed API client for mobile (schedule, bookings, waitlist, members, waivers)
+        supabase.ts        # Supabase client (Expo SecureStore session persistence)
+        useAuthReady.ts    # Hook: waits for session hydration, redirects to /login if unauthenticated
+        constants.ts       # sportColor map, STUDIO_ID from env
+    .env.example           # EXPO_PUBLIC_API_URL, EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_ANON_KEY,
+                           # EXPO_PUBLIC_STUDIO_ID
 ```
 
 ## Key patterns
@@ -384,3 +409,5 @@ For each file in `apps/api/src/routes/`, check:
 
 ### Technical debt
 - [x] Response type generation — `apps/api/src/schemas/responses.ts` (50+ Zod schemas); 35 routes annotated with `schema.response`; `api-types.generated.ts` now emits typed `application/json` bodies; `api-client.ts` exports `GetBody<'/path'>` aliases replacing hand-written interfaces. OpenAPI contract complete.
+- [x] Expo mobile app — auth, week schedule, session detail (book/cancel/waitlist/spot picker/waiver), bookings list, account screen. `apps/mobile/` in Expo Router with typed API client and Supabase SecureStore session persistence.
+- [x] Franchise-level policies tab — `GET/PUT/DELETE /franchise/waiver` pushes a single waiver to all studios atomically; `PoliciesTab` in FranchiseDashboard with enable/disable toggle + title/body editor.

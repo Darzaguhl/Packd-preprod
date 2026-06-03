@@ -848,6 +848,50 @@ export default function MemberDrawer({ studioId, currency, selectedSession, perm
               )}
             </div>
           )}
+
+          {/* ── Purchase history ── */}
+          {member && memberPurchases.length > 0 && (
+            <div className="px-5 py-4 border-t border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recent purchases</p>
+              <div className="space-y-2">
+                {memberPurchases.slice(0, 5).map(sale => (
+                  <div key={sale.id} className="flex items-start justify-between gap-2 text-xs">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-gray-700 font-medium truncate">
+                        {(sale.items as import('@/lib/api').CartSaleItem[]).map(i => `${i.name}${i.qty > 1 ? ` ×${i.qty}` : ''}`).join(', ')}
+                      </p>
+                      <p className="text-gray-400">
+                        {new Date(sale.soldAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                        {' · '}
+                        <span className="capitalize">{sale.paymentMethod}</span>
+                        {sale.failedAt && <span className="text-red-400 ml-1">· Failed</span>}
+                        {sale.refundedAt && <span className="text-red-400 ml-1">· Refunded</span>}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {sale.totalCents > 0 && (
+                        <span className={`font-semibold tabular-nums ${sale.refundedAt ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+                          {(sale.totalCents / 100).toFixed(2)}
+                        </span>
+                      )}
+                      {sale.totalCredits > 0 && !sale.totalCents && (
+                        <span className="text-gray-500">{sale.totalCredits} cr</span>
+                      )}
+                      {canIssueRefunds && sale.paymentMethod === 'card' && !sale.refundedAt && !sale.failedAt && sale.stripePaymentIntentId && (
+                        <button
+                          onClick={() => handleRefund(sale.id)}
+                          disabled={refundingId === sale.id}
+                          className="text-[10px] text-red-500 hover:text-red-700 disabled:opacity-40 font-medium"
+                        >
+                          {refundingId === sale.id ? '…' : 'Refund'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Cart footer ── */}
@@ -925,50 +969,6 @@ export default function MemberDrawer({ studioId, currency, selectedSession, perm
           </div>
         )}
       </div>
-
-      {/* ── Purchase history ── */}
-      {member && memberPurchases.length > 0 && (
-        <div className="px-5 py-4 border-t border-gray-100">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recent purchases</p>
-          <div className="space-y-2">
-            {memberPurchases.slice(0, 5).map(sale => (
-              <div key={sale.id} className="flex items-start justify-between gap-2 text-xs">
-                <div className="flex-1 min-w-0">
-                  <p className="text-gray-700 font-medium truncate">
-                    {(sale.items as import('@/lib/api').CartSaleItem[]).map(i => `${i.name}${i.qty > 1 ? ` ×${i.qty}` : ''}`).join(', ')}
-                  </p>
-                  <p className="text-gray-400">
-                    {new Date(sale.soldAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                    {' · '}
-                    <span className="capitalize">{sale.paymentMethod}</span>
-                    {sale.failedAt && <span className="text-red-400 ml-1">· Failed</span>}
-                    {sale.refundedAt && <span className="text-red-400 ml-1">· Refunded</span>}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {sale.totalCents > 0 && (
-                    <span className={`font-semibold tabular-nums ${sale.refundedAt ? 'line-through text-gray-400' : 'text-gray-900'}`}>
-                      {(sale.totalCents / 100).toFixed(2)}
-                    </span>
-                  )}
-                  {sale.totalCredits > 0 && !sale.totalCents && (
-                    <span className="text-gray-500">{sale.totalCredits} cr</span>
-                  )}
-                  {canIssueRefunds && sale.paymentMethod === 'card' && !sale.refundedAt && !sale.failedAt && sale.stripePaymentIntentId && (
-                    <button
-                      onClick={() => handleRefund(sale.id)}
-                      disabled={refundingId === sale.id}
-                      className="text-[10px] text-red-500 hover:text-red-700 disabled:opacity-40 font-medium"
-                    >
-                      {refundingId === sale.id ? '…' : 'Refund'}
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Toast */}
       {toast && (

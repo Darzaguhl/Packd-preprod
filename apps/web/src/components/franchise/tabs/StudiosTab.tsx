@@ -24,19 +24,45 @@ interface Props {
   onStudioDeleted: (studioId: string) => void
 }
 
+type DeleteState = { step: 'confirm' } | { step: 'impact'; members: number; sessions: number; bookings: number } | { step: 'deleting' }
+
 export default function StudiosTab({ studios, loading, token, showToast, onManageStudio, onStudioDeleted }: Props) {
   const router = useRouter()
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const [deleteState, setDeleteState] = useState<DeleteState>({ step: 'confirm' })
 
-  async function handleDelete(studioId: string) {
+  function startDelete(studioId: string) {
+    setDeleteTarget(studioId)
+    setDeleteState({ step: 'confirm' })
+  }
+
+  function cancelDelete() {
+    setDeleteTarget(null)
+    setDeleteState({ step: 'confirm' })
+  }
+
+  async function handleDeleteCheck(studioId: string) {
     try {
-      await api.studios.delete(studioId, token)
+      const res = await api.studios.delete(studioId, token) as { requiresConfirmation?: boolean; impact?: { members: number; sessions: number; bookings: number } }
+      if (res.requiresConfirmation && res.impact) {
+        setDeleteState({ step: 'impact', ...res.impact })
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Failed', false)
+      cancelDelete()
+    }
+  }
+
+  async function handleDeleteConfirm(studioId: string) {
+    setDeleteState({ step: 'deleting' })
+    try {
+      await api.studios.deleteConfirmed(studioId, token)
       onStudioDeleted(studioId)
       showToast('Studio deleted')
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Failed to delete studio', false)
     } finally {
-      setDeleteConfirm(null)
+      cancelDelete()
     }
   }
 
@@ -72,14 +98,32 @@ export default function StudiosTab({ studios, loading, token, showToast, onManag
                   <h3 className="text-base font-semibold text-gray-900 truncate">{studio.name}</h3>
                   <p className="text-xs text-gray-400 mt-0.5">{studio.timezone} · {studio.currency}</p>
                 </div>
-                {deleteConfirm === studio.id ? (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs text-gray-500">Delete?</span>
-                    <button onClick={() => handleDelete(studio.id)} className="text-xs text-red-600 font-medium hover:text-red-800">Yes</button>
-                    <button onClick={() => setDeleteConfirm(null)} className="text-xs text-gray-400 hover:text-gray-600">No</button>
+                {deleteTarget === studio.id ? (
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    {deleteState.step === 'confirm' && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">Delete studio?</span>
+                        <button onClick={() => handleDeleteCheck(studio.id)} className="text-xs text-red-600 font-medium hover:text-red-800">Check impact</button>
+                        <button onClick={cancelDelete} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                      </div>
+                    )}
+                    {deleteState.step === 'impact' && (
+                      <div className="flex flex-col items-end gap-1">
+                        <p className="text-xs text-red-600 font-medium">
+                          This will permanently delete {deleteState.members} member{deleteState.members !== 1 ? 's' : ''}, {deleteState.sessions} session{deleteState.sessions !== 1 ? 's' : ''}, {deleteState.bookings} booking{deleteState.bookings !== 1 ? 's' : ''}.
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => handleDeleteConfirm(studio.id)} className="text-xs text-red-600 font-semibold hover:text-red-800">Delete permanently</button>
+                          <button onClick={cancelDelete} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                        </div>
+                      </div>
+                    )}
+                    {deleteState.step === 'deleting' && (
+                      <span className="text-xs text-gray-400">Deleting…</span>
+                    )}
                   </div>
                 ) : (
-                  <button onClick={() => setDeleteConfirm(studio.id)} className="text-gray-300 hover:text-red-400 transition-colors shrink-0 p-1" title="Delete studio">
+                  <button onClick={() => startDelete(studio.id)} className="text-gray-300 hover:text-red-400 transition-colors shrink-0 p-1" title="Delete studio">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
                       <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>

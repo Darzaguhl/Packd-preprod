@@ -136,7 +136,7 @@ const STAFF_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'get_session_spots',
-    description: 'Get the room layout and spot assignments for a session. Only call this if `hasLayout` is true in the session data. Returns stations with `stationId`, `label` (full name e.g. "Treadmill 1"), and `alias` (short form shown in the UI e.g. "T1"). Match user shorthand like "T1", "B2" against the `alias` field. Use `stationId` — never the label — when calling assign_spot.',
+    description: 'Get the room layout and spot assignments for a session. Only call this if `hasLayout` is true in the session data. Returns stations with `stationId` and `label` (short form shown in the UI, e.g. "T1", "Bn2"). Match user shorthand like "T1", "B2" against the `label` field. Use `stationId` — never the label — when calling assign_spot.',
     input_schema: {
       type: 'object' as const,
       properties: { sessionId: { type: 'string' } },
@@ -166,6 +166,30 @@ const STAFF_TOOLS: Anthropic.Tool[] = [
         bookingId: { type: 'string' },
       },
       required: ['sessionId', 'bookingId'],
+    },
+  },
+  {
+    name: 'list_products',
+    description: 'List available products (drinks, merchandise, etc.) for sale at a studio. Call this before charge_member_for_product to find the right productId and price. Returns in-stock products with their name, price, and credit cost.',
+    input_schema: {
+      type: 'object' as const,
+      properties: { studioId: { type: 'string' } },
+      required: ['studioId'],
+    },
+  },
+  {
+    name: 'charge_member_for_product',
+    description: 'Charge a member for a product (e.g. a milkshake, protein bar, merchandise). Always call list_products first to confirm the productId. Ask the user how the member is paying (cash/card, credits, or free) if not specified — default to cash if the product has a price.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        memberId: { type: 'string' },
+        studioId: { type: 'string' },
+        productId: { type: 'string', description: 'The product ID from list_products' },
+        qty: { type: 'number', description: 'Quantity, defaults to 1' },
+        paymentMethod: { type: 'string', enum: ['cash', 'credits', 'free'], description: 'How the member is paying. Use "credits" only if the product has a creditsRequired > 0 and the member has enough. Use "free" only for zero-cost items.' },
+      },
+      required: ['memberId', 'studioId', 'productId', 'qty', 'paymentMethod'],
     },
   },
 ]
@@ -636,17 +660,22 @@ async function executeTool(
         checkedIn: b.checkedIn,
       }))
 
+      // Type maps match the frontend STATION_META values
+      const TYPE_PREFIX: Record<string, string> = {
+        BIKE: 'B', TREADMILL: 'T', BENCH: 'Bn', ROWER: 'R',
+        MAT: 'M', REFORMER: 'Re', BARRE: 'Ba', OTHER: 'Sp',
+      }
+      const TYPE_NAME: Record<string, string> = {
+        BIKE: 'Bike', TREADMILL: 'Treadmill', BENCH: 'Bench', ROWER: 'Rower',
+        MAT: 'Mat', REFORMER: 'Reformer', BARRE: 'Barre', OTHER: 'Spot',
+      }
+
       const stations = (layout?.stations ?? []).map(s => ({
         stationId: s.id,   // pass this exact value to assign_spot
-        label: s.label,
-        // Short alias shown in the live UI (e.g. "Treadmill 1" → "T1", "Bench 2" → "B2")
-        alias: (() => {
-          const parts = s.label.trim().split(/\s+/)
-          const letter = parts[0]?.[0]?.toUpperCase() ?? ''
-          const num = parts.findLast((p: string) => /^\d+$/.test(p)) ?? ''
-          return letter + num
-        })(),
-        type: s.type,
+        // Short form matches the UI label (e.g. "T1"). Full name also provided so
+        // the model can match natural language like "Treadmill 1" or "T1".
+        label: `${TYPE_PREFIX[s.type] ?? s.type}${s.label}`,
+        name: `${TYPE_NAME[s.type] ?? s.type} ${s.label}`,
         takenBy: assignments.find(a => a.stationId === s.id)?.memberName ?? null,
       }))
 
@@ -732,6 +761,70 @@ async function executeTool(
         })
       })
       return { success: true, message: `Credits adjusted by ${amount > 0 ? '+' : ''}${amount}. Reason: ${reason}` }
+    }
+
+    case 'list_products': {
+      if (rank < ROLE_RANK['fronthost']) return { error: 'Insufficient permissions' }
+      const { studioId: sid } = input as { studioId: string }
+      const products = await prisma.product.findMany({
+        where: { studioId: sid, inStock: true },
+        select: { id: true, name: true, category: true, priceInCents: true, creditsRequired: true },
+        orderBy: [{ category: 'asc' }, { name: 'asc' }],
+      })
+      return {
+        products: products.map(p => ({
+          productId: p.id,
+          name: p.name,
+          category: p.category,
+          priceInCents: p.priceInCents,
+          creditsRequired: p.creditsRequired,
+          free: p.priceInCents === 0 && p.creditsRequired === 0,
+        })),
+      }
+    }
+
+    case 'charge_member_for_product': {
+      if (rank < ROLE_RANK['fronthost']) return { error: 'Insufficient permissions' }
+      const { memberId, studioId: sid, productId, qty = 1, paymentMethod } = input as {
+        memberId: string; studioId: string; productId: string; qty: number; paymentMethod: 'cash' | 'credits' | 'free'
+      }
+
+      const [member, product] = await Promise.all([
+        prisma.member.findUnique({ where: { id: memberId }, select: { studioId: true, creditBalance: { select: { balance: true } } } }),
+        prisma.product.findUnique({ where: { id: productId }, select: { id: true, name: true, priceInCents: true, creditsRequired: true, inStock: true, studioId: true } }),
+      ])
+      if (!member) return { error: 'Member not found' }
+      if (!product) return { error: 'Product not found' }
+      if (!product.inStock) return { error: `${product.name} is out of stock` }
+      if (product.studioId !== sid) return { error: 'Product does not belong to this studio' }
+
+      const totalCents = paymentMethod === 'cash' ? product.priceInCents * qty : 0
+      const totalCredits = paymentMethod === 'credits' ? product.creditsRequired * qty : 0
+
+      if (paymentMethod === 'credits') {
+        const balance = member.creditBalance?.balance ?? 0
+        if (balance < totalCredits) {
+          return { error: `Member only has ${balance} credit${balance !== 1 ? 's' : ''} but ${totalCredits} required` }
+        }
+      }
+
+      const items = [{ productId: product.id, name: product.name, qty, priceInCents: product.priceInCents, creditsRequired: product.creditsRequired }]
+
+      await prisma.$transaction(async (tx) => {
+        if (totalCredits > 0) {
+          await tx.creditBalance.update({ where: { memberId }, data: { balance: { decrement: totalCredits } } })
+          await tx.creditTransaction.create({
+            data: { memberId, amount: -totalCredits, type: 'PURCHASE', note: `${qty > 1 ? `${qty}× ` : ''}${product.name}` },
+          })
+        }
+        await tx.productSale.create({
+          data: { memberId, studioId: sid, items, totalCents, totalCredits, paymentMethod, staffUserId: userId },
+        })
+      })
+
+      const desc = qty > 1 ? `${qty}× ${product.name}` : product.name
+      const cost = paymentMethod === 'credits' ? `${totalCredits} credits` : paymentMethod === 'cash' ? `${(totalCents / 100).toFixed(2)}` : 'free'
+      return { success: true, message: `${desc} charged (${cost}, ${paymentMethod})` }
     }
 
     default:
@@ -849,7 +942,7 @@ Studio ID: ${studioId}`
       const MUTATING_TOOLS = new Set([
         'book_class', 'cancel_booking', 'checkin_member', 'assign_spot',
         'book_class_for_member', 'cancel_booking_for_member', 'adjust_member_credits',
-        'join_waitlist', 'leave_waitlist',
+        'join_waitlist', 'leave_waitlist', 'charge_member_for_product',
       ])
 
       const TOOL_LABELS: Record<string, string> = {
@@ -870,6 +963,8 @@ Studio ID: ${studioId}`
         checkin_member: 'Checking in member…',
         get_studio_stats: 'Loading studio stats…',
         adjust_member_credits: 'Adjusting credits…',
+        list_products: 'Looking up products…',
+        charge_member_for_product: 'Charging product…',
       }
 
       try {

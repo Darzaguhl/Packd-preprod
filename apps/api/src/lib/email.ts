@@ -418,6 +418,51 @@ export async function sendOpsAlert(subject: string, body: string): Promise<boole
   )
 }
 
+export async function sendWeeklyDigest(opts: {
+  to: string
+  firstName: string
+  studioName: string
+  weekOf: string          // ISO date string of the Monday
+  fillRatePct: number     // 0-100
+  revenueCents: number
+  currency: string
+  newMembers: number
+  churnRiskCount: number
+  webUrl: string
+}) {
+  const rev = (opts.revenueCents / 100).toLocaleString('en-US', {
+    style: 'currency', currency: opts.currency, maximumFractionDigits: 0,
+  })
+  const weekStr = new Date(opts.weekOf).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+
+  function stat(label: string, value: string, highlight = false) {
+    return `
+      <td style="width:25%;padding:16px;text-align:center;vertical-align:top">
+        <p style="margin:0;font-size:24px;font-weight:700;color:${highlight ? '#dc2626' : '#111'}">${value}</p>
+        <p style="margin:4px 0 0;font-size:12px;color:#888">${label}</p>
+      </td>`
+  }
+
+  return send(
+    opts.to,
+    `${opts.studioName} — weekly digest (w/c ${weekStr})`,
+    layout(opts.studioName, `
+      <p style="margin:0 0 4px;font-size:20px;font-weight:700;color:#111">Weekly digest</p>
+      <p style="margin:0 0 24px;font-size:14px;color:#888">Week commencing ${weekStr}</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #f0f0f0;border-radius:8px;overflow:hidden;margin-bottom:24px">
+        <tr style="background:#fafafa;border-bottom:1px solid #f0f0f0">
+          ${stat('Fill rate', `${opts.fillRatePct}%`)}
+          ${stat('Revenue', rev)}
+          ${stat('New members', String(opts.newMembers))}
+          ${stat('At-risk members', String(opts.churnRiskCount), opts.churnRiskCount > 0)}
+        </tr>
+      </table>
+      <p style="margin:0 0 4px;font-size:13px;color:#888">Fill rate = confirmed bookings ÷ capacity across all sessions last week. At-risk = members overdue for a visit based on their usual cadence.</p>
+      ${btn(opts.webUrl + '/dashboard', 'View full analytics')}
+    `),
+  )
+}
+
 export async function sendReferralReward(opts: {
   to: string
   firstName: string

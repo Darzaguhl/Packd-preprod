@@ -730,6 +730,12 @@ export const api = {
     churnRisk: (studioId: string, token: string) =>
       apiFetch<{ members: { memberId: string; name: string; email: string; totalBookings: number; lastBookedAt: string | null; avgDaysBetween: number | null; daysSinceLast: number | null }[] }>(
         `/admin/churn-risk?studioId=${studioId}`, { token }),
+    classTrends: (studioId: string, token: string, weeks = 8) =>
+      apiFetch<{ classes: { templateId: string; name: string; sport: string; weeklyFill: number[] }[]; weekStarts: string[] }>(
+        `/admin/class-trends?studioId=${studioId}&weeks=${weeks}`, { token }),
+    membershipFunnel: (studioId: string, token: string, months = 12) =>
+      apiFetch<{ months: { month: string; active: number; paused: number; cancelled: number; newSubs: number }[] }>(
+        `/admin/membership-funnel?studioId=${studioId}&months=${months}`, { token }),
     query: (sql: string, studioId: string, token: string) =>
       apiFetch<QueryResult>('/admin/query', { token, method: 'POST', body: JSON.stringify({ sql, studioId }) }),
     memberUpcoming: (memberId: string, token: string) =>
@@ -785,6 +791,12 @@ export const api = {
   franchise: {
     loginLink: (email: string, token: string) =>
       apiFetch<{ link: string }>('/franchise/login-link', { method: 'POST', body: JSON.stringify({ email }), token }),
+    getWaiver: (token: string) =>
+      apiFetch<{ waiver: { id: string; title: string; body: string; version: number } | null }>('/franchise/waiver', { token }),
+    setWaiver: (title: string, body: string, token: string) =>
+      apiFetch<{ success: boolean }>('/franchise/waiver', { method: 'PUT', body: JSON.stringify({ title, body }), token }),
+    removeWaiver: (token: string) =>
+      apiFetch<{ success: boolean }>('/franchise/waiver', { method: 'DELETE', token }),
     info: (token: string) =>
       apiFetch<{ id: string | null; name: string | null }>('/franchise/info', { token }) as Promise<{ id: string | null; name: string | null }>,
     myStudios: (token: string) =>
@@ -918,12 +930,14 @@ export const api = {
   studios: {
     list: (token: string) => apiFetch<StudioSummary[]>('/studios', { token }),
     get: (studioId: string, token: string) => apiFetch<StudioDetail>(`/studios/${studioId}`, { token }),
-    update: (studioId: string, body: { name?: string; slug?: string; timezone?: string; currency?: string; timeFormat?: string; websiteUrl?: string | null; supportEmail?: string | null; bookingWindowDays?: number; bookingCloseHours?: number; waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean; selfCheckInEnabled?: boolean; classReminderHours?: number | null; maxPauseDays?: number; maxPausesPerYear?: number; allowMemberPause?: boolean; taxRatePct?: number; referralRewardCredits?: number; location?: { id: string; name?: string; address?: string; city?: string; country?: string } }, token: string) =>
+    update: (studioId: string, body: { name?: string; slug?: string; timezone?: string; currency?: string; timeFormat?: string; websiteUrl?: string | null; supportEmail?: string | null; bookingWindowDays?: number; bookingCloseHours?: number; waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean; selfCheckInEnabled?: boolean; classReminderHours?: number | null; maxPauseDays?: number; maxPausesPerYear?: number; allowMemberPause?: boolean; taxRatePct?: number; referralRewardCredits?: number; weeklyDigestEnabled?: boolean; location?: { id: string; name?: string; address?: string; city?: string; country?: string } }, token: string) =>
       apiFetch<{ success: boolean; studio: StudioDetail }>(`/studios/${studioId}`, { method: 'PATCH', body: JSON.stringify(body), token }),
     create: (body: { name: string; slug: string; timezone: string; currency: string; location: { name: string; address: string; city: string; country: string } }, token: string) =>
       apiFetch<{ success: boolean; data: { id: string; name: string; slug: string } }>('/studios', { method: 'POST', body: JSON.stringify(body), token }),
     delete: (studioId: string, token: string) =>
-      apiFetch<{ success: boolean }>(`/studios/${studioId}`, { method: 'DELETE', token }),
+      apiFetch<{ success: boolean } | { requiresConfirmation: boolean; impact: { members: number; sessions: number; bookings: number } }>(`/studios/${studioId}`, { method: 'DELETE', token }),
+    deleteConfirmed: (studioId: string, token: string) =>
+      apiFetch<{ success: boolean }>(`/studios/${studioId}?confirm=true`, { method: 'DELETE', token }),
     rooms: (studioId: string, token: string) =>
       apiFetch<RoomSummary[]>(`/studios/${studioId}/rooms`, { token }),
     createRoom: (studioId: string, body: { name: string; capacity: number; locationId?: string }, token: string) =>

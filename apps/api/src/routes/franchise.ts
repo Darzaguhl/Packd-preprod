@@ -148,6 +148,34 @@ export async function franchiseRoutes(app: FastifyInstance) {
     },
   )
 
+  // DELETE /franchise — delete this franchise (admin only; blocked if studios are attached)
+  app.delete(
+    '/',
+    { preHandler: requireRole('admin') },
+    async (request, reply) => {
+      const user = getUser(request)
+      if (!user.franchiseId) return reply.badRequest('No franchise associated with this account')
+
+      const franchise = await prisma.franchise.findUnique({
+        where: { id: user.franchiseId },
+        select: {
+          name: true,
+          _count: { select: { studios: true } },
+        },
+      })
+      if (!franchise) return reply.notFound('Franchise not found')
+
+      if (franchise._count.studios > 0) {
+        return reply.badRequest(
+          `Cannot delete "${franchise.name}": it has ${franchise._count.studios} studio${franchise._count.studios !== 1 ? 's' : ''} attached. Remove all studios first.`,
+        )
+      }
+
+      await prisma.franchise.delete({ where: { id: user.franchiseId } })
+      return reply.send({ success: true })
+    },
+  )
+
   app.get(
     '/studios',
     { preHandler: requireRole('franchise_admin'), schema: { response: { 200: z.array(StudioSummarySchema) } } },
@@ -681,7 +709,11 @@ export async function franchiseRoutes(app: FastifyInstance) {
       const [studios, members] = await Promise.all([
         prisma.studio.findMany({ select: { id: true, name: true } }),
         prisma.member.findMany({
-          where: { staffRoles: { isEmpty: false } },
+          where: {
+            // Only show studio-level staff — exclude platform roles (admin, brand_admin)
+            // that have no business appearing in the franchise staff roster
+            staffRoles: { hasSome: ['franchise_admin', 'studio_admin', 'instructor', 'fronthost'] },
+          },
           include: {
             user: {
               select: {
@@ -934,6 +966,56 @@ export async function franchiseRoutes(app: FastifyInstance) {
       return reply.send({ success: true, queued: true, estimatedRecipients: total })
     },
   )
+
+  // ── Franchise-level waiver management ─────────────────────────────────────
+  // GET — fetch the representative active waiver (first studio that has one)
+  app.get('/waiver', { preHandler: requireRole('franchise_admin') }, async (request, reply) => {
+    const user = getUser(request)
+    const studioIds = user.studioIds ?? []
+    if (!studioIds.length) return reply.send({ waiver: null })
+
+    const waiver = await prisma.waiver.findFirst({
+      where: { studioId: { in: studioIds }, isActive: true },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, title: true, body: true, version: true, studioId: true },
+    })
+    return reply.send({ waiver: waiver ?? null })
+  })
+
+  // PUT — set the same waiver on every studio in the franchise
+  app.put('/waiver', {
+    preHandler: requireRole('franchise_admin'),
+    schema: { body: z.object({ title: z.string().min(1), body: z.string().min(1) }) },
+  }, async (request, reply) => {
+    const user = getUser(request)
+    const { title, body } = request.body as { title: string; body: string }
+    const studioIds = user.studioIds ?? []
+    if (!studioIds.length) return reply.badRequest('No studios in this franchise')
+
+    await Promise.all(studioIds.map(async studioId => {
+      const existing = await prisma.waiver.findFirst({
+        where: { studioId, isActive: true },
+        select: { id: true, version: true },
+      })
+      const version = (existing?.version ?? 0) + 1
+      await prisma.$transaction(async tx => {
+        if (existing) await tx.waiver.update({ where: { id: existing.id }, data: { isActive: false } })
+        await tx.waiver.create({ data: { studioId, title: title.trim(), body: body.trim(), isActive: true, version } })
+      })
+    }))
+
+    return reply.send({ success: true })
+  })
+
+  // DELETE — disable waivers on every studio in the franchise
+  app.delete('/waiver', { preHandler: requireRole('franchise_admin') }, async (request, reply) => {
+    const user = getUser(request)
+    const studioIds = user.studioIds ?? []
+    if (studioIds.length) {
+      await prisma.waiver.updateMany({ where: { studioId: { in: studioIds }, isActive: true }, data: { isActive: false } })
+    }
+    return reply.send({ success: true })
+  })
 
   // ── Generate login link for a staff member within this franchise ───────────
   app.post('/login-link', {

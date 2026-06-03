@@ -334,9 +334,9 @@ export default function FranchiseStaffRoster({ token }: Props) {
             return (
               <div key={s.id}>
                 {/* Main row */}
-                <button
+                <div
                   onClick={() => setExpandedId(isExpanded ? null : s.id)}
-                  className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-gray-50 transition-colors"
+                  className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-gray-50 transition-colors cursor-pointer"
                 >
                   <div className="w-9 h-9 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-xs font-bold shrink-0">
                     {initials(s.name)}
@@ -366,7 +366,7 @@ export default function FranchiseStaffRoster({ token }: Props) {
                   <svg className={`w-3.5 h-3.5 text-gray-300 shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                     <path d="M19 9l-7 7-7-7" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
-                </button>
+                </div>
 
                 {/* Expanded pay panel */}
                 {isExpanded && (

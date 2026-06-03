@@ -109,6 +109,7 @@ export async function studioRoutes(app: FastifyInstance) {
       allowMemberPause?: boolean
       taxRatePct?: number
       referralRewardCredits?: number
+      weeklyDigestEnabled?: boolean
       location?: { id: string; name?: string; address?: string; city?: string; country?: string }
     }
   }>(
@@ -138,6 +139,7 @@ export async function studioRoutes(app: FastifyInstance) {
           allowMemberPause: z.boolean().optional(),
           taxRatePct: z.number().min(0).max(100).optional(),
           referralRewardCredits: z.number().int().min(0).optional(),
+          weeklyDigestEnabled: z.boolean().optional(),
           location: z.object({
             id: Id,
             name: z.string().min(1).optional(),
@@ -157,6 +159,7 @@ export async function studioRoutes(app: FastifyInstance) {
         waitlistEnabled, guestCheckInEnabled, creditPurchaseEnabled,
         selfCheckInEnabled, classReminderHours, maxPauseDays, maxPausesPerYear,
         allowMemberPause, taxRatePct, referralRewardCredits,
+        weeklyDigestEnabled,
         location,
       } = request.body
       const user = getUser(request)
@@ -188,6 +191,7 @@ export async function studioRoutes(app: FastifyInstance) {
           ...(allowMemberPause !== undefined && { allowMemberPause }),
           ...(taxRatePct !== undefined && { taxRatePct }),
           ...(referralRewardCredits !== undefined && { referralRewardCredits }),
+          ...(weeklyDigestEnabled !== undefined && { weeklyDigestEnabled }),
         },
         include: { locations: true },
       })
@@ -204,13 +208,35 @@ export async function studioRoutes(app: FastifyInstance) {
     },
   )
 
-  app.delete<{ Params: { studioId: string } }>(
+  app.delete<{ Params: { studioId: string }; Querystring: { confirm?: string } }>(
     '/:studioId',
-    { preHandler: requireFranchiseAdmin },
+    {
+      preHandler: requireFranchiseAdmin,
+      config: { studioIdFrom: 'params' },
+      schema: { params: StudioIdParam, querystring: z.object({ confirm: z.string().optional() }) },
+    },
     async (request, reply) => {
       const { studioId } = request.params
-      const studio = await prisma.studio.findUnique({ where: { id: studioId } })
+      const { confirm } = request.query as { confirm?: string }
+
+      const [studio, memberCount, sessionCount, bookingCount] = await Promise.all([
+        prisma.studio.findUnique({ where: { id: studioId }, select: { name: true } }),
+        prisma.member.count({ where: { studioId } }),
+        prisma.classSession.count({ where: { studioId } }),
+        prisma.booking.count({ where: { session: { studioId } } }),
+      ])
+
       if (!studio) return reply.notFound('Studio not found')
+
+      if (confirm !== 'true') {
+        return reply.send({
+          requiresConfirmation: true,
+          studioName: studio.name,
+          impact: { members: memberCount, sessions: sessionCount, bookings: bookingCount },
+          message: `Deleting "${studio.name}" will permanently destroy ${memberCount} member${memberCount !== 1 ? 's' : ''}, ${sessionCount} session${sessionCount !== 1 ? 's' : ''}, and ${bookingCount} booking${bookingCount !== 1 ? 's' : ''}. Repeat with ?confirm=true to proceed.`,
+        })
+      }
+
       await prisma.studio.delete({ where: { id: studioId } })
       return reply.send({ success: true })
     },

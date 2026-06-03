@@ -40,6 +40,8 @@ model Studio {
   stripeTaxRateId          String?                  // cached Stripe TaxRate ID
   // Referral
   referralRewardCredits    Int     @default(0)      // credits given to referrer per signup; 0 = disabled
+  // Reporting
+  weeklyDigestEnabled      Boolean @default(false) // send Monday digest email to studio_admins
   // AI assistant
   aiEnabled                Boolean @default(true)
   anthropicApiKey          String?

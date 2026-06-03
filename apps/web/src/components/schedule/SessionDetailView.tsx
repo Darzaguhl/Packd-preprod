@@ -153,8 +153,10 @@ export default function SessionDetailView({
     if (!pendingBookArgs || !waiverData) return
     const t = await getFreshToken()
     await waiversClient.sign(waiverData.id, t)
-    setWaiverData(null)
+    // Only clear the modal after the sign succeeds — if sign throws, the modal
+    // stays open and WaiverModal shows the error message to the user.
     const { sessionId, note } = pendingBookArgs
+    setWaiverData(null)
     setPendingBookArgs(null)
     await onBook(sessionId, note)
   }

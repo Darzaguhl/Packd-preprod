@@ -289,7 +289,21 @@ export async function brandRoutes(app: FastifyInstance) {
   app.delete('/:id', { preHandler: requireRole('admin'), schema: { params: IdParam } }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const actor = getUser(request)
-    const brand = await prisma.brand.findUnique({ where: { id }, select: { name: true } })
+    const brand = await prisma.brand.findUnique({
+      where: { id },
+      select: {
+        name: true,
+        _count: { select: { franchises: true, studios: true } },
+      },
+    })
+    if (!brand) return reply.notFound('Brand not found')
+
+    if (brand._count.franchises > 0 || brand._count.studios > 0) {
+      return reply.badRequest(
+        `Cannot delete "${brand.name}": it has ${brand._count.franchises} franchise${brand._count.franchises !== 1 ? 's' : ''} and ${brand._count.studios} studio${brand._count.studios !== 1 ? 's' : ''} attached. Remove them first.`,
+      )
+    }
+
     await prisma.brand.delete({ where: { id } })
     auditPlatform({ actorId: actor.id, actorRole: actor.role, action: PLATFORM_AUDIT.BRAND_DELETE, targetId: id, meta: { name: brand?.name } })
     return { success: true }

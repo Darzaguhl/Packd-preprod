@@ -12,12 +12,16 @@ interface Props {
 export default function WaiverModal({ title, body, onSign, onClose }: Props) {
   const [agreed, setAgreed] = useState(false)
   const [signing, setSigning] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function handleSign() {
     if (!agreed) return
     setSigning(true)
+    setError(null)
     try {
       await onSign()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.')
     } finally {
       setSigning(false)
     }
@@ -60,6 +64,9 @@ export default function WaiverModal({ title, body, onSign, onClose }: Props) {
               I have read and agree to the terms of this waiver
             </span>
           </label>
+          {error && (
+            <p className="text-xs text-red-500 text-center -mb-1">{error}</p>
+          )}
           <div className="flex gap-3">
             <button
               onClick={onClose}

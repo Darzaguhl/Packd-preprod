@@ -19,6 +19,8 @@ export default function WaiverModal({ title, body, onSign, onClose }: Props) {
     setSigning(true)
     try {
       await onSign()
+    } catch {
+      // Error is handled by the caller (handleSignWaiver shows an Alert)
     } finally {
       setSigning(false)
     }

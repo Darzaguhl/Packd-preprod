@@ -92,6 +92,8 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
   const [taxRatePct, setTaxRatePct] = useState(0)
   // Referral
   const [referralRewardCredits, setReferralRewardCredits] = useState(0)
+  // Reporting
+  const [weeklyDigestEnabled, setWeeklyDigestEnabled] = useState(false)
   // Waiver
   const [waiverLoading, setWaiverLoading] = useState(true)
   const [waiverSaving, setWaiverSaving] = useState(false)
@@ -153,6 +155,7 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
       setAllowMemberPause((s as typeof s & { allowMemberPause?: boolean }).allowMemberPause ?? true)
       setTaxRatePct((s as typeof s & { taxRatePct?: number }).taxRatePct ?? 0)
       setReferralRewardCredits((s as typeof s & { referralRewardCredits?: number }).referralRewardCredits ?? 0)
+      setWeeklyDigestEnabled((s as typeof s & { weeklyDigestEnabled?: boolean }).weeklyDigestEnabled ?? false)
       const loc = s.locations[0]
       if (loc) {
         setLocName(loc.name)
@@ -202,7 +205,7 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
     setSaving(true)
     try {
       const loc = studio.locations[0]
-      type StudioExtended = typeof studio & { websiteUrl?: string; supportEmail?: string; bookingWindowDays?: number; bookingCloseHours?: number; waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean; selfCheckInEnabled?: boolean; classReminderHours?: number | null; maxPauseDays?: number; maxPausesPerYear?: number; allowMemberPause?: boolean; taxRatePct?: number; referralRewardCredits?: number }
+      type StudioExtended = typeof studio & { websiteUrl?: string; supportEmail?: string; bookingWindowDays?: number; bookingCloseHours?: number; waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean; selfCheckInEnabled?: boolean; classReminderHours?: number | null; maxPauseDays?: number; maxPausesPerYear?: number; allowMemberPause?: boolean; taxRatePct?: number; referralRewardCredits?: number; weeklyDigestEnabled?: boolean }
       const s = studio as StudioExtended
       const newReminderHours = classReminderEnabled ? classReminderHours : null
       const res = await api.studios.update(studioId, {
@@ -225,6 +228,7 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
         allowMemberPause: allowMemberPause !== (s.allowMemberPause ?? true) ? allowMemberPause : undefined,
         taxRatePct: taxRatePct !== (s.taxRatePct ?? 0) ? taxRatePct : undefined,
         referralRewardCredits: referralRewardCredits !== (s.referralRewardCredits ?? 0) ? referralRewardCredits : undefined,
+        weeklyDigestEnabled: weeklyDigestEnabled !== (s.weeklyDigestEnabled ?? false) ? weeklyDigestEnabled : undefined,
         location: loc ? {
           id: loc.id,
           name: locName !== loc.name ? locName : undefined,
@@ -292,7 +296,7 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
     noShowFeeCredits        !== savedPolicy.noShowFeeCredits       ||
     waitlistWindowMinutes  !== savedPolicy.waitlistWindowMinutes
 
-  type StudioExt = typeof studio & { websiteUrl?: string; supportEmail?: string; bookingWindowDays?: number; bookingCloseHours?: number; waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean; selfCheckInEnabled?: boolean; classReminderHours?: number | null; maxPauseDays?: number; maxPausesPerYear?: number; allowMemberPause?: boolean; taxRatePct?: number; referralRewardCredits?: number }
+  type StudioExt = typeof studio & { websiteUrl?: string; supportEmail?: string; bookingWindowDays?: number; bookingCloseHours?: number; waitlistEnabled?: boolean; guestCheckInEnabled?: boolean; creditPurchaseEnabled?: boolean; selfCheckInEnabled?: boolean; classReminderHours?: number | null; maxPauseDays?: number; maxPausesPerYear?: number; allowMemberPause?: boolean; taxRatePct?: number; referralRewardCredits?: number; weeklyDigestEnabled?: boolean }
   const s2 = studio as StudioExt | null
   const isDirty = studio && (
     name !== studio.name ||
@@ -314,6 +318,7 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
     allowMemberPause !== (s2?.allowMemberPause ?? true) ||
     taxRatePct !== (s2?.taxRatePct ?? 0) ||
     referralRewardCredits !== (s2?.referralRewardCredits ?? 0) ||
+    weeklyDigestEnabled !== (s2?.weeklyDigestEnabled ?? false) ||
     locName !== (studio.locations[0]?.name ?? '') ||
     address !== (studio.locations[0]?.address ?? '') ||
     city !== (studio.locations[0]?.city ?? '') ||
@@ -646,6 +651,18 @@ export default function SettingsTab({ studioId, token, onNameChange, onStudioUpd
             </div>
             <p className="text-xs text-gray-400 pb-2">Credits awarded to a member when someone they referred takes their first class. Set to 0 to disable.</p>
           </div>
+        </section>
+
+        {/* Weekly digest */}
+        <section className="space-y-3 pt-4 border-t border-gray-100">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Reporting</h3>
+          <label className="flex items-start gap-3 cursor-pointer select-none px-3 py-2 rounded-xl hover:bg-gray-50 transition-colors">
+            <input type="checkbox" checked={weeklyDigestEnabled} onChange={e => setWeeklyDigestEnabled(e.target.checked)} className="mt-0.5 rounded" />
+            <span>
+              <span className="text-sm font-medium text-gray-900 block">Weekly email digest</span>
+              <span className="text-xs text-gray-400">Every Monday morning, studio admins receive a summary of last week's fill rate, revenue, new members, and at-risk members.</span>
+            </span>
+          </label>
         </section>
 
         {/* Liability waiver */}

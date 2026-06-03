@@ -197,6 +197,7 @@ export default function RoomMapEditor({ roomId: _roomId, initial, roomLayouts = 
     }
     pendingPosRef.current = { xM: station.xM, yM: station.yM }
     el.setPointerCapture(e.pointerId)
+    el.style.willChange = 'left, top'
   }
 
   function onStationPointerMove(e: React.PointerEvent) {
@@ -209,8 +210,9 @@ export default function RoomMapEditor({ roomId: _roomId, initial, roomLayouts = 
     const dx = (e.clientX - d.pointerStartX) / pxPerM
     const dy = (e.clientY - d.pointerStartY) / pxPerM
     const meta = STATION_META[d.type]
-    const newX = Math.max(0, Math.min(d.widthM - meta.w, snapToGrid(d.startXM + dx)))
-    const newY = Math.max(0, Math.min(d.lengthM - meta.h, snapToGrid(d.startYM + dy)))
+    // No snapping during live drag — element tracks cursor 1:1, snap on release
+    const newX = Math.max(0, Math.min(d.widthM - meta.w, d.startXM + dx))
+    const newY = Math.max(0, Math.min(d.lengthM - meta.h, d.startYM + dy))
     // Move the element directly — no React setState = no re-render during drag
     d.el.style.left = `${(newX / d.widthM) * 100}%`
     d.el.style.top  = `${(newY / d.lengthM) * 100}%`
@@ -223,16 +225,22 @@ export default function RoomMapEditor({ roomId: _roomId, initial, roomLayouts = 
     movingRef.current = null
     pendingPosRef.current = null
     if (!d || !pending) return
+    d.el.style.willChange = ''
     const meta = STATION_META[d.type]
+    // Snap to grid on release
+    const snappedX = Math.max(0, Math.min(d.widthM - meta.w, snapToGrid(pending.xM)))
+    const snappedY = Math.max(0, Math.min(d.lengthM - meta.h, snapToGrid(pending.yM)))
     setStations(prev => prev.map(s => {
       if (s.tempId !== d.tempId) return s
       // Collision on drop → revert element to original position
-      if (hasCollision(pending.xM, pending.yM, meta.w, meta.h, prev, d.tempId)) {
+      if (hasCollision(snappedX, snappedY, meta.w, meta.h, prev, d.tempId)) {
         d.el.style.left = `${(d.startXM / d.widthM) * 100}%`
         d.el.style.top  = `${(d.startYM / d.lengthM) * 100}%`
         return s
       }
-      return { ...s, xM: pending.xM, yM: pending.yM }
+      d.el.style.left = `${(snappedX / d.widthM) * 100}%`
+      d.el.style.top  = `${(snappedY / d.lengthM) * 100}%`
+      return { ...s, xM: snappedX, yM: snappedY }
     }))
   }
 

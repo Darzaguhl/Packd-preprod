@@ -243,9 +243,9 @@ export default function FranchiseAdminsRoster({ studios, token }: Props) {
             return (
               <div key={admin.userId}>
                 {/* Summary row — click to expand */}
-                <button
+                <div
                   onClick={() => setExpandedId(isExpanded ? null : admin.userId)}
-                  className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50 transition-colors text-left"
+                  className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50 transition-colors text-left cursor-pointer"
                 >
                   <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold shrink-0">
                     {initials(admin.name)}
@@ -274,7 +274,7 @@ export default function FranchiseAdminsRoster({ studios, token }: Props) {
                   >
                     <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
-                </button>
+                </div>
 
                 {/* Expanded management panel */}
                 {isExpanded && (

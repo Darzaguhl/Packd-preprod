@@ -144,11 +144,22 @@ export default function SessionDetailScreen() {
 
   async function handleSignWaiver() {
     if (!waiver) return
-    await api.waivers.sign(waiver.id)
+    try {
+      await api.waivers.sign(waiver.id)
+    } catch (e) {
+      // Sign failed — keep modal open, surface the error
+      Alert.alert('Could not save waiver', e instanceof Error ? e.message : 'Please try again.')
+      throw e
+    }
+    // Only close the modal after sign succeeds
     setShowWaiver(false)
     setWaiver(null)
     // Retry the booking after signing
-    await handleBook()
+    try {
+      await handleBook()
+    } catch (e) {
+      Alert.alert('Booking failed', e instanceof Error ? e.message : 'Please try again.')
+    }
   }
 
   async function handleCancel() {

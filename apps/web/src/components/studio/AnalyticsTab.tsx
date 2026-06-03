@@ -213,7 +213,7 @@ interface Props {
 }
 
 export default function AnalyticsTab({ studioId: initialStudioId, token, canQuery = false, studios }: Props) {
-  const [view, setView]           = useState<'analytics' | 'leaderboard' | 'query' | 'retention' | 'revenue' | 'churn'>('analytics')
+  const [view, setView]           = useState<'analytics' | 'leaderboard' | 'query' | 'retention' | 'revenue' | 'churn' | 'membership'>('analytics')
   const [selectedStudio, setSelectedStudio] = useState(initialStudioId)
   const [data, setData]           = useState<AnalyticsData | null>(null)
   const [loading, setLoading]     = useState(true)
@@ -224,7 +224,7 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
 
   useEffect(() => {
     setLoading(true)
-    setData(null)
+    // Don't blank data — keep stale content visible while refreshing to prevent layout shift
     api.admin.analytics(selectedStudio, token, weeks)
       .then(setData)
       .catch(() => {})
@@ -301,12 +301,17 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
     monthly: { month: string; revenue: number; orders: number; forecast: boolean }[]
     mrr: { month: string; mrr: number }[]
     forecast: { month: string; revenue: number; forecast: boolean }[]
+    breakdown?: { month: string; subscriptions: number; products: number }[]
   }
   type ChurnMember = { memberId: string; name: string; email: string; totalBookings: number; lastBookedAt: string | null; avgDaysBetween: number | null; daysSinceLast: number | null }
+  type ClassTrendsData = { classes: { templateId: string; name: string; sport: string; weeklyFill: number[] }[]; weekStarts: string[] }
+  type MembershipFunnelData = { months: { month: string; active: number; paused: number; cancelled: number; newSubs: number }[] }
 
   const [retentionData, setRetentionData] = useState<RetentionData | null>(null)
   const [revenueData, setRevenueData] = useState<RevenueData | null>(null)
   const [churnData, setChurnData] = useState<{ members: ChurnMember[] } | null>(null)
+  const [classTrendsData, setClassTrendsData] = useState<ClassTrendsData | null>(null)
+  const [membershipFunnelData, setMembershipFunnelData] = useState<MembershipFunnelData | null>(null)
   const [deepLoading, setDeepLoading] = useState(false)
 
   const loadDeep = useCallback((v: string) => {
@@ -319,44 +324,68 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
     } else if (v === 'churn' && !churnData) {
       setDeepLoading(true)
       api.admin.churnRisk(selectedStudio, token).then(setChurnData).catch(() => {}).finally(() => setDeepLoading(false))
+    } else if (v === 'membership' && !membershipFunnelData) {
+      setDeepLoading(true)
+      api.admin.membershipFunnel(selectedStudio, token).then(setMembershipFunnelData).catch(() => {}).finally(() => setDeepLoading(false))
     }
-  }, [selectedStudio, token, retentionData, revenueData, churnData])
+  }, [selectedStudio, token, retentionData, revenueData, churnData, membershipFunnelData])
+
+  // Load class trends alongside the overview (used for sparklines in class table)
+  useEffect(() => {
+    if (!isPerStudio || classTrendsData) return
+    api.admin.classTrends(selectedStudio, token).then(setClassTrendsData).catch(() => {})
+  }, [selectedStudio, token, isPerStudio, classTrendsData])
 
   // Reset deep data when studio changes
-  useEffect(() => { setRetentionData(null); setRevenueData(null); setChurnData(null) }, [selectedStudio])
+  useEffect(() => {
+    setRetentionData(null); setRevenueData(null); setChurnData(null)
+    setClassTrendsData(null); setMembershipFunnelData(null)
+  }, [selectedStudio])
 
-  type SubView = 'analytics' | 'leaderboard' | 'query' | 'retention' | 'revenue' | 'churn'
-  const subViews: { id: SubView; label: string; show: boolean }[] = [
-    { id: 'analytics',   label: 'Overview',      show: true },
-    { id: 'retention',   label: 'Retention',     show: isPerStudio },
-    { id: 'revenue',     label: 'Revenue',       show: isPerStudio },
-    { id: 'churn',       label: 'Churn risk',    show: isPerStudio },
-    { id: 'leaderboard', label: 'Leaderboard',   show: isPerStudio },
-    { id: 'query',       label: 'Custom Query',  show: canShowQuery },
+  type SubView = 'analytics' | 'leaderboard' | 'query' | 'retention' | 'revenue' | 'churn' | 'membership'
+  const subViews: { id: SubView; label: string; perStudio: boolean; hidden: boolean }[] = [
+    { id: 'analytics',   label: 'Overview',      perStudio: false, hidden: false },
+    { id: 'retention',   label: 'Retention',     perStudio: false, hidden: false },
+    { id: 'revenue',     label: 'Revenue',       perStudio: false, hidden: false },
+    { id: 'membership',  label: 'Membership',    perStudio: false, hidden: false },
+    { id: 'churn',       label: 'Churn risk',    perStudio: false, hidden: false },
+    { id: 'leaderboard', label: 'Leaderboard',   perStudio: true,  hidden: false },
+    { id: 'query',       label: 'Custom Query',  perStudio: true,  hidden: !canShowQuery },
   ]
 
-  // Sub-nav header (shared between all views)
+  // Sub-nav — always renders the same set of tabs so the pill never changes width.
+  // Per-studio tabs are dimmed + non-interactive when "All studios" is selected.
   const subNav = (
     <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5 w-fit">
-      {subViews.filter(v => v.show).map(v => (
-        <button
-          key={v.id}
-          onClick={() => { setView(v.id); loadDeep(v.id) }}
-          className={`text-xs font-medium px-4 py-1.5 rounded-md transition-colors ${
-            view === v.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          {v.label}
-        </button>
-      ))}
+      {subViews.filter(v => !v.hidden).map(v => {
+        const disabled = v.perStudio && !isPerStudio
+        const active = view === v.id
+        return (
+          <button
+            key={v.id}
+            onClick={() => { if (!disabled) { setView(v.id); loadDeep(v.id) } }}
+            title={disabled ? 'Select a specific studio to view this' : undefined}
+            className={`text-xs font-medium px-4 py-1.5 rounded-md transition-colors ${
+              active
+                ? 'bg-white text-gray-900 shadow-sm'
+                : disabled
+                  ? 'text-gray-300 cursor-default'
+                  : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {v.label}
+          </button>
+        )
+      })}
     </div>
   )
 
   // ── Retention cohort view ──────────────────────────────────────────────────
-  if (view === 'retention' && isPerStudio) {
+  if (view === 'retention') {
     if (!retentionData && !deepLoading) loadDeep('retention')
-    const maxOffset = retentionData
-      ? Math.max(...retentionData.cohorts.flatMap(c => c.offsets.map(o => o.offset)), 0)
+    const cohorts = retentionData?.cohorts ?? []
+    const maxOffset = cohorts.length > 0
+      ? Math.max(...cohorts.flatMap(c => c.offsets.map(o => o.offset)), 0)
       : 11
     const offsets = Array.from({ length: maxOffset + 1 }, (_, i) => i)
 
@@ -368,8 +397,8 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
           <h3 className="text-sm font-semibold text-gray-700 mb-1">Member retention by cohort</h3>
           <p className="text-xs text-gray-400 mb-4">% of members from each signup month still booking in subsequent months.</p>
           {deepLoading ? (
-            <div className="h-48 bg-white rounded-xl border border-gray-100 animate-pulse" />
-          ) : !retentionData?.cohorts.length ? (
+            <div className="min-h-[480px] bg-white rounded-xl border border-gray-100 animate-pulse" />
+          ) : !cohorts.length ? (
             <p className="text-sm text-gray-400 py-8 text-center">Not enough data yet.</p>
           ) : (
             <div className="overflow-x-auto">
@@ -384,7 +413,7 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
                   </tr>
                 </thead>
                 <tbody>
-                  {retentionData.cohorts.map(c => {
+                  {cohorts.map(c => {
                     const pctMap = new Map(c.offsets.map(o => [o.offset, o.pct]))
                     return (
                       <tr key={c.month}>
@@ -414,7 +443,7 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
   }
 
   // ── Revenue view ───────────────────────────────────────────────────────────
-  if (view === 'revenue' && isPerStudio) {
+  if (view === 'revenue') {
     if (!revenueData && !deepLoading) loadDeep('revenue')
     const allMonths = [...(revenueData?.monthly ?? []), ...(revenueData?.forecast ?? [])]
     const maxRev = Math.max(...allMonths.map(m => m.revenue), 1)
@@ -424,7 +453,7 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
         {studioPicker}
         {subNav}
         {deepLoading ? (
-          <div className="h-64 bg-white rounded-xl border border-gray-100 animate-pulse" />
+          <div className="min-h-[480px] bg-white rounded-xl border border-gray-100 animate-pulse" />
         ) : !revenueData ? null : (
           <>
             {/* Revenue bar chart */}
@@ -446,6 +475,50 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
               </div>
               <p className="text-[10px] text-gray-400 mt-2">* Forecast based on 3-month average</p>
             </div>
+
+            {/* Revenue breakdown by type */}
+            {(revenueData.breakdown?.length ?? 0) > 0 && (() => {
+              const bd = revenueData.breakdown!
+              const maxBd = Math.max(...bd.map(m => m.subscriptions + m.products), 1)
+              return (
+                <div className="bg-white rounded-xl border border-gray-100 p-5">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-1">Revenue by type</h3>
+                  <p className="text-xs text-gray-400 mb-4">Subscriptions vs. one-time product sales.</p>
+                  <div className="flex items-end gap-1 h-32">
+                    {bd.map(m => {
+                      const subH = Math.round((m.subscriptions / maxBd) * 100)
+                      const proH = Math.round((m.products / maxBd) * 100)
+                      return (
+                        <div key={m.month} className="flex-1 flex flex-col items-center gap-0.5 min-w-0 group relative">
+                          <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 hidden group-hover:block z-10 pointer-events-none">
+                            <div className="bg-gray-900 text-white text-[10px] rounded px-1.5 py-1 whitespace-nowrap">
+                              {new Date(m.month).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' })}<br/>
+                              Subs: {(m.subscriptions / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}<br/>
+                              Products: {(m.products / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
+                            </div>
+                          </div>
+                          <div className="w-full flex flex-col-reverse gap-0.5" style={{ height: '100%' }}>
+                            <div className="w-full bg-gray-800 rounded-t" style={{ height: `${proH}%`, minHeight: m.products > 0 ? 2 : 0 }} />
+                            <div className="w-full bg-indigo-400 rounded-t" style={{ height: `${subH}%`, minHeight: m.subscriptions > 0 ? 2 : 0 }} />
+                          </div>
+                          <span className="text-[9px] text-gray-400 truncate w-full text-center mt-1">
+                            {new Date(m.month).toLocaleDateString('en-GB', { month: 'short' })}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="flex gap-4 mt-3">
+                    {[['bg-indigo-400', 'Subscriptions'], ['bg-gray-800', 'Products']].map(([cls, label]) => (
+                      <span key={label} className="flex items-center gap-1.5 text-[10px] text-gray-500">
+                        <span className={`w-3 h-2 rounded-sm ${cls}`} />
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* MRR */}
             {revenueData.mrr.length > 0 && (
@@ -475,7 +548,7 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
   }
 
   // ── Churn risk view ────────────────────────────────────────────────────────
-  if (view === 'churn' && isPerStudio) {
+  if (view === 'churn') {
     if (!churnData && !deepLoading) loadDeep('churn')
     return (
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 space-y-4">
@@ -485,7 +558,7 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
           <h3 className="text-sm font-semibold text-gray-700 mb-1">At-risk members</h3>
           <p className="text-xs text-gray-400 mb-4">Members with 3+ bookings whose last visit was 2.5× longer ago than their usual cadence.</p>
           {deepLoading ? (
-            <div className="h-48 bg-white rounded-xl border border-gray-100 animate-pulse" />
+            <div className="min-h-[480px] bg-white rounded-xl border border-gray-100 animate-pulse" />
           ) : !churnData?.members.length ? (
             <div className="bg-white rounded-xl border border-gray-100 py-10 text-center">
               <p className="text-sm text-gray-400">No at-risk members right now.</p>
@@ -513,6 +586,104 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
     )
   }
 
+  // ── Membership funnel view ────────────────────────────────────────────────
+  if (view === 'membership') {
+    if (!membershipFunnelData && !deepLoading) loadDeep('membership')
+    const funnelMonths = membershipFunnelData?.months ?? []
+    const maxVal = Math.max(...funnelMonths.map(m => m.active + m.paused + m.cancelled), 1)
+
+    return (
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 space-y-6">
+        {studioPicker}
+        {subNav}
+        {deepLoading ? (
+          <div className="min-h-[480px] bg-white rounded-xl border border-gray-100 animate-pulse" />
+        ) : !funnelMonths.length ? (
+          <p className="text-sm text-gray-400 text-center py-16">No subscription data yet.</p>
+        ) : (
+          <>
+            {/* Stacked area chart (SVG) */}
+            <div className="bg-white rounded-xl border border-gray-100 p-5">
+              <h3 className="text-sm font-semibold text-gray-700 mb-1">Subscription base over time</h3>
+              <p className="text-xs text-gray-400 mb-4">Active, paused, and cancelled subscriptions per month.</p>
+              {(() => {
+                const W = 560; const H = 160; const PAD = { l: 8, r: 8, t: 8, b: 24 }
+                const innerW = W - PAD.l - PAD.r
+                const innerH = H - PAD.t - PAD.b
+                const n = funnelMonths.length
+                const xStep = n > 1 ? innerW / (n - 1) : innerW
+                const y = (v: number) => PAD.t + innerH - (v / maxVal) * innerH
+
+                function polyPoints(vals: number[], offset: number[]): string {
+                  const top = vals.map((v, i) => `${PAD.l + i * xStep},${y(offset[i] + v)}`)
+                  const bot = offset.map((v, i) => `${PAD.l + (n - 1 - i) * xStep},${y(v)}`).reverse()
+                  return [...top, ...bot].join(' ')
+                }
+
+                const zeros = funnelMonths.map(() => 0)
+                const cancelled = funnelMonths.map(m => m.cancelled)
+                const paused = funnelMonths.map(m => m.paused)
+                const active = funnelMonths.map(m => m.active)
+                const pausedOffset = cancelled
+                const activeOffset = cancelled.map((v, i) => v + paused[i])
+
+                return (
+                  <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }}>
+                    <polygon points={polyPoints(cancelled, zeros)} fill="#fca5a5" opacity="0.8" />
+                    <polygon points={polyPoints(paused, pausedOffset)} fill="#fcd34d" opacity="0.8" />
+                    <polygon points={polyPoints(active, activeOffset)} fill="#6ee7b7" opacity="0.8" />
+                    {/* X-axis month labels — every other label */}
+                    {funnelMonths.map((m, i) => i % 2 === 0 ? (
+                      <text key={m.month} x={PAD.l + i * xStep} y={H - 4} textAnchor="middle" fontSize="9" fill="#9ca3af">
+                        {new Date(m.month).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' })}
+                      </text>
+                    ) : null)}
+                  </svg>
+                )
+              })()}
+              <div className="flex gap-4 mt-2">
+                {[['#6ee7b7', 'Active'], ['#fcd34d', 'Paused'], ['#fca5a5', 'Cancelled']].map(([color, label]) => (
+                  <span key={label} className="flex items-center gap-1.5 text-[10px] text-gray-500">
+                    <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: color }} />
+                    {label}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Monthly table */}
+            <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-gray-100">
+                    <th className="text-left px-4 py-2.5 text-gray-400 font-medium">Month</th>
+                    <th className="text-right px-4 py-2.5 text-gray-400 font-medium">New</th>
+                    <th className="text-right px-4 py-2.5 text-gray-400 font-medium">Active</th>
+                    <th className="text-right px-4 py-2.5 text-gray-400 font-medium">Paused</th>
+                    <th className="text-right px-4 py-2.5 text-gray-400 font-medium">Cancelled</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...funnelMonths].reverse().map(m => (
+                    <tr key={m.month} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                      <td className="px-4 py-2 text-gray-600 font-medium">
+                        {new Date(m.month).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' })}
+                      </td>
+                      <td className="px-4 py-2 text-right text-indigo-600 font-semibold">{m.newSubs > 0 ? `+${m.newSubs}` : '—'}</td>
+                      <td className="px-4 py-2 text-right text-emerald-600 font-semibold">{m.active}</td>
+                      <td className="px-4 py-2 text-right text-amber-500">{m.paused || '—'}</td>
+                      <td className="px-4 py-2 text-right text-red-400">{m.cancelled || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
   if (view === 'leaderboard' && isPerStudio) {
     return (
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 space-y-4">
@@ -535,14 +706,16 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
     )
   }
 
-  if (loading) {
+  if (loading && !data) {
     return (
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-4">
         {studioPicker}
         {subNav}
-        {[...Array(5)].map((_, i) => (
-          <div key={i} className="h-40 bg-white rounded-2xl animate-pulse border border-gray-100" />
-        ))}
+        <div className="min-h-[640px] space-y-4">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-40 bg-white rounded-2xl animate-pulse border border-gray-100" />
+          ))}
+        </div>
       </div>
     )
   }
@@ -569,7 +742,7 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
   const xLabels = weeklyTrend.map(w => weekLabel(w.weekStart))
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-8">
+    <div className={`max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-8 transition-opacity duration-200 ${loading ? 'opacity-60 pointer-events-none' : ''}`}>
 
       {/* ── Studio picker (franchise admins) ── */}
       {studioPicker}
@@ -765,30 +938,53 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
                     <th className="text-left text-xs font-medium text-gray-400 px-4 py-2.5">Class</th>
                     <th className="text-right text-xs font-medium text-gray-400 px-4 py-2.5">Fill</th>
                     <th className="text-right text-xs font-medium text-gray-400 px-4 py-2.5">Check-in</th>
+                    <th className="text-right text-xs font-medium text-gray-400 px-4 py-2.5 hidden sm:table-cell">Trend</th>
                     <th className="text-right text-xs font-medium text-gray-400 px-4 py-2.5">#</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {classStats.map(c => (
-                    <tr key={c.templateId} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <p className="text-sm font-medium text-gray-900 truncate">{c.name}</p>
-                        <p className="text-[10px] text-gray-400">{c.sport}</p>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <span className={`text-sm font-semibold tabular-nums ${
-                          c.avgFillRate >= 0.9 ? 'text-emerald-600' :
-                          c.avgFillRate >= 0.6 ? 'text-amber-600' : 'text-red-500'
-                        }`}>{pct(c.avgFillRate)}</span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <span className="text-sm tabular-nums text-gray-600">{pct(c.checkInRate)}</span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <span className="text-xs tabular-nums text-gray-400">{c.sessions}</span>
-                      </td>
-                    </tr>
-                  ))}
+                  {classStats.map(c => {
+                    const trend = classTrendsData?.classes.find(t => t.templateId === c.templateId)
+                    const sparkVals = trend?.weeklyFill.filter(v => v >= 0) ?? []
+                    return (
+                      <tr key={c.templateId} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                        <td className="px-4 py-3">
+                          <p className="text-sm font-medium text-gray-900 truncate">{c.name}</p>
+                          <p className="text-[10px] text-gray-400">{c.sport}</p>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className={`text-sm font-semibold tabular-nums ${
+                            c.avgFillRate >= 0.9 ? 'text-emerald-600' :
+                            c.avgFillRate >= 0.6 ? 'text-amber-600' : 'text-red-500'
+                          }`}>{pct(c.avgFillRate)}</span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="text-sm tabular-nums text-gray-600">{pct(c.checkInRate)}</span>
+                        </td>
+                        <td className="px-4 py-3 text-right hidden sm:table-cell">
+                          {sparkVals.length >= 2 ? (
+                            <svg width="56" height="20" className="inline-block">
+                              <polyline
+                                points={sparkVals.map((v, i) =>
+                                  `${(i / (sparkVals.length - 1)) * 52 + 2},${18 - (v / 100) * 16}`
+                                ).join(' ')}
+                                fill="none"
+                                stroke={sparkVals[sparkVals.length - 1] > sparkVals[0] ? '#059669' : sparkVals[sparkVals.length - 1] < sparkVals[0] ? '#ef4444' : '#9ca3af'}
+                                strokeWidth="1.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          ) : (
+                            <span className="text-[10px] text-gray-300">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="text-xs tabular-nums text-gray-400">{c.sessions}</span>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             )}

@@ -567,8 +567,30 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
     await onAssign(bookingId, stationId)
   }
 
+  const [stationSort, setStationSort] = useState<'label' | 'occupied' | 'empty'>('label')
+
+  // Type group order for the default sort — keeps all bikes together, all benches together, etc.
+  const TYPE_ORDER: Partial<Record<string, number>> = {
+    BIKE: 0, TREADMILL: 1, ROWER: 2, MAT: 3, REFORMER: 4, BARRE: 5, BENCH: 6, OTHER: 7,
+  }
+
+  const byTypeAndLabel = (a: Station, b: Station) => {
+    const tA = TYPE_ORDER[a.type] ?? 99, tB = TYPE_ORDER[b.type] ?? 99
+    if (tA !== tB) return tA - tB
+    return a.label.localeCompare(b.label, undefined, { numeric: true })
+  }
+
   // Sorted stations for the list panel
-  const sortedStations = [...layout.stations].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))
+  const sortedStations = [...layout.stations].sort((a, b) => {
+    if (stationSort === 'occupied') {
+      const aFull = !!assignmentByStation(a.id), bFull = !!assignmentByStation(b.id)
+      if (aFull !== bFull) return aFull ? -1 : 1
+    } else if (stationSort === 'empty') {
+      const aFull = !!assignmentByStation(a.id), bFull = !!assignmentByStation(b.id)
+      if (aFull !== bFull) return aFull ? 1 : -1
+    }
+    return byTypeAndLabel(a, b)
+  })
 
   const canvasW = layout.widthM * SCALE
   const canvasH = layout.lengthM * SCALE
@@ -584,18 +606,33 @@ export default function SessionRoomMap({ layout, assignments, onAssign, onChecki
       <div className="flex gap-3 min-h-0">
 
         {/* ── Left panel: station list ── */}
-        <div className="w-52 shrink-0 flex flex-col gap-1 overflow-y-auto max-h-[680px]">
+        <div className="w-56 shrink-0 flex flex-col gap-1 overflow-y-auto max-h-[680px]">
           {/* Header */}
           <div className="flex items-center justify-between px-1 mb-1">
             <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Stations</p>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              {/* Station sort */}
+              <div className="flex rounded-md border border-gray-200 overflow-hidden">
+                {([['label', 'A↓'], ['occupied', '●↑'], ['empty', '○↑']] as const).map(([s, icon]) => (
+                  <button
+                    key={s}
+                    onClick={() => setStationSort(s)}
+                    title={{ label: 'Sort by label', occupied: 'Occupied first', empty: 'Empty first' }[s]}
+                    className={`px-1 py-0.5 text-[9px] font-bold transition-colors ${
+                      stationSort === s ? 'bg-gray-900 text-white' : 'text-gray-400 hover:text-gray-700'
+                    }`}
+                  >
+                    {icon}
+                  </button>
+                ))}
+              </div>
               {/* Name size toggle */}
               <div className="flex rounded-md border border-gray-200 overflow-hidden">
                 {(['s', 'm', 'l', 'xl'] as NameSize[]).map(s => (
                   <button
                     key={s}
                     onClick={() => cycleNameSize(s)}
-                    className={`px-1.5 py-0.5 text-[9px] font-bold uppercase transition-colors ${
+                    className={`px-1 py-0.5 text-[9px] font-bold uppercase transition-colors ${
                       nameSize === s ? 'bg-gray-900 text-white' : 'text-gray-400 hover:text-gray-700'
                     }`}
                   >
