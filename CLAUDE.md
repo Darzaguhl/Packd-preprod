@@ -72,6 +72,7 @@ See `apps/api/.env.example` for full documented list.
 ### pg-boss v10
 - `boss.createQueue(name)` before scheduling — queues are not auto-created
 - Create queues **sequentially** (for…of), not `Promise.all` — parallel DDL deadlocks
+- Column names are **snake_case**: `created_on`, `completed_on`, `retry_count` (not camelCase — changed in v10)
 
 ### Vitest + Fastify 5
 - preHandler mocks: `vi.fn().mockResolvedValue(undefined)` — synchronous `undefined` stalls the lifecycle

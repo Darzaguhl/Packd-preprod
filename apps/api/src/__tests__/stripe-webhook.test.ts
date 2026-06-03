@@ -37,14 +37,11 @@ vi.mock('@packd/db', () => {
       promoCode,
       user,
       studio,
-      $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
-        fn({
-          member, membershipPlan, membershipSubscription,
-          creditBalance, creditTransaction,
-          promoCodeRedemption, promoCode, user, studio,
-          productSale,
-        }),
-      ),
+      $transaction: vi.fn(async (fnOrArr: unknown) => {
+        const tx = { member, membershipPlan, membershipSubscription, creditBalance, creditTransaction, promoCodeRedemption, promoCode, user, studio, productSale }
+        if (Array.isArray(fnOrArr)) return Promise.all(fnOrArr)
+        return (fnOrArr as (tx: unknown) => Promise<unknown>)(tx)
+      }),
     },
   }
 })

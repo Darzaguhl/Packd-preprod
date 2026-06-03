@@ -47,7 +47,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
         classReminderHours: studio?.classReminderHours ?? 24,
         maxPauseDays: studio?.maxPauseDays ?? 30,
         maxPausesPerYear: studio?.maxPausesPerYear ?? 2,
-        allowMemberPause: studio?.allowMemberPause ?? true,
+        allowMemberPause: studio?.allowMemberPause ?? false,
         referralRewardCredits: studio?.referralRewardCredits ?? 0,
         websiteUrl: studio?.websiteUrl ?? null,
         supportEmail: studio?.supportEmail ?? null,

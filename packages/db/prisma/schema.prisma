@@ -201,6 +201,8 @@ model Location {
 
   studio   Studio @relation(fields: [studioId], references: [id], onDelete: Cascade)
   rooms    Room[]
+
+  @@index([studioId])
 }
 
 model Room {
@@ -213,6 +215,8 @@ model Room {
   classSessions ClassSession[]
   layouts       RoomLayout[]
   schedules     ClassSchedule[]
+
+  @@index([locationId])
 }
 
 model RoomLayout {
@@ -323,6 +327,8 @@ model ClassTemplate {
   studio        Studio         @relation(fields: [studioId], references: [id], onDelete: Cascade)
   classSessions ClassSession[]
   schedules     ClassSchedule[]
+
+  @@index([studioId])
 }
 
 enum SportType {
@@ -484,7 +490,7 @@ model Booking {
   @@unique([sessionId, stationId])
   @@index([memberId])
   @@index([sessionId, status])
-  @@index([bookedAt])              // stats query: bookedAt >= today AND status = CONFIRMED
+  @@index([bookedAt, status])      // stats query: bookedAt >= today AND status = CONFIRMED
 }
 
 enum BookingStatus {
@@ -597,6 +603,7 @@ model MembershipSubscription {
 
   @@index([memberId])
   @@index([status])                // analytics subscription count by status
+  @@index([memberId, status])      // per-member active subscription lookup on every booking
 }
 
 enum SubscriptionStatus {

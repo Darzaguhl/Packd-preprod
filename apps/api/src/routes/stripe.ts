@@ -488,29 +488,30 @@ export async function stripeRoutes(app: FastifyInstance) {
         const member = await prisma.member.findFirst({ where: { stripeCustomerId: customerId } })
         if (!member) return { received: true }
 
-        // If subscription was PAST_DUE and payment now succeeded, restore to ACTIVE
-        await prisma.membershipSubscription.updateMany({
-          where: { memberId: member.id, stripeSubId: invoice.subscription as string, status: 'PAST_DUE' },
-          data: { status: 'ACTIVE' },
-        })
-
         const renewalExpiresAt = plan.creditExpiryDays
           ? new Date(Date.now() + plan.creditExpiryDays * 24 * 60 * 60 * 1000)
           : null
-        await prisma.creditBalance.upsert({
-          where: { memberId: member.id },
-          create: { memberId: member.id, balance: plan.creditsPerCycle },
-          update: { balance: { increment: plan.creditsPerCycle } },
-        })
-        await prisma.creditTransaction.create({
-          data: {
-            memberId: member.id,
-            amount: plan.creditsPerCycle,
-            type: 'MEMBERSHIP_RENEWAL',
-            note: `Renewal: ${plan.name}`,
-            ...(renewalExpiresAt && { expiresAt: renewalExpiresAt }),
-          },
-        })
+        // Atomic: restore PAST_DUE status + grant credits in a single transaction
+        await prisma.$transaction([
+          prisma.membershipSubscription.updateMany({
+            where: { memberId: member.id, stripeSubId: invoice.subscription as string, status: 'PAST_DUE' },
+            data: { status: 'ACTIVE' },
+          }),
+          prisma.creditBalance.upsert({
+            where: { memberId: member.id },
+            create: { memberId: member.id, balance: plan.creditsPerCycle },
+            update: { balance: { increment: plan.creditsPerCycle } },
+          }),
+          prisma.creditTransaction.create({
+            data: {
+              memberId: member.id,
+              amount: plan.creditsPerCycle,
+              type: 'MEMBERSHIP_RENEWAL',
+              note: `Renewal: ${plan.name}`,
+              ...(renewalExpiresAt && { expiresAt: renewalExpiresAt }),
+            },
+          }),
+        ])
       }
     }
 
@@ -624,6 +625,14 @@ export async function stripeRoutes(app: FastifyInstance) {
         event = await stripe().events.retrieve(eventId)
       } catch {
         return reply.notFound(`Stripe event ${eventId} not found`)
+      }
+
+      // Studio isolation: franchise_admin+ can replay any event; studio_admin must own the event's studio
+      if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['franchise_admin']) {
+        const obj = event.data.object as Record<string, unknown>
+        const metaStudioId = (obj.metadata as Record<string, string> | undefined)?.studioId
+        if (!metaStudioId) return reply.forbidden('Cannot replay events without a studio context — requires franchise_admin')
+        if (!user.studioIds?.includes(metaStudioId)) return reply.forbidden('Event belongs to a different studio')
       }
 
       // Remove the idempotency record so the webhook handler will process it

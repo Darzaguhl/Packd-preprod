@@ -49,7 +49,10 @@ import { setupJobs, stopJobs } from './jobs/index.js'
 import { prisma } from '@packd/db'
 
 // Validate critical env vars at startup — fail fast before binding any port
-if (!process.env.SUPABASE_URL) throw new Error('SUPABASE_URL env var is required')
+const REQUIRED_ENV = ['SUPABASE_URL', 'STRIPE_SECRET_KEY', 'RESEND_API_KEY', 'WEB_URL'] as const
+for (const key of REQUIRED_ENV) {
+  if (!process.env[key]) throw new Error(`${key} env var is required`)
+}
 
 const app = Fastify({
   logger: {

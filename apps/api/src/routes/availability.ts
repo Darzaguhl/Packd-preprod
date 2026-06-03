@@ -5,6 +5,7 @@ import { requireAuth, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { Id } from '../schemas.js'
 import { AvailabilityBlockSchema } from '../schemas/responses.js'
+import { assertStudioAccess } from './admin-shared.js'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -51,6 +52,7 @@ export async function availabilityRoutes(app: FastifyInstance) {
 
       const user = getUser(request)
       if (!isManager(user.role)) return reply.forbidden()
+      if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
       const where: Record<string, unknown> = { studioId }
       if (from || to) {
@@ -152,6 +154,9 @@ export async function availabilityRoutes(app: FastifyInstance) {
       if (new Date(startDate) >= new Date(endDate)) {
         return reply.badRequest('startDate must be before endDate')
       }
+      if (isManager(user.role)) {
+        if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
+      }
       if (!await canManageBlock(user.id, user.role, instructorId)) return reply.forbidden()
 
       const block = await prisma.instructorAvailabilityBlock.create({
@@ -194,6 +199,9 @@ export async function availabilityRoutes(app: FastifyInstance) {
 
       const block = await prisma.instructorAvailabilityBlock.findUnique({ where: { id } })
       if (!block) return reply.notFound()
+      if (isManager(user.role)) {
+        if (!await assertStudioAccess(user.id, user.role, block.studioId, reply, user.studioIds)) return
+      }
       if (!await canManageBlock(user.id, user.role, block.instructorId)) return reply.forbidden()
 
       const updated = await prisma.instructorAvailabilityBlock.update({
@@ -229,6 +237,9 @@ export async function availabilityRoutes(app: FastifyInstance) {
 
       const block = await prisma.instructorAvailabilityBlock.findUnique({ where: { id } })
       if (!block) return reply.notFound()
+      if (isManager(user.role)) {
+        if (!await assertStudioAccess(user.id, user.role, block.studioId, reply, user.studioIds)) return
+      }
       if (!await canManageBlock(user.id, user.role, block.instructorId)) return reply.forbidden()
 
       await prisma.instructorAvailabilityBlock.delete({ where: { id } })

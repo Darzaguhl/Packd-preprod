@@ -199,6 +199,10 @@ export async function promoRoutes(app: FastifyInstance) {
 
       if (!code || !studioId) return reply.badRequest('code and studioId are required')
 
+      if (bodyMemberId && ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['fronthost']) {
+        return reply.forbidden('Cannot redeem on behalf of another member')
+      }
+
       let member = await prisma.member.findFirst({
         where: bodyMemberId
           ? { id: bodyMemberId, studioId }

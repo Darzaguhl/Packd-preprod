@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireRole, getUser } from '../lib/auth.js'
-import { assertStudioAccess } from './franchise.js'
+import { assertStudioAccess } from './admin-shared.js'
 import { Id, StudioIdQuery } from '../schemas.js'
 import { ClassTemplateSchema } from '../schemas/responses.js'
 
@@ -143,7 +143,7 @@ export async function templateRoutes(app: FastifyInstance) {
 
       const existing = await prisma.classTemplate.findUnique({ where: { id } })
       if (!existing) return reply.notFound()
-      if (!await assertStudioAccess(user.id, user.role, existing.studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, existing.studioId, reply, user.studioIds)) return
 
       const updated = await prisma.classTemplate.update({
         where: { id },
@@ -181,7 +181,7 @@ export async function templateRoutes(app: FastifyInstance) {
 
       const existing = await prisma.classTemplate.findUnique({ where: { id } })
       if (!existing) return reply.notFound()
-      if (!await assertStudioAccess(user.id, user.role, existing.studioId, reply)) return
+      if (!await assertStudioAccess(user.id, user.role, existing.studioId, reply, user.studioIds)) return
 
       await prisma.classTemplate.delete({ where: { id } })
       return reply.send({ success: true })

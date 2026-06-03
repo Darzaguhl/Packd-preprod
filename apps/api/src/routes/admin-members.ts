@@ -5,6 +5,7 @@ import { requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { audit, AUDIT } from '../lib/audit.js'
 import { assertStudioAccess } from './admin-shared.js'
+import { logger } from '../lib/logger.js'
 import Stripe from 'stripe'
 import { Id, StudioIdQuery, CursorQuery, MemberIdParam } from '../schemas.js'
 import {
@@ -137,6 +138,16 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       if (!q || q.trim().length < 2) return reply.badRequest('q must be at least 2 characters')
 
       const user = getUser(request)
+
+      // Instructors (not fronthosts) must have canViewMemberContact permission to see email addresses
+      if (user.role === 'instructor') {
+        const instructor = await prisma.instructor.findFirst({
+          where: { studioId, userId: user.id },
+          select: { permissions: true },
+        })
+        const perms = (instructor?.permissions ?? {}) as Record<string, unknown>
+        if (!perms.canViewMemberContact) return reply.forbidden('canViewMemberContact permission required')
+      }
 
       const term = q.trim()
 
@@ -484,6 +495,8 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       })
       if (!note) return reply.notFound()
       if (note.memberId !== memberId) return reply.notFound()
+      const user = getUser(request)
+      if (!await assertStudioAccess(user.id, user.role, note.member.studioId, reply, user.studioIds)) return
       await prisma.memberNote.delete({ where: { id: noteId } })
       audit({
         actorId: getUser(request).id,
@@ -581,7 +594,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       })
 
       if (sub.stripeSubId) {
-        await getStripe().subscriptions.update(sub.stripeSubId, { pause_collection: { behavior: 'void' } }).catch(() => {})
+        await getStripe().subscriptions.update(sub.stripeSubId, { pause_collection: { behavior: 'void' } }).catch(err => logger.warn({ err }, 'Stripe subscription pause sync failed'))
       }
 
       audit({
@@ -622,7 +635,7 @@ export async function adminMembersRoutes(app: FastifyInstance) {
       if (sub.stripeSubId) {
         await getStripe().subscriptions.update(sub.stripeSubId, {
           pause_collection: '',
-        } as Parameters<typeof Stripe.prototype.subscriptions.update>[1]).catch(() => {})
+        } as Parameters<typeof Stripe.prototype.subscriptions.update>[1]).catch(err => logger.warn({ err }, 'Stripe subscription resume sync failed'))
       }
 
       audit({
