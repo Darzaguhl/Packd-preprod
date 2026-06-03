@@ -485,7 +485,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
                DATE_TRUNC('month', MIN(b."bookedAt")) AS cohort_month
         FROM "Booking" b
         JOIN "Member" m ON m.id = b."memberId"
-        WHERE ${sf} AND b.status IN ('CONFIRMED','CHECKED_IN')
+        WHERE ${sf} AND b.status = 'CONFIRMED'
           AND b."bookedAt" >= ${cutoff}
         GROUP BY b."memberId"
       ),
@@ -494,7 +494,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
                DATE_TRUNC('month', b."bookedAt") AS active_month
         FROM "Booking" b
         JOIN "Member" m ON m.id = b."memberId"
-        WHERE ${sf} AND b.status IN ('CONFIRMED','CHECKED_IN')
+        WHERE ${sf} AND b.status = 'CONFIRMED'
         GROUP BY b."memberId", DATE_TRUNC('month', b."bookedAt")
       )
       SELECT
@@ -556,7 +556,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
                SUM(p."priceInCents")::int          AS mrr
         FROM "MembershipSubscription" s
         JOIN "MembershipPlan" p ON p.id = s."planId"
-        WHERE ${sf === Prisma.sql`1=1` ? Prisma.sql`1=1` : Prisma.sql`p."studioId" = ${studioId}`}
+        WHERE ${studioId === 'all' ? Prisma.sql`1=1` : Prisma.sql`p."studioId" = ${studioId}`}
           AND s.status = 'ACTIVE'
           AND p."intervalMonths" > 0
           AND s."startDate" >= ${cutoff}
@@ -572,10 +572,167 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
       return { month: d.toISOString(), revenue: Math.round(avgRevenue), forecast: true }
     })
 
+    // Revenue breakdown by type per month (subscriptions vs products/one-time)
+    const sfSub = studioId === 'all' ? Prisma.sql`1=1` : Prisma.sql`p."studioId" = ${studioId}`
+    const breakdownRows = await prisma.$queryRaw<{ month: Date; subscriptions: number; products: number }[]>`
+      WITH sub_rev AS (
+        SELECT DATE_TRUNC('month', s."startDate") AS month,
+               SUM(p."priceInCents")::int          AS subscriptions
+        FROM "MembershipSubscription" s
+        JOIN "MembershipPlan" p ON p.id = s."planId"
+        WHERE ${sfSub} AND s."startDate" >= ${cutoff}
+        GROUP BY 1
+      ),
+      prod_rev AS (
+        SELECT DATE_TRUNC('month', "soldAt") AS month,
+               SUM("totalCents")::int         AS products
+        FROM "ProductSale"
+        WHERE ${sf} AND "soldAt" >= ${cutoff} AND "refundedAt" IS NULL AND "failedAt" IS NULL
+        GROUP BY 1
+      )
+      SELECT COALESCE(s.month, p.month)       AS month,
+             COALESCE(s.subscriptions, 0)      AS subscriptions,
+             COALESCE(p.products, 0)           AS products
+      FROM sub_rev s
+      FULL OUTER JOIN prod_rev p ON s.month = p.month
+      ORDER BY 1
+    `
+
     return {
       monthly: salesRows.map(r => ({ month: r.month.toISOString(), revenue: r.revenue, orders: r.orders, forecast: false })),
       mrr: mrrRows.map(r => ({ month: r.month.toISOString(), mrr: r.mrr })),
       forecast,
+      breakdown: breakdownRows.map(r => ({
+        month: r.month.toISOString(),
+        subscriptions: r.subscriptions,
+        products: r.products,
+      })),
+    }
+  })
+
+  // ── Class performance trends — weekly fill rate per template ─────────────
+  app.get('/class-trends', {
+    preHandler: requireStudioAdmin,
+    config: { studioIdFrom: 'querystring' },
+    schema: { querystring: StudioIdQuery.extend({ weeks: z.coerce.number().min(2).max(26).default(8) }) },
+  }, async (request) => {
+    const { studioId, weeks } = request.query as { studioId: string; weeks: number }
+    const sf = studioId === 'all' ? Prisma.sql`1=1` : Prisma.sql`cs."studioId" = ${studioId}`
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - weeks * 7)
+    cutoff.setHours(0, 0, 0, 0)
+
+    const rows = await prisma.$queryRaw<{
+      templateId: string; name: string; sport: string
+      week: Date; sessions: number; fill_rate: number
+    }[]>`
+      SELECT
+        ct.id                                         AS "templateId",
+        ct.name,
+        ct.sport,
+        DATE_TRUNC('week', cs."startsAt")             AS week,
+        COUNT(cs.id)::int                             AS sessions,
+        AVG(CASE WHEN cs.capacity > 0
+              THEN cs."bookedCount"::float / cs.capacity ELSE NULL END) AS fill_rate
+      FROM "ClassSession" cs
+      JOIN "ClassTemplate" ct ON ct.id = cs."templateId"
+      WHERE ${sf}
+        AND cs."startsAt" >= ${cutoff}
+        AND cs.status <> 'CANCELLED'
+      GROUP BY ct.id, ct.name, ct.sport, DATE_TRUNC('week', cs."startsAt")
+      ORDER BY ct.name, week
+    `
+
+    // Build week grid
+    const weekStarts: string[] = []
+    for (let i = weeks - 1; i >= 0; i--) {
+      const d = new Date()
+      d.setDate(d.getDate() - i * 7)
+      // Snap to Monday
+      const dow = d.getDay() || 7
+      d.setDate(d.getDate() - (dow - 1))
+      d.setHours(0, 0, 0, 0)
+      weekStarts.push(d.toISOString())
+    }
+
+    const byTemplate = new Map<string, { name: string; sport: string; byWeek: Map<string, number> }>()
+    for (const r of rows) {
+      if (!byTemplate.has(r.templateId)) {
+        byTemplate.set(r.templateId, { name: r.name, sport: r.sport, byWeek: new Map() })
+      }
+      byTemplate.get(r.templateId)!.byWeek.set(r.week.toISOString(), r.fill_rate ?? 0)
+    }
+
+    const classes = Array.from(byTemplate.entries())
+      .map(([templateId, { name, sport, byWeek }]) => ({
+        templateId,
+        name,
+        sport,
+        weeklyFill: weekStarts.map(w => {
+          // Find the closest matching week key
+          const key = [...byWeek.keys()].find(k => Math.abs(new Date(k).getTime() - new Date(w).getTime()) < 4 * 24 * 60 * 60 * 1000)
+          return key ? Math.round((byWeek.get(key) ?? 0) * 100) : -1 // -1 = no data
+        }),
+      }))
+      .filter(c => c.weeklyFill.some(v => v >= 0))
+
+    return { classes, weekStarts }
+  })
+
+  // ── Membership funnel over time ───────────────────────────────────────────
+  app.get('/membership-funnel', {
+    preHandler: requireStudioAdmin,
+    config: { studioIdFrom: 'querystring' },
+    schema: { querystring: StudioIdQuery.extend({ months: z.coerce.number().min(3).max(24).default(12) }) },
+  }, async (request) => {
+    const { studioId, months } = request.query as { studioId: string; months: number }
+    const sfPlan = studioId === 'all' ? Prisma.sql`1=1` : Prisma.sql`p."studioId" = ${studioId}`
+    const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - months); cutoff.setDate(1); cutoff.setHours(0,0,0,0)
+
+    // For each calendar month: snapshot of subscription states
+    // new = started in that month; cancelled/expired = ended in that month; active = running
+    const rows = await prisma.$queryRaw<{ month: Date; active: number; paused: number; cancelled: number; new_subs: number }[]>`
+      WITH months AS (
+        SELECT generate_series(${cutoff}::date, date_trunc('month', now())::date, '1 month'::interval) AS month
+      )
+      SELECT
+        m.month,
+        COUNT(*) FILTER (
+          WHERE s."startDate" <= (m.month + interval '1 month - 1 day')
+            AND (s."endDate" IS NULL OR s."endDate" > m.month)
+            AND s.status NOT IN ('CANCELLED','EXPIRED')
+            AND (s."pausedUntil" IS NULL OR s."pausedUntil" <= m.month)
+        )::int  AS active,
+        COUNT(*) FILTER (
+          WHERE s."startDate" <= (m.month + interval '1 month - 1 day')
+            AND (s."endDate" IS NULL OR s."endDate" > m.month)
+            AND s.status NOT IN ('CANCELLED','EXPIRED')
+            AND s."pausedUntil" IS NOT NULL AND s."pausedUntil" > m.month
+        )::int  AS paused,
+        COUNT(*) FILTER (
+          WHERE s."startDate" <= (m.month + interval '1 month - 1 day')
+            AND s.status IN ('CANCELLED','EXPIRED')
+            AND date_trunc('month', COALESCE(s."endDate", s."startDate")) = m.month
+        )::int  AS cancelled,
+        COUNT(*) FILTER (
+          WHERE date_trunc('month', s."startDate") = m.month
+        )::int  AS new_subs
+      FROM months m
+      CROSS JOIN "MembershipSubscription" s
+      JOIN "MembershipPlan" p ON p.id = s."planId"
+      WHERE ${sfPlan}
+      GROUP BY m.month
+      ORDER BY m.month
+    `
+
+    return {
+      months: rows.map(r => ({
+        month: r.month.toISOString(),
+        active: r.active,
+        paused: r.paused,
+        cancelled: r.cancelled,
+        newSubs: r.new_subs,
+      })),
     }
   })
 
@@ -607,7 +764,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
       LEFT JOIN (
         SELECT "memberId", "bookedAt",
                EXTRACT(EPOCH FROM ("bookedAt" - LAG("bookedAt") OVER (PARTITION BY "memberId" ORDER BY "bookedAt")))::float / 86400 AS gap
-        FROM "Booking" WHERE status IN ('CONFIRMED','CHECKED_IN')
+        FROM "Booking" WHERE status = 'CONFIRMED'
       ) b ON b."memberId" = m.id
       WHERE ${sf} AND m."staffRoles" = '{}'
       GROUP BY m.id, u."firstName", u."lastName", u.email

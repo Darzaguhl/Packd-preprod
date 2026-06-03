@@ -141,15 +141,15 @@ export async function adminPlatformRoutes(app: FastifyInstance) {
       prisma.$queryRaw<{ name: string; state: string; count: number }[]>`
         SELECT name, state, count(*)::int AS count
         FROM pgboss.job
-        WHERE createdon > now() - interval '7 days'
+        WHERE created_on > now() - interval '7 days'
         GROUP BY name, state
         ORDER BY name, state
       `,
-      prisma.$queryRaw<{ id: string; name: string; data: unknown; output: unknown; createdon: Date; completedon: Date | null; retrycount: number }[]>`
-        SELECT id::text, name, data, output, createdon, completedon, retrycount
+      prisma.$queryRaw<{ id: string; name: string; data: unknown; output: unknown; created_on: Date; completed_on: Date | null; retry_count: number }[]>`
+        SELECT id::text, name, data, output, created_on, completed_on, retry_count
         FROM pgboss.job
         WHERE state = 'failed'
-        ORDER BY COALESCE(completedon, createdon) DESC
+        ORDER BY COALESCE(completed_on, created_on) DESC
         LIMIT 100
       `,
     ])

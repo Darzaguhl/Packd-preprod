@@ -1,7 +1,7 @@
 import PgBoss from 'pg-boss'
 import { logger } from '../lib/logger.js'
 import { prisma } from '@packd/db'
-import { sendWaitlistPromotion, sendClassReminder, sendWinback, sendCreditExpiryWarning, sendFirstClassFollowup, sendFranchiseBroadcast, sendOpsAlert } from '../lib/email.js'
+import { sendWaitlistPromotion, sendClassReminder, sendWinback, sendCreditExpiryWarning, sendFirstClassFollowup, sendFranchiseBroadcast, sendWeeklyDigest, sendOpsAlert } from '../lib/email.js'
 
 let boss: PgBoss
 
@@ -31,6 +31,7 @@ export async function setupJobs() {
     'credit.expiry-sweep',
     'member.first-class-followup',
     'franchise.broadcast',
+    'weekly.digest',
   ]) {
     await boss.createQueue(name)
   }
@@ -521,6 +522,93 @@ export async function setupJobs() {
       studioName: member.studio.name,
       webUrl: process.env.WEB_URL ?? 'http://localhost:3001',
     })
+  })
+
+  // Weekly digest — every Monday at 08:00 UTC
+  await boss.schedule('weekly.digest', '0 8 * * 1', {}, { singletonKey: 'weekly.digest' })
+  await work('weekly.digest', async () => {
+    const webUrl = process.env.WEB_URL ?? 'http://localhost:3001'
+    const now = new Date()
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+
+    const studios = await prisma.studio.findMany({
+      where: { weeklyDigestEnabled: true },
+      select: { id: true, name: true, currency: true },
+    })
+
+    for (const studio of studios) {
+      // Fetch admins for this studio
+      const admins = await prisma.member.findMany({
+        where: { studioId: studio.id, staffRoles: { has: 'studio_admin' } },
+        select: { user: { select: { email: true, firstName: true } } },
+      })
+      if (!admins.length) continue
+
+      // Fill rate last 7 days
+      const sessions = await prisma.$queryRaw<{ fill_rate: number }[]>`
+        SELECT AVG(CASE WHEN capacity > 0 THEN "bookedCount"::float / capacity ELSE NULL END) AS fill_rate
+        FROM "ClassSession"
+        WHERE "studioId" = ${studio.id}
+          AND "startsAt" >= ${weekAgo} AND "startsAt" < ${now}
+          AND status <> 'CANCELLED'
+      `
+      const fillRatePct = Math.round((sessions[0]?.fill_rate ?? 0) * 100)
+
+      // Revenue last 7 days
+      const rev = await prisma.productSale.aggregate({
+        where: { studioId: studio.id, soldAt: { gte: weekAgo, lt: now }, refundedAt: null, failedAt: null },
+        _sum: { totalCents: true },
+      })
+      const revenueCents = rev._sum.totalCents ?? 0
+
+      // New members last 7 days
+      const newMembers = await prisma.member.count({
+        where: { studioId: studio.id, user: { createdAt: { gte: weekAgo, lt: now } } },
+      })
+
+      // At-risk members
+      const atRisk = await prisma.$queryRaw<[{ count: number }]>`
+        SELECT COUNT(*)::int
+        FROM "Member" m
+        JOIN (
+          SELECT "memberId",
+                 MAX("bookedAt") AS last_booked,
+                 AVG(EXTRACT(EPOCH FROM ("bookedAt" - LAG("bookedAt") OVER (PARTITION BY "memberId" ORDER BY "bookedAt"))) / 86400) AS avg_gap,
+                 COUNT(*) AS total
+          FROM "Booking" WHERE status = 'CONFIRMED'
+          GROUP BY "memberId"
+        ) b ON b."memberId" = m.id
+        WHERE m."studioId" = ${studio.id}
+          AND m."staffRoles" = '{}'
+          AND total >= 3
+          AND last_booked < now() - interval '21 days'
+          AND EXTRACT(EPOCH FROM (now() - last_booked)) / 86400 > COALESCE(avg_gap * 2.5, 30)
+      `
+      const churnRiskCount = atRisk[0]?.count ?? 0
+
+      // Monday of this week
+      const monday = new Date(now)
+      const dow = monday.getDay() || 7
+      monday.setDate(monday.getDate() - (dow - 1))
+      monday.setHours(0, 0, 0, 0)
+
+      for (const admin of admins) {
+        sendWeeklyDigest({
+          to: admin.user.email,
+          firstName: admin.user.firstName,
+          studioName: studio.name,
+          weekOf: monday.toISOString(),
+          fillRatePct,
+          revenueCents,
+          currency: studio.currency,
+          newMembers,
+          churnRiskCount,
+          webUrl,
+        }).catch(() => {})
+      }
+    }
+
+    logger.info({ count: studios.length }, '[weekly-digest] sent')
   })
 
   logger.info('pg-boss jobs registered')

@@ -313,7 +313,7 @@ export default function LiveDashboard({ defaultStudioId, modeSwitch, myClassesOn
                           </span>
                         )}
                         {isNext && (
-                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-600'}`}>
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-400 text-gray-900">
                             NEXT
                           </span>
                         )}
