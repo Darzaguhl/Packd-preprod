@@ -3784,6 +3784,7 @@ export interface paths {
                             userId: string;
                             name: string;
                             email: string;
+                            avatarUrl?: string | null;
                             roles: ("instructor" | "fronthost")[];
                             instructorPermissions?: {
                                 canCheckInMembers: boolean;
@@ -3798,6 +3799,7 @@ export interface paths {
                                 canManagePromoCodes: boolean;
                                 canViewPurchaseHistory: boolean;
                                 canOverrideBookingRestrictions: boolean;
+                                canViewAnalytics: boolean;
                             };
                             fronthostPermissions?: {
                                 canCheckInMembers: boolean;
@@ -3811,6 +3813,8 @@ export interface paths {
                                 canViewPurchaseHistory: boolean;
                                 canExportData: boolean;
                                 canOverrideBookingRestrictions: boolean;
+                                canCreateSchedules: boolean;
+                                canViewAnalytics: boolean;
                             };
                         }[];
                     };

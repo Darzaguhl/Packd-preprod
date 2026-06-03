@@ -103,6 +103,7 @@ export const InstructorPermissionsSchema = z.object({
   canManagePromoCodes:            z.boolean(),
   canViewPurchaseHistory:         z.boolean(),
   canOverrideBookingRestrictions: z.boolean(),
+  canViewAnalytics:               z.boolean(),
 })
 
 export const FronthostPermissionsSchema = z.object({
@@ -117,6 +118,8 @@ export const FronthostPermissionsSchema = z.object({
   canViewPurchaseHistory:         z.boolean(),
   canExportData:                  z.boolean(),
   canOverrideBookingRestrictions: z.boolean(),
+  canCreateSchedules:             z.boolean(),
+  canViewAnalytics:               z.boolean(),
 })
 
 export const CartSaleItemSchema = z.object({
@@ -399,6 +402,7 @@ export const StaffWithPermissionsSchema = z.object({
   userId:                 z.string(),
   name:                   z.string(),
   email:                  z.string(),
+  avatarUrl:              z.string().nullable().optional(),
   roles:                  z.array(z.enum(['instructor', 'fronthost'])),
   instructorPermissions:  InstructorPermissionsSchema.optional(),
   fronthostPermissions:   FronthostPermissionsSchema.optional(),

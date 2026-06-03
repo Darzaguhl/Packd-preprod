@@ -28,6 +28,7 @@ export interface InstructorPermissions {
   canManagePromoCodes: boolean
   canViewPurchaseHistory: boolean
   canOverrideBookingRestrictions: boolean
+  canViewAnalytics: boolean
 }
 
 export const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
@@ -43,6 +44,7 @@ export const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
   canManagePromoCodes: false,
   canViewPurchaseHistory: false,
   canOverrideBookingRestrictions: false,
+  canViewAnalytics: false,
 }
 
 
@@ -58,6 +60,8 @@ export interface FronthostPermissions {
   canViewPurchaseHistory: boolean
   canExportData: boolean
   canOverrideBookingRestrictions: boolean
+  canCreateSchedules: boolean
+  canViewAnalytics: boolean
 }
 
 export const DEFAULT_FRONTHOST_PERMISSIONS: FronthostPermissions = {
@@ -72,6 +76,8 @@ export const DEFAULT_FRONTHOST_PERMISSIONS: FronthostPermissions = {
   canViewPurchaseHistory: true,
   canExportData: false,
   canOverrideBookingRestrictions: true,
+  canCreateSchedules: false,
+  canViewAnalytics: false,
 }
 
 /** Unified permission set used in the Live view — covers both fronthost and instructor fields. */

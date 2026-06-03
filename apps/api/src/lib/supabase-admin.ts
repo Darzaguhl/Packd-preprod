@@ -6,6 +6,7 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 export interface SbUser {
   id: string
   email: string
+  created_at?: string
   app_metadata?: SupabaseAppMeta & Record<string, unknown>
   user_metadata?: Record<string, unknown>
 }

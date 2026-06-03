@@ -72,6 +72,14 @@ function initials(name: string) {
   return name.split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()
 }
 
+function Avatar({ name, url, size = 8, selected = false }: { name: string; url?: string | null; size?: number; selected?: boolean }) {
+  const cls = `w-${size} h-${size} rounded-full shrink-0 overflow-hidden flex items-center justify-center text-xs font-bold mt-0.5 ${
+    selected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
+  }`
+  if (url) return <img src={url} alt={name} className={`${cls} object-cover`} />
+  return <div className={cls}>{initials(name)}</div>
+}
+
 function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   return (
     <button role="switch" aria-checked={on} onClick={onToggle}
@@ -96,6 +104,7 @@ interface PersonEntry {
   id: string      // memberId (from first studio — used for fronthost updates)
   name: string
   email: string
+  avatarUrl?: string | null
   roles: RoleKey[]
   studios: StudioEntry[]
   permissionsVary: boolean  // instructor only — true when perms differ across studios
@@ -161,6 +170,7 @@ export default function FranchisePermissionsRoster({ studios, token }: Props) {
             id: s.id,
             name: s.name,
             email: s.email,
+            avatarUrl: s.avatarUrl ?? null,
             roles: s.roles as RoleKey[],
             studios: [entry],
             permissionsVary: false,
@@ -346,11 +356,7 @@ export default function FranchisePermissionsRoster({ studios, token }: Props) {
                   className={`w-full flex items-start gap-2.5 px-3 py-2.5 rounded-xl text-left transition-colors ${
                     isSelected ? 'bg-gray-900' : 'bg-white border border-gray-100 hover:bg-gray-50'
                   }`}>
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold mt-0.5 ${
-                    isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
-                  }`}>
-                    {initials(person.name)}
-                  </div>
+                  <Avatar name={person.name} url={person.avatarUrl} selected={isSelected} />
                   <div className="flex-1 min-w-0">
                     <p className={`text-xs font-semibold truncate ${isSelected ? 'text-white' : 'text-gray-900'}`}>{person.name}</p>
                     {/* Studio chips */}
@@ -391,9 +397,7 @@ export default function FranchisePermissionsRoster({ studios, token }: Props) {
 
             {/* Header */}
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-sm font-bold shrink-0">
-                {initials(selectedPerson.name)}
-              </div>
+              <Avatar name={selectedPerson.name} url={selectedPerson.avatarUrl} size={10} />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-gray-900">{selectedPerson.name}</p>
                 <p className="text-xs text-gray-400">{selectedPerson.email}</p>

@@ -38,6 +38,7 @@ type StaffMember = {
   userId: string
   name: string
   email: string
+  avatarUrl?: string | null
   roles: string[]
   studios: { id: string; name: string }[]
   payRateHourlyCents: number | null
@@ -46,6 +47,12 @@ type StaffMember = {
 
 function initials(name: string) {
   return name.split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()
+}
+
+function Avatar({ name, url, size = 9 }: { name: string; url?: string | null; size?: number }) {
+  const cls = `w-${size} h-${size} rounded-full shrink-0 overflow-hidden bg-gray-100 text-gray-600 flex items-center justify-center text-xs font-bold`
+  if (url) return <img src={url} alt={name} className={`${cls} object-cover`} />
+  return <div className={cls}>{initials(name)}</div>
 }
 
 function roleColor(role: string) {
@@ -338,9 +345,7 @@ export default function FranchiseStaffRoster({ token }: Props) {
                   onClick={() => setExpandedId(isExpanded ? null : s.id)}
                   className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-gray-50 transition-colors cursor-pointer"
                 >
-                  <div className="w-9 h-9 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-xs font-bold shrink-0">
-                    {initials(s.name)}
-                  </div>
+                  <Avatar name={s.name} url={s.avatarUrl} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900">{s.name}</p>
                     <p className="text-xs text-gray-400 truncate">{s.email}</p>

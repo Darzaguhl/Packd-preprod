@@ -3953,6 +3953,10 @@
                       "email": {
                         "type": "string"
                       },
+                      "avatarUrl": {
+                        "nullable": true,
+                        "type": "string"
+                      },
                       "roles": {
                         "type": "array",
                         "items": {
@@ -4001,6 +4005,9 @@
                           },
                           "canOverrideBookingRestrictions": {
                             "type": "boolean"
+                          },
+                          "canViewAnalytics": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -4015,7 +4022,8 @@
                           "canGrantCredits",
                           "canManagePromoCodes",
                           "canViewPurchaseHistory",
-                          "canOverrideBookingRestrictions"
+                          "canOverrideBookingRestrictions",
+                          "canViewAnalytics"
                         ],
                         "additionalProperties": false
                       },
@@ -4054,6 +4062,12 @@
                           },
                           "canOverrideBookingRestrictions": {
                             "type": "boolean"
+                          },
+                          "canCreateSchedules": {
+                            "type": "boolean"
+                          },
+                          "canViewAnalytics": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -4067,7 +4081,9 @@
                           "canManagePromoCodes",
                           "canViewPurchaseHistory",
                           "canExportData",
-                          "canOverrideBookingRestrictions"
+                          "canOverrideBookingRestrictions",
+                          "canCreateSchedules",
+                          "canViewAnalytics"
                         ],
                         "additionalProperties": false
                       }

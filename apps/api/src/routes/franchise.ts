@@ -409,11 +409,11 @@ export async function franchiseRoutes(app: FastifyInstance) {
       const [instructorMembers, fronthosts] = await Promise.all([
         prisma.member.findMany({
           where: { studioIds: { has: studioId }, staffRoles: { has: 'instructor' } },
-          include: { user: { include: { instructors: true } } },
+          include: { user: { select: { id: true, firstName: true, lastName: true, email: true, avatarUrl: true, instructors: true } } },
         }),
         prisma.member.findMany({
           where: { studioIds: { has: studioId }, staffRoles: { has: 'fronthost' } },
-          include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } },
+          include: { user: { select: { id: true, firstName: true, lastName: true, email: true, avatarUrl: true } } },
         }),
       ])
 
@@ -436,6 +436,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
         userId: string
         name: string
         email: string
+        avatarUrl: string | null
         roles: ('instructor' | 'fronthost')[]
         instructorPermissions?: InstructorPermissions
         fronthostPermissions?: FronthostPermissions
@@ -455,6 +456,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
           userId: m.userId,
           name: `${m.user.firstName} ${m.user.lastName}`,
           email: m.user.email,
+          avatarUrl: m.user.avatarUrl ?? null,
           roles: ['instructor'],
           instructorPermissions,
         })
@@ -480,6 +482,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
             userId: m.userId,
             name: `${m.user.firstName} ${m.user.lastName}`,
             email: m.user.email,
+            avatarUrl: m.user.avatarUrl ?? null,
             roles: ['fronthost'],
             fronthostPermissions,
           })
@@ -710,6 +713,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
                 firstName: true,
                 lastName: true,
                 email: true,
+                avatarUrl: true,
                 instructors: { select: { id: true, studioId: true, payRatePerHeadCents: true } },
               },
             },
@@ -728,6 +732,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
           userId: m.userId,
           name: `${m.user.firstName} ${m.user.lastName}`,
           email: m.user.email,
+          avatarUrl: m.user.avatarUrl ?? null,
           roles: m.staffRoles,
           studioIds: m.studioIds,
           studios: m.studioIds.map(id => ({ id, name: studioMap.get(id) ?? id })),
