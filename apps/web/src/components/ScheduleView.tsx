@@ -65,6 +65,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
   const [cancelPolicy, setCancelPolicy] = useState<{ windowHours: number; feeCredits: number }>({ windowHours: 12, feeCredits: 1 })
   const [userRole, setUserRole] = useState<string>('member')
   const [loading, setLoading] = useState(true)
+  const [showNudge, setShowNudge] = useState(false)
   // Network studio switcher — populated when the member's studio belongs to a network
   const [networkInfo, setNetworkInfo] = useState<MemberNetworkInfo | null>(null)
   const [activeStudioId, setActiveStudioId] = useState<string>(studioId)
@@ -178,9 +179,18 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
         api.networks.my(t).then(info => {
           if (info.network) setNetworkInfo(info)
         }).catch(() => {})
+        // Show first-booking nudge if member hasn't dismissed it yet
+        if (!localStorage.getItem('packd-first-booking-seen')) {
+          setShowNudge(true)
+        }
       }
     })
   }, [])
+
+  function dismissNudge() {
+    localStorage.setItem('packd-first-booking-seen', '1')
+    setShowNudge(false)
+  }
 
   // Fetch sessions for the selected studio when studio or week changes
   useEffect(() => {
@@ -313,6 +323,7 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
         userBookingId: res.success ? res.data.id : 'booked',
       })
       showToast('Class booked!')
+      dismissNudge()
     } catch (e: unknown) {
       // Don't show a toast for "already booked" — the caller (handleBookAndAssign)
       // handles that case silently and falls through to spot assignment.
@@ -500,6 +511,27 @@ export default function ScheduleView({ studioId }: { studioId: string }) {
           <div className="hidden md:block w-56 shrink-0" />
         </div>
       </NavBar>
+
+      {/* First-booking nudge — shown once to new members */}
+      {showNudge && !selectedSession && (
+        <div className="max-w-6xl mx-auto px-4 pt-4">
+          <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-100 rounded-2xl px-4 py-3">
+            <span className="text-lg shrink-0">👋</span>
+            <p className="flex-1 text-sm text-indigo-800">
+              <span className="font-semibold">Welcome!</span> Tap any class below to see details and book your first session.
+            </p>
+            <button
+              onClick={dismissNudge}
+              className="shrink-0 text-indigo-400 hover:text-indigo-600 transition-colors p-1"
+              aria-label="Dismiss"
+            >
+              <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none">
+                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Content: two-column on md+ */}
       <div className="max-w-6xl mx-auto px-4 py-4 flex gap-5 items-start">
