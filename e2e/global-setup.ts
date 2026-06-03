@@ -159,8 +159,8 @@ async function saveAuthState(
   await page.getByLabel(/password/i).fill(password)
   await page.getByRole('button', { name: /sign in/i }).click()
 
-  // Wait for redirect — either to the expected URL or to onboarding
-  await page.waitForURL(/(schedule|dashboard|onboarding)/, { timeout: 15_000 })
+  // Wait for redirect — schedule (member), dashboard (admin/instructor), fronthost, or onboarding
+  await page.waitForURL(/(schedule|dashboard|fronthost|onboarding)/, { timeout: 15_000 })
 
   // If landed on onboarding (admin first-time setup), skip it — admin users don't
   // need the full studio wizard since the seed already created the studio.
