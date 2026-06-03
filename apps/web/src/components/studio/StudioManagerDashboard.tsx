@@ -223,12 +223,11 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
             const isSecondary = SECONDARY_TAB_IDS.includes(t.id)
             const isArchive = ARCHIVE_TAB_IDS.includes(t.id)
             return (
-              <>
+              <React.Fragment key={t.id}>
                 {(isFirstSecondary || isFirstArchive) && (
-                  <div key={`sep-${t.id}`} className="self-center mx-1.5 w-px h-4 bg-gray-200 shrink-0" />
+                  <div className="self-center mx-1.5 w-px h-4 bg-gray-200 shrink-0" />
                 )}
                 <button
-                  key={t.id}
                   onClick={() => changeTab(t.id)}
                   className={`shrink-0 px-3.5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                     tab === t.id
@@ -242,7 +241,7 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
                 >
                   {t.label}
                 </button>
-              </>
+              </React.Fragment>
             )
           })}
         </div>
