@@ -49,8 +49,8 @@ type Tab = 'upcoming' | 'history' | 'credits'
 
 // ─── Plan card ────────────────────────────────────────────────────────────────
 
-function fmtPrice(cents: number) {
-  return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 })
+function fmtPrice(cents: number, currency = 'USD') {
+  return (cents / 100).toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
 function PlanCard({
@@ -87,7 +87,7 @@ function PlanCard({
       </div>
       <div className="flex items-end gap-1">
         <span className={`text-2xl font-bold tabular-nums ${isCurrent ? 'text-white' : 'text-gray-900'}`}>
-          {fmtPrice(plan.priceInCents)}
+          {fmtPrice(plan.priceInCents, currency)}
         </span>
         {plan.intervalMonths > 0 && (
           <span className={`text-xs pb-0.5 ${isCurrent ? 'text-gray-300' : 'text-gray-400'}`}>/ {intervalLabel}</span>
@@ -156,9 +156,10 @@ interface Props {
   plans?: Omit<MembershipPlan, 'activeSubscriptions'>[]
   /** If provided, cancel button appears on upcoming bookings */
   onCancelBooking?: (bookingId: string) => Promise<void>
-  /** Cancellation policy — used to warn about late-cancel fees */
   lateCancelWindowHours?: number
   lateCancelFeeCredits?: number
+  /** Studio currency code for price formatting (default 'USD') */
+  currency?: string
   /** If provided, self check-in button appears on upcoming bookings within 30 min of start */
   onSelfCheckIn?: (bookingId: string) => Promise<void>
   /** If provided, subscribe button appears on plan cards */
@@ -359,6 +360,7 @@ export default function MemberHistoryView({
   emergencyContactPhone,
   lateCancelWindowHours,
   lateCancelFeeCredits,
+  currency = 'USD',
 }: Props) {
   const [tab, setTab] = useState<Tab>('upcoming')
   const [showPlans, setShowPlans] = useState(false)

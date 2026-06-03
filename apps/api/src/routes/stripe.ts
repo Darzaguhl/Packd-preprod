@@ -491,11 +491,21 @@ export async function stripeRoutes(app: FastifyInstance) {
         const renewalExpiresAt = plan.creditExpiryDays
           ? new Date(Date.now() + plan.creditExpiryDays * 24 * 60 * 60 * 1000)
           : null
-        // Atomic: restore PAST_DUE status + grant credits in a single transaction
+        const invoiceAny = invoice as unknown as { period_end?: number }
+        const nextBillingDateFromInvoice = invoiceAny.period_end
+          ? new Date(invoiceAny.period_end * 1000)
+          : null
+
+        // Atomic: restore PAST_DUE status + cache next billing date + grant credits
         await prisma.$transaction([
           prisma.membershipSubscription.updateMany({
             where: { memberId: member.id, stripeSubId: invoice.subscription as string, status: 'PAST_DUE' },
-            data: { status: 'ACTIVE' },
+            data: { status: 'ACTIVE', ...(nextBillingDateFromInvoice && { nextBillingDate: nextBillingDateFromInvoice }) },
+          }),
+          // Also update nextBillingDate on the active subscription unconditionally (cache refresh)
+          prisma.membershipSubscription.updateMany({
+            where: { memberId: member.id, stripeSubId: invoice.subscription as string, status: 'ACTIVE' },
+            data: { ...(nextBillingDateFromInvoice && { nextBillingDate: nextBillingDateFromInvoice }) },
           }),
           prisma.creditBalance.upsert({
             where: { memberId: member.id },
@@ -629,7 +639,7 @@ export async function stripeRoutes(app: FastifyInstance) {
 
       // Studio isolation: franchise_admin+ can replay any event; studio_admin must own the event's studio
       if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['franchise_admin']) {
-        const obj = event.data.object as Record<string, unknown>
+        const obj = event.data.object as unknown as Record<string, unknown>
         const metaStudioId = (obj.metadata as Record<string, string> | undefined)?.studioId
         if (!metaStudioId) return reply.forbidden('Cannot replay events without a studio context — requires franchise_admin')
         if (!user.studioIds?.includes(metaStudioId)) return reply.forbidden('Event belongs to a different studio')

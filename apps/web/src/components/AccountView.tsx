@@ -221,9 +221,11 @@ export default function AccountView() {
   const [transactions, setTransactions] = useState<CreditTransaction[]>([])
   const [plans, setPlans] = useState<Omit<MembershipPlan, 'activeSubscriptions'>[]>([])
   const [loading, setLoading] = useState(true)
+  const [accountSection, setAccountSection] = useState<'plan' | 'activity' | 'settings'>('plan')
   const [editingProfile, setEditingProfile] = useState(false)
   const [token, setToken] = useState<string | null>(null)
   const [timeFormat, setTimeFormat] = useState<'12h' | '24h'>('24h')
+  const [currency, setCurrency] = useState('USD')
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
   const [memberStats, setMemberStats] = useState<import('@/lib/api').MemberStats | null>(null)
   const [icalUrl, setIcalUrl] = useState<string | null>(null)
@@ -294,6 +296,7 @@ export default function AccountView() {
           api.memberships.publicPlans(studioId, t).then(setPlans).catch(() => {})
           api.admin.stats(studioId, t).then(s => {
             setTimeFormat((s.timeFormat ?? '24h') as '12h' | '24h')
+            setCurrency(s.currency ?? 'USD')
             setSelfCheckInEnabled(s.selfCheckInEnabled ?? false)
             setCreditPurchaseEnabled(s.creditPurchaseEnabled ?? false)
             setAllowMemberPause((s as typeof s & { allowMemberPause?: boolean }).allowMemberPause ?? false)
@@ -465,10 +468,26 @@ export default function AccountView() {
             emergencyContactPhone={profileExtended?.emergencyContactPhone}
             lateCancelWindowHours={lateCancelWindowHours}
             lateCancelFeeCredits={lateCancelFeeCredits}
+            currency={currency}
           />
 
-          {/* ══ MY PLAN ══════════════════════════════════════════════════════ */}
-          <p className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase px-1 pt-2">My Plan</p>
+          {/* ══ SECTION TAB BAR ══════════════════════════════════════════════ */}
+          <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+            {(['plan', 'activity', 'settings'] as const).map(s => (
+              <button
+                key={s}
+                onClick={() => setAccountSection(s)}
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors capitalize ${
+                  accountSection === s ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {s === 'plan' ? 'Plan & Stats' : s === 'activity' ? 'Activity' : 'Settings'}
+              </button>
+            ))}
+          </div>
+
+          {/* ══ PLAN & STATS ════════════════════════════════════════════════ */}
+          {accountSection === 'plan' && <>
 
           {/* ── My stats ── */}
           {memberStats && (
@@ -535,8 +554,10 @@ export default function AccountView() {
             </button>
           </div>
 
-          {/* ══ ACTIVITY ═════════════════════════════════════════════════════ */}
-          <p className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase px-1 pt-2">Activity</p>
+          </>}
+
+          {/* ══ ACTIVITY ════════════════════════════════════════════════════ */}
+          {accountSection === 'activity' && <>
 
           {/* ── Activity feed ── */}
           <ActivityFeed pastBookings={pastBookings} transactions={transactions} />
@@ -653,8 +674,10 @@ export default function AccountView() {
             </div>
           )}
 
-          {/* ══ SETTINGS ═════════════════════════════════════════════════════ */}
-          <p className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase px-1 pt-2">Settings</p>
+          </>}
+
+          {/* ══ SETTINGS ════════════════════════════════════════════════════ */}
+          {accountSection === 'settings' && <>
 
           {/* ── Account extras (referral, email prefs, self-pause, receipts, privacy) ── */}
           {token && (
@@ -694,6 +717,7 @@ export default function AccountView() {
               </div>
             </div>
           )}
+          </>}
         </div>
       </div>
 

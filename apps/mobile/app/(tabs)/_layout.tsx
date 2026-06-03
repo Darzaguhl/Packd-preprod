@@ -1,13 +1,5 @@
 import { Tabs } from 'expo-router'
-import { View, Text } from 'react-native'
-
-function TabIcon({ symbol, focused }: { symbol: string; focused: boolean }) {
-  return (
-    <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ fontSize: 22, opacity: focused ? 1 : 0.5 }}>{symbol}</Text>
-    </View>
-  )
-}
+import { Ionicons } from '@expo/vector-icons'
 
 export default function TabLayout() {
   return (
@@ -34,21 +26,21 @@ export default function TabLayout() {
         name="schedule"
         options={{
           title: 'Schedule',
-          tabBarIcon: ({ focused }) => <TabIcon symbol="📅" focused={focused} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="calendar-outline" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
         name="bookings"
         options={{
           title: 'My Classes',
-          tabBarIcon: ({ focused }) => <TabIcon symbol="🎫" focused={focused} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="bookmark-outline" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
         name="account"
         options={{
           title: 'Account',
-          tabBarIcon: ({ focused }) => <TabIcon symbol="👤" focused={focused} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" size={size} color={color} />,
         }}
       />
     </Tabs>

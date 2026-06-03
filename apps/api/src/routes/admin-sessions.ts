@@ -6,7 +6,7 @@ import { audit, AUDIT } from '../lib/audit.js'
 import { logger } from '../lib/logger.js'
 import { enqueueNoShowCheck } from '../jobs/index.js'
 import { sendSessionAnnouncement, sendBookingCancellation } from '../lib/email.js'
-import { assertStudioAccess } from './admin-shared.js'
+import { assertStudioAccess, checkInstructorConflict } from './admin-shared.js'
 import { Id, StudioIdQuery, ISODateTime } from '../schemas.js'
 import { AdminSessionSchema, AdminBookingSchema } from '../schemas/responses.js'
 
@@ -16,26 +16,6 @@ const requireInstructor  = requireRole('instructor')
 const VALID_SESSION_STATUSES = ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const
 type SessionStatus = typeof VALID_SESSION_STATUSES[number]
 
-/** Returns true if instructor has a non-cancelled overlapping session (excluding the given session). */
-async function checkInstructorConflict(
-  instructorId: string,
-  startsAt: Date,
-  endsAt: Date,
-  excludeSessionId?: string,
-): Promise<boolean> {
-  if (!instructorId) return false
-  const conflict = await prisma.classSession.findFirst({
-    where: {
-      instructorId,
-      status: { not: 'CANCELLED' },
-      startsAt: { lt: endsAt },
-      endsAt: { gt: startsAt },
-      ...(excludeSessionId ? { id: { not: excludeSessionId } } : {}),
-    },
-    select: { id: true },
-  })
-  return conflict !== null
-}
 
 export async function adminSessionRoutes(app: FastifyInstance) {
   // GET /admin/sessions?studioId=&date=

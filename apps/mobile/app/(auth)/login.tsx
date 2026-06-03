@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, SafeAreaView, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
@@ -10,6 +10,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('')
   const [mode, setMode] = useState<'sign_in' | 'sign_up'>('sign_in')
   const [loading, setLoading] = useState(false)
+  const passwordRef = useRef<TextInput>(null)
 
   async function handleSubmit() {
     setLoading(true)
@@ -37,13 +38,20 @@ export default function LoginScreen() {
           onChangeText={setEmail}
           autoCapitalize="none"
           keyboardType="email-address"
+          autoFocus
+          returnKeyType="next"
+          onSubmitEditing={() => passwordRef.current?.focus()}
+          blurOnSubmit={false}
         />
         <TextInput
+          ref={passwordRef}
           style={styles.input}
           placeholder="Password"
           value={password}
           onChangeText={setPassword}
           secureTextEntry
+          returnKeyType="done"
+          onSubmitEditing={handleSubmit}
         />
 
         <TouchableOpacity style={styles.button} onPress={handleSubmit} disabled={loading}>

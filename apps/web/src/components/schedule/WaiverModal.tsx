@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 
 interface Props {
   title: string
@@ -13,6 +13,14 @@ export default function WaiverModal({ title, body, onSign, onClose }: Props) {
   const [agreed, setAgreed] = useState(false)
   const [signing, setSigning] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [scrolledToBottom, setScrolledToBottom] = useState(false)
+  const bodyRef = useRef<HTMLDivElement>(null)
+
+  function handleScroll() {
+    const el = bodyRef.current
+    if (!el) return
+    if (el.scrollHeight - el.scrollTop <= el.clientHeight + 8) setScrolledToBottom(true)
+  }
 
   async function handleSign() {
     if (!agreed) return
@@ -44,24 +52,37 @@ export default function WaiverModal({ title, body, onSign, onClose }: Props) {
         </div>
 
         {/* Waiver body */}
-        <div className="px-6 py-4 overflow-y-auto flex-1">
-          <p className="text-xs text-gray-400 mb-3">Please read and accept this waiver to continue booking.</p>
-          <div className="bg-gray-50 rounded-xl p-4 text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
-            {body}
+        <div className="relative flex-1 min-h-0">
+          <div
+            ref={bodyRef}
+            onScroll={handleScroll}
+            className="px-6 py-4 overflow-y-auto h-full"
+          >
+            <p className="text-xs text-gray-400 mb-3">Please read and accept this waiver to continue booking.</p>
+            <div className="bg-gray-50 rounded-xl p-4 text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+              {body}
+            </div>
           </div>
+          {/* Fade-to-white gradient — disappears once user scrolls to bottom */}
+          {!scrolledToBottom && (
+            <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-white to-transparent" />
+          )}
         </div>
 
         {/* Footer */}
         <div className="px-6 pb-6 pt-4 border-t border-gray-100 space-y-4 shrink-0">
-          <label className="flex items-start gap-3 cursor-pointer select-none">
+          <label className={`flex items-start gap-3 select-none ${scrolledToBottom ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}>
             <input
               type="checkbox"
               checked={agreed}
+              disabled={!scrolledToBottom}
               onChange={e => setAgreed(e.target.checked)}
-              className="mt-0.5 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+              className="mt-0.5 rounded border-gray-300 text-gray-900 focus:ring-gray-900 disabled:cursor-not-allowed"
             />
             <span className="text-sm text-gray-700">
-              I have read and agree to the terms of this waiver
+              {scrolledToBottom
+                ? 'I have read and agree to the terms of this waiver'
+                : 'Scroll to the bottom to accept'}
             </span>
           </label>
           {error && (

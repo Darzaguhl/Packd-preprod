@@ -5,35 +5,12 @@ import { requireRole, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
 import { ROLE_RANK } from '@packd/types'
 import { sendSubstituteNotification } from '../lib/email.js'
+import { assertStudioAccess, checkInstructorConflict } from './admin-shared.js'
 import { IdParam, StudioIdQuery } from '../schemas.js'
 import { CalendarWeekSchema, ClassScheduleSchema, OrphanedPatternSchema } from '../schemas/responses.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 const requireInstructor = requireRole('instructor')
-
-/**
- * Returns true if the instructor already has a non-cancelled session that overlaps
- * the given time window. Excludes excludeSessionId if provided (useful for edits).
- */
-async function checkInstructorConflict(
-  instructorId: string,
-  startsAt: Date,
-  endsAt: Date,
-  excludeSessionId?: string,
-): Promise<boolean> {
-  if (!instructorId) return false
-  const conflict = await prisma.classSession.findFirst({
-    where: {
-      instructorId,
-      status: { not: 'CANCELLED' },
-      startsAt: { lt: endsAt },
-      endsAt: { gt: startsAt },
-      ...(excludeSessionId ? { id: { not: excludeSessionId } } : {}),
-    },
-    select: { id: true },
-  })
-  return conflict !== null
-}
 
 function getMondayOf(d: Date): Date {
   const date = new Date(d)

@@ -41,6 +41,30 @@ export async function assertStudioAccess(
 }
 
 /**
+ * Returns true if the instructor already has a non-cancelled session overlapping
+ * the given time window. Optionally exclude a specific session (e.g. the one being rescheduled).
+ */
+export async function checkInstructorConflict(
+  instructorId: string,
+  startsAt: Date,
+  endsAt: Date,
+  excludeSessionId?: string,
+): Promise<boolean> {
+  if (!instructorId) return false
+  const conflict = await prisma.classSession.findFirst({
+    where: {
+      instructorId,
+      status: { not: 'CANCELLED' },
+      startsAt: { lt: endsAt },
+      endsAt: { gt: startsAt },
+      ...(excludeSessionId ? { id: { not: excludeSessionId } } : {}),
+    },
+    select: { id: true },
+  })
+  return conflict !== null
+}
+
+/**
  * Validate that a SQL string is a safe read-only SELECT (or WITH…SELECT) query.
  * Returns an error message string if invalid, or null if OK.
  */

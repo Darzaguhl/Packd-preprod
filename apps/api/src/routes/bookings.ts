@@ -274,7 +274,7 @@ export async function bookingRoutes(app: FastifyInstance) {
         // Notify the referrer about their earned credits
         if (referrerId && rewardCredits > 0) {
           const [referrer, studio] = await Promise.all([
-            prisma.user.findFirst({ where: { members: { some: { id: referrerId } } }, select: { email: true, firstName: true } }),
+            prisma.user.findFirst({ where: { member: { id: referrerId } }, select: { email: true, firstName: true } }),
             prisma.studio.findUnique({ where: { id: booking.session.studioId }, select: { name: true } }),
           ])
           if (referrer && studio) {

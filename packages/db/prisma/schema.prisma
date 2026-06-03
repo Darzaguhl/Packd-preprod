@@ -593,9 +593,10 @@ model MembershipSubscription {
   pausedUntil DateTime?          // set when status = PAUSED; null = indefinite pause
   startDate   DateTime
   endDate     DateTime?
-  stripeSubId String?
-  externalId  String?            @unique // Mariana Tek contract/agreement ID
-  createdAt   DateTime           @default(now())
+  stripeSubId      String?
+  nextBillingDate  DateTime?          // cached from Stripe; updated on each invoice.paid webhook
+  externalId       String?            @unique // Mariana Tek contract/agreement ID
+  createdAt        DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
 
   member Member         @relation(fields: [memberId], references: [id], onDelete: Cascade)

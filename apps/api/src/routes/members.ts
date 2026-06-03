@@ -134,13 +134,16 @@ export async function memberRoutes(app: FastifyInstance) {
 
     if (!member) return reply.notFound('No member profile found for this user')
 
-    // Fetch next billing date from Stripe if subscription exists
+    // Fetch next billing date from Stripe — capped at 500ms so it never blocks the response
     let nextBillingDate: string | null = null
     const activeSub = member.memberships[0]
     if (activeSub?.stripeSubId && activeSub.status === 'ACTIVE') {
       try {
-        const stripeSub = await stripe().subscriptions.retrieve(activeSub.stripeSubId)
-        nextBillingDate = new Date(stripeSub.current_period_end * 1000).toISOString()
+        const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 500))
+        const fetch = stripe().subscriptions.retrieve(activeSub.stripeSubId)
+          .then(s => new Date(s.current_period_end * 1000).toISOString())
+          .catch(() => null)
+        nextBillingDate = await Promise.race([fetch, timeout])
       } catch {
         // non-fatal
       }

@@ -162,19 +162,26 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
     return Math.min((s.bookedCount / s.capacity) * 100, 100)
   }
 
+  // Primary: high-frequency daily operations
+  const PRIMARY_TAB_IDS: Tab[] = ['today', 'calendar', 'members', 'analytics']
+  // Secondary: configuration and management (used less frequently)
+  const SECONDARY_TAB_IDS: Tab[] = ['staff', 'memberships', 'products', 'rooms', 'permissions']
+  // Archival: rarely needed
+  const ARCHIVE_TAB_IDS: Tab[] = ['social', 'audit', 'settings']
+
   const ALL_TABS: { id: Tab; label: string }[] = [
     { id: 'today', label: 'Today' },
     { id: 'calendar', label: 'Calendar' },
+    { id: 'members', label: 'Members' },
     { id: 'analytics', label: 'Analytics' },
+    { id: 'staff', label: 'Staff' },
+    { id: 'memberships', label: 'Memberships' },
+    { id: 'products', label: 'Products' },
     { id: 'rooms', label: 'Rooms' },
     { id: 'room', label: 'Room map' },
     { id: 'permissions', label: 'Permissions' },
-    { id: 'staff', label: 'Staff' },
-    { id: 'members', label: 'Members' },
-    { id: 'memberships', label: 'Memberships' },
-    { id: 'social', label: 'Social Photos' },
-    { id: 'products', label: 'Products' },
-    { id: 'audit', label: 'Audit Log' },
+    { id: 'social', label: 'Photos' },
+    { id: 'audit', label: 'Audit' },
     { id: 'settings', label: 'Settings' },
     // 'photos' is instructor-only — not in the admin tab bar
     { id: 'photos', label: 'My Photos' },
@@ -207,21 +214,37 @@ export default function StudioManagerDashboard({ studioId, studioName: initialSt
           </button>
         ) : undefined}
       >
-        {/* Tab bar */}
-        <div className="flex gap-1 pb-0 -mb-px">
-          {TABS.map(t => (
-            <button
-              key={t.id}
-              onClick={() => changeTab(t.id)}
-              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-                tab === t.id
-                  ? 'border-gray-900 text-gray-900'
-                  : 'border-transparent text-gray-400 hover:text-gray-700'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+        {/* Tab bar — three visual groups separated by dividers */}
+        <div className="flex items-stretch gap-0.5 pb-0 -mb-px overflow-x-auto scrollbar-none">
+          {TABS.map((t, i) => {
+            const prev = TABS[i - 1]
+            const isFirstSecondary = prev && PRIMARY_TAB_IDS.includes(prev.id) && SECONDARY_TAB_IDS.includes(t.id)
+            const isFirstArchive = prev && SECONDARY_TAB_IDS.includes(prev.id) && ARCHIVE_TAB_IDS.includes(t.id)
+            const isSecondary = SECONDARY_TAB_IDS.includes(t.id)
+            const isArchive = ARCHIVE_TAB_IDS.includes(t.id)
+            return (
+              <>
+                {(isFirstSecondary || isFirstArchive) && (
+                  <div key={`sep-${t.id}`} className="self-center mx-1.5 w-px h-4 bg-gray-200 shrink-0" />
+                )}
+                <button
+                  key={t.id}
+                  onClick={() => changeTab(t.id)}
+                  className={`shrink-0 px-3.5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                    tab === t.id
+                      ? 'border-gray-900 text-gray-900'
+                      : isArchive
+                      ? 'border-transparent text-gray-300 hover:text-gray-500'
+                      : isSecondary
+                      ? 'border-transparent text-gray-400 hover:text-gray-600'
+                      : 'border-transparent text-gray-400 hover:text-gray-700'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              </>
+            )
+          })}
         </div>
       </NavBar>
 

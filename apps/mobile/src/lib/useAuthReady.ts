@@ -8,22 +8,22 @@ import { supabase } from './supabase'
  */
 export function useAuthReady(onReady: () => void) {
   const fired = useRef(false)
+  // Keep a ref to the latest callback so the effect closure is never stale,
+  // even if the caller passes an inline function that changes on every render.
+  const onReadyRef = useRef(onReady)
+  useEffect(() => { onReadyRef.current = onReady })
 
   useEffect(() => {
+    const call = () => { if (!fired.current) { fired.current = true; onReadyRef.current() } }
+
     // Check if session is already available right now
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session && !fired.current) {
-        fired.current = true
-        onReady()
-      }
+      if (session) call()
     })
 
     // Also listen for the auth event — catches the async restore on cold start
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session && !fired.current) {
-        fired.current = true
-        onReady()
-      }
+      if (session) call()
     })
 
     return () => subscription.unsubscribe()
