@@ -20,25 +20,28 @@ interface StudioOption {
 
 function ModeSwitcher({ mode, onSwitch }: { mode: Mode; onSwitch: (m: Mode) => void }) {
   return (
-    <div className="flex bg-gray-100 rounded-lg p-0.5">
+    <div className="flex items-center gap-2">
       <button
         onClick={() => onSwitch('management')}
-        className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+        className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
           mode === 'management'
-            ? 'bg-white text-gray-900 shadow-sm'
-            : 'text-gray-500 hover:text-gray-700'
+            ? 'bg-gray-900 text-white'
+            : 'border border-gray-200 text-gray-600 hover:bg-gray-50'
         }`}
       >
         Management
       </button>
       <button
         onClick={() => onSwitch('live')}
-        className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+        className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
           mode === 'live'
-            ? 'bg-white text-gray-900 shadow-sm'
-            : 'text-gray-500 hover:text-gray-700'
+            ? 'bg-gray-900 text-white'
+            : 'border border-gray-200 text-gray-600 hover:bg-gray-50'
         }`}
       >
+        <span className={`w-2 h-2 rounded-full shrink-0 ${
+          mode === 'live' ? 'bg-emerald-400 animate-pulse' : 'bg-emerald-500'
+        }`} />
         Live
       </button>
     </div>
