@@ -5692,6 +5692,7 @@ export interface paths {
                             payRatePerHeadCents?: number | null;
                             payRateHourlyCents?: number | null;
                             avatarUrl?: string | null;
+                            primaryRole?: string;
                         }[];
                     };
                 };

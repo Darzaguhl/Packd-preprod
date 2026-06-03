@@ -4,7 +4,7 @@ import { Prisma } from '@packd/db'
 import { prisma } from '@packd/db'
 import { ROLE_RANK } from '@packd/types'
 import { requireRole, getUser } from '../lib/auth.js'
-import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole, generatePasswordSetupLink } from '../lib/supabase-admin.js'
+import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole, generatePasswordSetupLink, fetchSupabaseUsers, invalidateSupabaseUsersCache, type SbUser } from '../lib/supabase-admin.js'
 import { assertStudioAccess } from './admin-shared.js'
 import { enqueueBroadcast } from '../jobs/index.js'
 import { Id, CursorQuery } from '../schemas.js'
@@ -32,32 +32,6 @@ const BroadcastBody = z.object({
   message: z.string().min(1),
 })
 
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-// 60-second in-process cache for the Supabase user list (avoid fetching 1000 users per request)
-interface SbUser { id: string; email?: string; created_at?: string; app_metadata?: Record<string, unknown>; user_metadata?: Record<string, unknown> }
-let sbUsersCache: { ts: number; users: SbUser[] } | null = null
-const SB_USERS_TTL_MS = 60_000
-
-async function fetchSupabaseUsers(): Promise<SbUser[]> {
-  const now = Date.now()
-  if (sbUsersCache && now - sbUsersCache.ts < SB_USERS_TTL_MS) return sbUsersCache.users
-  const SUPABASE_URL = process.env.SUPABASE_URL!
-  const headers = { Authorization: `Bearer ${SERVICE_ROLE_KEY}`, apikey: SERVICE_ROLE_KEY }
-  const PAGE_SIZE = 1000
-  let page = 1
-  const users: SbUser[] = []
-  while (true) {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?per_page=${PAGE_SIZE}&page=${page}`, { headers })
-    const data = await res.json() as { users?: SbUser[] }
-    const batch = data.users ?? []
-    users.push(...batch)
-    if (batch.length < PAGE_SIZE) break
-    page++
-  }
-  sbUsersCache = { ts: now, users }
-  return users
-}
 
 interface InstructorPermissions {
   canCheckInMembers: boolean
@@ -610,7 +584,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
         })
       }
 
-      sbUsersCache = null // invalidate cache
+      invalidateSupabaseUsersCache() // invalidate cache
       return reply.code(201).send({ success: true, roles: newRoles })
     },
   )
@@ -647,7 +621,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
         data: { staffRoles: remainingRoles, studioIds: remainingStudios },
       })
 
-      sbUsersCache = null // invalidate cache
+      invalidateSupabaseUsersCache() // invalidate cache
       return reply.send({ success: true })
     },
   )

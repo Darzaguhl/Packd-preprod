@@ -1,6 +1,45 @@
 const SUPABASE_URL = process.env.SUPABASE_URL!
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
+// ── Shared Supabase user list (cached 60s) ────────────────────────────────────
+
+export interface SbUser {
+  id: string
+  email: string
+  app_metadata?: SupabaseAppMeta & Record<string, unknown>
+  user_metadata?: Record<string, unknown>
+}
+
+let _sbUsersCache: { ts: number; users: SbUser[] } | null = null
+const SB_USERS_TTL_MS = 60_000
+
+/** Fetch all Supabase auth users, paginating through every page. Cached 60s. */
+export async function fetchSupabaseUsers(): Promise<SbUser[]> {
+  const now = Date.now()
+  if (_sbUsersCache && now - _sbUsersCache.ts < SB_USERS_TTL_MS) return _sbUsersCache.users
+  const PAGE_SIZE = 1000
+  let page = 1
+  const users: SbUser[] = []
+  while (true) {
+    const res = await fetch(
+      `${SUPABASE_URL}/auth/v1/admin/users?per_page=${PAGE_SIZE}&page=${page}`,
+      { headers: { Authorization: `Bearer ${SERVICE_ROLE_KEY}`, apikey: SERVICE_ROLE_KEY } },
+    )
+    const data = await res.json() as { users?: SbUser[] }
+    const batch = data.users ?? []
+    users.push(...batch)
+    if (batch.length < PAGE_SIZE) break
+    page++
+  }
+  _sbUsersCache = { ts: now, users }
+  return users
+}
+
+/** Invalidate the user-list cache (call after any role change). */
+export function invalidateSupabaseUsersCache() {
+  _sbUsersCache = null
+}
+
 
 /** Create a new Supabase auth user (email confirmed, no password — must use reset-password flow). */
 export async function createSupabaseUser(

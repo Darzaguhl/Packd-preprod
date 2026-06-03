@@ -386,6 +386,9 @@ export const StaffMemberSchema = z.object({
   payRatePerHeadCents: z.number().int().nullable().optional(),
   payRateHourlyCents:  z.number().int().nullable().optional(),
   avatarUrl:           z.string().nullable().optional(),
+  /** Set for management-tier users (studio_admin, franchise_admin, admin, brand_admin).
+   *  When present, this user is shown read-only in the Management section. */
+  primaryRole:         z.string().optional(),
 })
 
 export const StaffWithPermissionsSchema = z.object({

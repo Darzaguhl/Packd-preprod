@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { prisma } from '@packd/db'
 import { requireRole, requireAuth, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
-import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole, revokeUserSessions } from '../lib/supabase-admin.js'
+import { getSupabaseAppMeta, setSupabaseAppMeta, getPrimaryRole, revokeUserSessions, fetchSupabaseUsers, invalidateSupabaseUsersCache } from '../lib/supabase-admin.js'
 import { sendStaffInvite } from '../lib/email.js'
 import { assertStudioAccess } from './admin-shared.js'
 import { Id, MemberIdParam } from '../schemas.js'
@@ -103,20 +103,70 @@ export async function staffRoutes(app: FastifyInstance) {
       const user = getUser(request)
       if (!await assertStudioAccess(user.id, user.role, studioId, reply, user.studioIds)) return
 
-      const staff = await prisma.member.findMany({
-        where: { studioIds: { has: studioId }, staffRoles: { hasSome: [...VALID_STAFF_ROLES] } },
-        include: {
-          user: {
-            select: {
-              firstName: true, lastName: true, email: true, avatarUrl: true,
-              instructors: { where: { studioId }, select: { id: true, payRatePerHeadCents: true } },
+      const MGMT_ROLES = ['studio_admin', 'franchise_admin', 'brand_admin', 'admin'] as const
+
+      const [staff, sbUsers] = await Promise.all([
+        prisma.member.findMany({
+          where: { studioIds: { has: studioId }, staffRoles: { hasSome: [...VALID_STAFF_ROLES] } },
+          include: {
+            user: {
+              select: {
+                firstName: true, lastName: true, email: true, avatarUrl: true,
+                instructors: { where: { studioId }, select: { id: true, payRatePerHeadCents: true } },
+              },
             },
           },
-        },
-        orderBy: { joinedAt: 'asc' },
+          orderBy: { joinedAt: 'asc' },
+        }),
+        fetchSupabaseUsers(),
+      ])
+
+      // Filter Supabase users who are management-tier and have access to this studio
+      const mgmtSbUsers = sbUsers.filter(u => {
+        const meta = u.app_metadata ?? {}
+        const roles: string[] = (meta.roles as string[] | undefined) ?? (meta.role ? [meta.role as string] : [])
+        const primaryRole = getPrimaryRole(roles)
+        if (!MGMT_ROLES.includes(primaryRole as typeof MGMT_ROLES[number])) return false
+        // admin and brand_admin are global — always include
+        if (primaryRole === 'admin' || primaryRole === 'brand_admin') return true
+        // franchise_admin and studio_admin must have this studio in their studioIds
+        const ids: string[] = (meta.studioIds as string[] | undefined) ?? (meta.studioId ? [meta.studioId as string] : [])
+        return ids.includes(studioId)
       })
 
-      return staff.map(s => ({
+      // Look up Member records for management users (to get name, avatar, joinedAt)
+      const mgmtUserIds = mgmtSbUsers.map(u => u.id)
+      const mgmtMembers = mgmtUserIds.length > 0
+        ? await prisma.member.findMany({
+            where: { userId: { in: mgmtUserIds } },
+            select: { id: true, userId: true, joinedAt: true, payRateHourlyCents: true, user: { select: { firstName: true, lastName: true, avatarUrl: true } } },
+          })
+        : []
+      const mgmtMemberByUserId = new Map(mgmtMembers.map(m => [m.userId, m]))
+
+      const mgmtList = mgmtSbUsers.map(u => {
+        const meta = u.app_metadata ?? {}
+        const roles: string[] = (meta.roles as string[] | undefined) ?? (meta.role ? [meta.role as string] : [])
+        const primaryRole = getPrimaryRole(roles)
+        const member = mgmtMemberByUserId.get(u.id)
+        const name = member
+          ? `${member.user.firstName} ${member.user.lastName}`
+          : (u.email ?? 'Unknown')
+        return {
+          id: member?.id ?? u.id,
+          userId: u.id,
+          name,
+          email: u.email ?? '',
+          staffRoles: [] as string[],
+          joinedAt: member?.joinedAt.toISOString() ?? new Date(0).toISOString(),
+          instructorId: null as string | null,
+          payRateHourlyCents: member?.payRateHourlyCents ?? null,
+          avatarUrl: member?.user.avatarUrl ?? null,
+          primaryRole,
+        }
+      })
+
+      const staffList = staff.map(s => ({
         id: s.id,
         userId: s.userId,
         name: `${s.user.firstName} ${s.user.lastName}`,
@@ -128,6 +178,12 @@ export async function staffRoutes(app: FastifyInstance) {
         payRateHourlyCents: s.payRateHourlyCents ?? null,
         avatarUrl: s.user.avatarUrl ?? null,
       }))
+
+      // Management users first (sorted by role rank), then staff alphabetically
+      const MGMT_ORDER = ['admin', 'brand_admin', 'franchise_admin', 'studio_admin']
+      mgmtList.sort((a, b) => MGMT_ORDER.indexOf(a.primaryRole!) - MGMT_ORDER.indexOf(b.primaryRole!))
+
+      return [...mgmtList, ...staffList]
     },
   )
 

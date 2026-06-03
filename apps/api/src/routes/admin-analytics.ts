@@ -79,58 +79,66 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
       if (period === 'week') { from = new Date(now); from.setDate(from.getDate() - 7) }
       else if (period === 'month') { from = new Date(now); from.setMonth(from.getMonth() - 1) }
 
-      const bookings = await prisma.booking.findMany({
-        where: {
-          status: 'CONFIRMED',
-          session: {
-            studioId,
-            startsAt: { lt: now, ...(from ? { gte: from } : {}) },
-            status: { not: 'CANCELLED' },
-          },
-        },
-        select: {
-          memberId: true,
-          checkedIn: true,
-          session: {
-            select: {
-              startsAt: true,
-              instructorId: true,
-              substituteInstructorId: true,
-              instructor: { include: { user: { select: { firstName: true, lastName: true } } } },
-            },
-          },
-          member: { include: { user: { select: { firstName: true, lastName: true } } } },
-        },
-      })
+      // Member leaderboard — pure SQL GROUP BY, no data loaded into Node memory
+      const memberSf = studioId === 'all' ? Prisma.sql`1=1` : Prisma.sql`cs."studioId" = ${studioId}`
+      const memberFromClause = from ? Prisma.sql`AND cs."startsAt" >= ${from}` : Prisma.sql``
 
-      const memberMap = new Map<string, { name: string; visits: number; checkIns: number; lastVisit: Date }>()
-      for (const b of bookings) {
-        const existing = memberMap.get(b.memberId) ?? { name: `${b.member.user.firstName} ${b.member.user.lastName}`, visits: 0, checkIns: 0, lastVisit: new Date(0) }
-        memberMap.set(b.memberId, {
-          ...existing,
-          visits: existing.visits + 1,
-          checkIns: existing.checkIns + (b.checkedIn ? 1 : 0),
-          lastVisit: b.session.startsAt > existing.lastVisit ? b.session.startsAt : existing.lastVisit,
-        })
-      }
-      const members = Array.from(memberMap.entries())
-        .sort((a, b) => b[1].visits - a[1].visits)
-        .slice(0, 25)
-        .map(([memberId, v], i) => ({ rank: i + 1, memberId, name: v.name, visits: v.visits, checkIns: v.checkIns, lastVisit: v.lastVisit.toISOString() }))
+      const memberRows = await prisma.$queryRaw<Array<{
+        member_id: string; name: string; visits: bigint; check_ins: bigint; last_visit: Date
+      }>>`
+        SELECT
+          b."memberId"                                            AS member_id,
+          CONCAT(u."firstName", ' ', u."lastName")               AS name,
+          COUNT(*)::bigint                                        AS visits,
+          COUNT(CASE WHEN b."checkedIn" THEN 1 END)::bigint       AS check_ins,
+          MAX(cs."startsAt")                                      AS last_visit
+        FROM "Booking" b
+        JOIN "ClassSession" cs ON cs.id = b."sessionId"
+        JOIN "Member" m        ON m.id  = b."memberId"
+        JOIN "User" u          ON u.id  = m."userId"
+        WHERE b.status = 'CONFIRMED'
+          AND ${memberSf}
+          AND cs."startsAt" < ${now}
+          AND cs.status <> 'CANCELLED'
+          ${memberFromClause}
+        GROUP BY b."memberId", u."firstName", u."lastName"
+        ORDER BY COUNT(*) DESC
+        LIMIT 25
+      `
+      const members = memberRows.map((r, i) => ({
+        rank: i + 1,
+        memberId: r.member_id,
+        name: r.name,
+        visits: Number(r.visits),
+        checkIns: Number(r.check_ins),
+        lastVisit: r.last_visit.toISOString(),
+      }))
 
-      const instrMap = new Map<string, { name: string; totalBookings: number }>()
-      for (const b of bookings) {
-        const instr = b.session.instructor
-        if (!instr) continue
-        const id = b.session.substituteInstructorId ?? b.session.instructorId
-        const name = `${instr.user.firstName} ${instr.user.lastName}`
-        const existing = instrMap.get(id) ?? { name, totalBookings: 0 }
-        instrMap.set(id, { ...existing, totalBookings: existing.totalBookings + 1 })
-      }
-      const topInstructors = Array.from(instrMap.entries())
-        .sort((a, b) => b[1].totalBookings - a[1].totalBookings)
-        .slice(0, 5)
-        .map(([id, v], i) => ({ rank: i + 1, instructorId: id, name: v.name, totalBookings: v.totalBookings }))
+      const instrRows = await prisma.$queryRaw<Array<{
+        instructor_id: string; name: string; total_bookings: bigint
+      }>>`
+        SELECT
+          COALESCE(cs."substituteInstructorId", cs."instructorId") AS instructor_id,
+          CONCAT(u."firstName", ' ', u."lastName")                 AS name,
+          COUNT(b.id)::bigint                                       AS total_bookings
+        FROM "ClassSession" cs
+        JOIN "Instructor" i ON i.id = COALESCE(cs."substituteInstructorId", cs."instructorId")
+        JOIN "User" u       ON u.id = i."userId"
+        LEFT JOIN "Booking" b ON b."sessionId" = cs.id AND b.status = 'CONFIRMED'
+        WHERE ${memberSf}
+          AND cs."startsAt" < ${now}
+          AND cs.status <> 'CANCELLED'
+          ${memberFromClause}
+        GROUP BY instructor_id, u."firstName", u."lastName"
+        ORDER BY COUNT(b.id) DESC
+        LIMIT 5
+      `
+      const topInstructors = instrRows.map((r, i) => ({
+        rank: i + 1,
+        instructorId: r.instructor_id,
+        name: r.name,
+        totalBookings: Number(r.total_bookings),
+      }))
 
       return reply.send({ members, topInstructors, period, generatedAt: now.toISOString() })
     },
@@ -410,32 +418,44 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
       }
       const frequencyBuckets = Object.entries(buckets).map(([label, count]) => ({ label, count }))
 
-      // ── Revenue (credit transactions) ─────────────────────────────────────────
+      // ── Revenue (credit transactions) — pure SQL, no rows loaded into memory ──
       const memberFilter = allStudios ? Prisma.sql`1=1` : Prisma.sql`m."studioId" = ${studioId}`
-      const txRows = await prisma.$queryRaw<Array<{ type: string; amount: number; created_at: Date }>>`
-        SELECT ct.type, ct.amount, ct."createdAt" AS created_at
-        FROM "CreditTransaction" ct
-        JOIN "Member" m ON m.id = ct."memberId"
-        WHERE ${memberFilter}
-          AND ct."createdAt" >= ${windowStart} AND ct."createdAt" < ${now}
-      `
-      const revMap: Record<string, number> = {}
-      for (const tx of txRows) revMap[tx.type] = (revMap[tx.type] ?? 0) + tx.amount
 
-      // Weekly credit flow
+      const [revTotals, revWeekly] = await Promise.all([
+        // Per-type totals
+        prisma.$queryRaw<Array<{ type: string; total: number }>>`
+          SELECT ct.type, SUM(ct.amount)::int AS total
+          FROM "CreditTransaction" ct
+          JOIN "Member" m ON m.id = ct."memberId"
+          WHERE ${memberFilter}
+            AND ct."createdAt" >= ${windowStart} AND ct."createdAt" < ${now}
+          GROUP BY ct.type
+        `,
+        // Weekly issued / consumed / fees
+        prisma.$queryRaw<Array<{ week_start: Date; issued: number; consumed: number; fees: number }>>`
+          SELECT
+            DATE_TRUNC('week', ct."createdAt")                                      AS week_start,
+            SUM(CASE WHEN ct.amount > 0 THEN ct.amount ELSE 0 END)::int             AS issued,
+            SUM(CASE WHEN ct.type = 'CLASS_DEBIT' THEN ABS(ct.amount) ELSE 0 END)::int AS consumed,
+            SUM(CASE WHEN ct.amount < 0 AND ct.type <> 'CLASS_DEBIT' THEN ABS(ct.amount) ELSE 0 END)::int AS fees
+          FROM "CreditTransaction" ct
+          JOIN "Member" m ON m.id = ct."memberId"
+          WHERE ${memberFilter}
+            AND ct."createdAt" >= ${windowStart} AND ct."createdAt" < ${now}
+          GROUP BY week_start
+          ORDER BY week_start
+        `,
+      ])
+
+      const revMap: Record<string, number> = {}
+      for (const r of revTotals) revMap[r.type] = r.total
+
+      // Map SQL weekly results onto the weeklyTrend week keys
       const weekRevMap = new Map<string, { issued: number; consumed: number; fees: number }>()
       for (const wk of weeklyTrend) weekRevMap.set(wk.weekStart, { issued: 0, consumed: 0, fees: 0 })
-      for (const tx of txRows) {
-        // DATE_TRUNC('week') Monday ISO
-        const d = new Date(tx.created_at); d.setHours(0, 0, 0, 0)
-        const dow = d.getDay() || 7
-        d.setDate(d.getDate() - (dow - 1))
-        const wk = d.toISOString().slice(0, 10)
-        if (!weekRevMap.has(wk)) continue
-        const entry = weekRevMap.get(wk)!
-        if (tx.amount > 0) entry.issued += tx.amount
-        else if (tx.type === 'CLASS_DEBIT') entry.consumed += Math.abs(tx.amount)
-        else entry.fees += Math.abs(tx.amount)
+      for (const r of revWeekly) {
+        const key = r.week_start.toISOString().slice(0, 10)
+        if (weekRevMap.has(key)) weekRevMap.set(key, { issued: r.issued, consumed: r.consumed, fees: r.fees })
       }
       const weeklyCredits = Array.from(weekRevMap.entries())
         .sort(([a], [b]) => a.localeCompare(b))

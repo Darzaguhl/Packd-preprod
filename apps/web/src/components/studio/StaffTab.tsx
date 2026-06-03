@@ -29,8 +29,19 @@ function StaffAvatar({ name, avatarUrl, size = 9 }: { name: string; avatarUrl?: 
 }
 
 const ROLE_LABEL: Record<string, string> = {
-  fronthost: 'Front Desk',
-  instructor: 'Instructor',
+  fronthost:       'Front Desk',
+  instructor:      'Instructor',
+  studio_admin:    'Studio Admin',
+  franchise_admin: 'Franchise Admin',
+  brand_admin:     'Brand Admin',
+  admin:           'Platform Admin',
+}
+
+const MGMT_ROLE_STYLE: Record<string, string> = {
+  studio_admin:    'bg-indigo-50 text-indigo-700',
+  franchise_admin: 'bg-purple-50 text-purple-700',
+  brand_admin:     'bg-fuchsia-50 text-fuchsia-700',
+  admin:           'bg-rose-50 text-rose-700',
 }
 
 const ALL_ROLES = ['fronthost', 'instructor'] as const
@@ -103,9 +114,13 @@ export default function StaffTab({ studioId, token, currency = 'USD', onOpenPerm
     }
   }
 
+  // Split management-tier users from fronthost/instructor staff
+  const mgmtUsers = useMemo(() => staff.filter(m => !!m.primaryRole), [staff])
+  const staffOnly  = useMemo(() => staff.filter(m => !m.primaryRole), [staff])
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
-    if (!q) return staff
+    if (!q) return staffOnly
     return staff.filter(m => m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q))
   }, [staff, search])
 
@@ -178,13 +193,37 @@ export default function StaffTab({ studioId, token, currency = 'USD', onOpenPerm
           )}
         </div>
 
+        {/* Management users — read-only section */}
+        {mgmtUsers.length > 0 && (
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Management · {mgmtUsers.length}</h3>
+            <div className="space-y-2">
+              {mgmtUsers.map(member => (
+                <div
+                  key={member.userId}
+                  className="w-full bg-white rounded-2xl border border-gray-100 px-5 py-4 flex items-center gap-4"
+                >
+                  <StaffAvatar name={member.name} avatarUrl={member.avatarUrl} size={9} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{member.name}</p>
+                    <p className="text-xs text-gray-400 truncate">{member.email}</p>
+                  </div>
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${MGMT_ROLE_STYLE[member.primaryRole!] ?? 'bg-gray-100 text-gray-600'}`}>
+                    {ROLE_LABEL[member.primaryRole!] ?? member.primaryRole}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Staff list */}
         <div>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-700">
-              Staff · {staff.length} {staff.length === 1 ? 'person' : 'people'}
+              Staff · {staffOnly.length} {staffOnly.length === 1 ? 'person' : 'people'}
             </h3>
-            {staff.length > 0 && (
+            {staffOnly.length > 0 && (
               <div className="relative">
                 <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 16 16">
                   <circle cx="6.5" cy="6.5" r="4.5" /><path d="M11 11l3 3" strokeLinecap="round" />
@@ -199,7 +238,7 @@ export default function StaffTab({ studioId, token, currency = 'USD', onOpenPerm
             <div className="space-y-2">
               {[...Array(3)].map((_, i) => <div key={i} className="h-16 bg-white rounded-2xl border border-gray-100 animate-pulse" />)}
             </div>
-          ) : staff.length === 0 ? (
+          ) : staffOnly.length === 0 ? (
             <div className="bg-white rounded-2xl border border-gray-100 px-5 py-10 text-center text-sm text-gray-400">
               No staff members yet. Add someone above.
             </div>

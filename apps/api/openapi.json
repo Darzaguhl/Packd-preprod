@@ -6575,6 +6575,9 @@
                       "avatarUrl": {
                         "nullable": true,
                         "type": "string"
+                      },
+                      "primaryRole": {
+                        "type": "string"
                       }
                     },
                     "required": [
