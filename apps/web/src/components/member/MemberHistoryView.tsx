@@ -60,6 +60,7 @@ function PlanCard({
   onSelect,
   onBuy,
   subscribing,
+  currency = 'USD',
 }: {
   plan: Omit<MembershipPlan, 'activeSubscriptions'>
   isCurrent: boolean
@@ -67,6 +68,7 @@ function PlanCard({
   onSelect: (id: string) => void
   onBuy?: (id: string) => void
   subscribing: boolean
+  currency?: string
 }) {
   const intervalLabel = plan.intervalMonths === 0 ? 'one-time' : plan.intervalMonths === 1 ? 'month' : `${plan.intervalMonths} months`
 
@@ -733,6 +735,7 @@ export default function MemberHistoryView({
                       onSelect={handleSubscribe}
                       onBuy={onBuyCredits ? handleBuy : undefined}
                       subscribing={subscribing === plan.id}
+                      currency={currency}
                     />
                   ))}
                 </div>
@@ -753,6 +756,7 @@ export default function MemberHistoryView({
                       onSelect={handleSubscribe}
                       onBuy={onBuyCredits ? handleBuy : undefined}
                       subscribing={subscribing === plan.id}
+                      currency={currency}
                     />
                   ))}
                 </div>

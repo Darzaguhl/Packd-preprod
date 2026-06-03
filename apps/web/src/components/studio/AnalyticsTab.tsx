@@ -707,14 +707,61 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
   }
 
   if (loading && !data) {
+    const pulse = 'bg-gray-100 animate-pulse rounded-xl'
+    const card = 'bg-white rounded-2xl border border-gray-100 animate-pulse'
     return (
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-4">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-8">
         {studioPicker}
-        {subNav}
-        <div className="min-h-[640px] space-y-4">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-40 bg-white rounded-2xl animate-pulse border border-gray-100" />
-          ))}
+        {/* Control bar */}
+        <div className={`h-9 w-72 ${pulse}`} />
+        {/* 4-stat grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[...Array(4)].map((_, i) => <div key={i} className={`h-20 ${card}`} />)}
+        </div>
+        {/* Weekly trend */}
+        <div>
+          <div className={`h-4 w-32 mb-3 ${pulse}`} />
+          <div className={`h-72 ${card}`} />
+        </div>
+        {/* Booking funnel */}
+        <div>
+          <div className={`h-4 w-28 mb-3 ${pulse}`} />
+          <div className={`h-40 ${card}`} />
+        </div>
+        {/* Utilisation heatmap */}
+        <div>
+          <div className={`h-4 w-48 mb-3 ${pulse}`} />
+          <div className={`h-52 ${card}`} />
+        </div>
+        {/* Class rankings + Instructor (2-col) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div>
+            <div className={`h-4 w-28 mb-3 ${pulse}`} />
+            <div className={`h-64 ${card}`} />
+          </div>
+          <div>
+            <div className={`h-4 w-36 mb-3 ${pulse}`} />
+            <div className={`h-64 ${card}`} />
+          </div>
+        </div>
+        {/* Member recurrence (2-col) */}
+        <div>
+          <div className={`h-4 w-36 mb-3 ${pulse}`} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className={`h-52 ${card}`} />
+            <div className={`h-52 ${card}`} />
+          </div>
+        </div>
+        {/* Revenue summary */}
+        <div>
+          <div className={`h-4 w-44 mb-3 ${pulse}`} />
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[...Array(4)].map((_, i) => <div key={i} className={`h-20 ${card}`} />)}
+            </div>
+            <div className={`h-44 ${card}`} />
+            <div className={`h-12 ${card}`} />
+          </div>
         </div>
       </div>
     )
