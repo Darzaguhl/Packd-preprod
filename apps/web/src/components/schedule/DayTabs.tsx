@@ -33,9 +33,11 @@ export default function DayTabs({ days, selected, onSelect, weekOffset, onPrev, 
 
       {/* Day pills */}
       <div className="flex gap-1 overflow-x-auto scrollbar-none">
-        {days.map((d) => {
+        {days.map((d, i) => {
           const isSelected = d.iso === selected
           const isToday = d.iso === todayIso
+          // Show month label when this is the first pill or the month changes
+          const showMonth = i === 0 || d.date.split(' ')[0] !== days[i - 1].date.split(' ')[0]
 
           return (
             <button
@@ -57,7 +59,12 @@ export default function DayTabs({ days, selected, onSelect, weekOffset, onPrev, 
               }`}>
                 {d.date.split(' ')[1]}
               </span>
-              {d.count > 0 && (
+              {showMonth && (
+                <span className={`text-[9px] font-medium uppercase tracking-wide ${isSelected ? 'text-white/60' : 'text-gray-400'}`}>
+                  {d.date.split(' ')[0]}
+                </span>
+              )}
+              {!showMonth && d.count > 0 && (
                 <span className={`mt-0.5 text-[10px] ${isSelected ? 'text-white/70' : 'text-gray-400'}`}>
                   {d.count}
                 </span>

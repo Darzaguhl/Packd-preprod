@@ -5,10 +5,13 @@ function roleHomePath(role: string | undefined): string {
   switch (role) {
     case 'admin':
       return '/platform'
+    case 'brand_admin':
     case 'franchise_admin':
     case 'studio_admin':
     case 'instructor':
       return '/dashboard'
+    case 'fronthost':
+      return '/fronthost'
     default:
       return '/schedule'
   }

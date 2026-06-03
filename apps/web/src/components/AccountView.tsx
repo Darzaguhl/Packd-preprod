@@ -241,6 +241,8 @@ export default function AccountView() {
   const [creditPurchaseEnabled, setCreditPurchaseEnabled] = useState(false)
   const [allowMemberPause, setAllowMemberPause] = useState(false)
   const [referralEnabled, setReferralEnabled] = useState(false)
+  const [lateCancelWindowHours, setLateCancelWindowHours] = useState<number | undefined>()
+  const [lateCancelFeeCredits, setLateCancelFeeCredits] = useState<number | undefined>()
 
   // Show success toast and refresh data when Stripe redirects back after payment
   useEffect(() => {
@@ -298,6 +300,10 @@ export default function AccountView() {
             setReferralEnabled(((s as typeof s & { referralRewardCredits?: number }).referralRewardCredits ?? 0) > 0)
           }).catch(() => {})
           api.members.stats(studioId, t).then(setMemberStats).catch(() => {})
+          api.studios.getPolicy(studioId, t).then(p => {
+            setLateCancelWindowHours(p.lateCancelWindowHours)
+            setLateCancelFeeCredits(p.lateCancelFeeCredits)
+          }).catch(() => {})
           api.ical.getToken(t).then(d => {
             setIcalUrl(d.urls.member)
             if (d.urls.instructor) setInstructorIcalUrl(d.urls.instructor)
@@ -457,6 +463,8 @@ export default function AccountView() {
             birthday={profileExtended?.birthday}
             emergencyContactName={profileExtended?.emergencyContactName}
             emergencyContactPhone={profileExtended?.emergencyContactPhone}
+            lateCancelWindowHours={lateCancelWindowHours}
+            lateCancelFeeCredits={lateCancelFeeCredits}
           />
 
           {/* ══ MY PLAN ══════════════════════════════════════════════════════ */}

@@ -41,6 +41,8 @@ export default function ScheduleScreen() {
   const router = useRouter()
   const [sessions, setSessions] = useState<SessionSlot[]>([])
   const [timezone, setTimezone] = useState('UTC')
+  const [lateCancelWindowHours, setLateCancelWindowHours] = useState(0)
+  const [lateCancelFeeCredits, setLateCancelFeeCredits] = useState(0)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [weekOffset, setWeekOffset] = useState(0)
@@ -61,6 +63,8 @@ const mondayIso = addDaysToIso(weekMondayIso(new Date()), weekOffset * 7)
       const data = await api.schedule.list(STUDIO_ID, from, to)
       setSessions(data.sessions)
       setTimezone(data.timezone ?? 'UTC')
+      setLateCancelWindowHours(data.lateCancelWindowHours ?? 0)
+      setLateCancelFeeCredits(data.lateCancelFeeCredits ?? 0)
     } catch {
       setSessions([])
       setLoadError(true)
@@ -123,6 +127,8 @@ const mondayIso = addDaysToIso(weekMondayIso(new Date()), weekOffset * 7)
         userBookingId: session.userBookingId ?? '',
         userStationId: session.userStationId ?? '',
         userWaitlistPosition: String(session.userWaitlistPosition ?? ''),
+        lateCancelWindowHours: String(lateCancelWindowHours),
+        lateCancelFeeCredits: String(lateCancelFeeCredits),
       },
     })
   }
@@ -131,9 +137,25 @@ const mondayIso = addDaysToIso(weekMondayIso(new Date()), weekOffset * 7)
     <SafeAreaView style={styles.safe}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Schedule</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Text style={styles.title}>Schedule</Text>
+          {weekOffset !== 0 && (
+            <Pressable
+              onPress={() => { setWeekOffset(0); setSelectedDay(toIsoDate(new Date())) }}
+              hitSlop={8}
+              style={{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#4f46e5', borderRadius: 6 }}
+            >
+              <Text style={{ fontSize: 11, fontWeight: '600', color: '#fff' }}>Today</Text>
+            </Pressable>
+          )}
+        </View>
         <View style={styles.weekNav}>
-          <Pressable onPress={() => setWeekOffset(w => w - 1)} hitSlop={10} style={styles.navBtn}>
+          <Pressable
+            onPress={() => setWeekOffset(w => Math.max(0, w - 1))}
+            hitSlop={10}
+            style={[styles.navBtn, weekOffset === 0 && { opacity: 0.25 }]}
+            disabled={weekOffset === 0}
+          >
             <Text style={styles.navBtnText}>‹</Text>
           </Pressable>
           <Text style={styles.weekLabel}>

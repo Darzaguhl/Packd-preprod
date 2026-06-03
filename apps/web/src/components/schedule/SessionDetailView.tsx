@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { api, waivers as waiversClient } from '@/lib/api-client'
 import type { SessionSpots } from '@/lib/api-client'
@@ -49,6 +49,13 @@ export default function SessionDetailView({
   // Waiver state — set when booking returns WAIVER_REQUIRED
   const [pendingBookArgs, setPendingBookArgs] = useState<{ sessionId: string; note?: string } | null>(null)
   const [waiverData, setWaiverData] = useState<{ id: string; title: string; body: string } | null>(null)
+
+  // Live clock for cancellation countdown — ticks every minute
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60_000)
+    return () => clearInterval(t)
+  }, [])
 
   const timeFormat = useTimeFormat()
   const timezone = useTimezone()
@@ -180,10 +187,9 @@ export default function SessionDetailView({
     }
   }
 
-  // Cancellation window hint
+  // Cancellation window hint — recomputed every minute via `now` state
   const cancelHint = (() => {
     if (!isBooked || isPast || privileged || !cancelPolicy) return null
-    const now = Date.now()
     const classStart = new Date(s.startsAt).getTime()
     const windowMs = cancelPolicy.windowHours * 60 * 60 * 1000
     const windowCutoff = classStart - windowMs
@@ -262,11 +268,19 @@ export default function SessionDetailView({
               </div>
               {/* Status badges */}
               {isBooked && (
-                <div className="flex items-center gap-2 text-sm font-medium text-emerald-700 bg-emerald-50 rounded-xl px-3 py-2">
-                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none">
-                    <path d="M3 8l3.5 3.5L13 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                  You're booked
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 text-sm font-medium text-emerald-700 bg-emerald-50 rounded-xl px-3 py-2">
+                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none">
+                      <path d="M3 8l3.5 3.5L13 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    You&apos;re booked
+                  </div>
+                  <a
+                    href="/account"
+                    className="block text-center text-xs text-indigo-600 hover:text-indigo-700 py-1"
+                  >
+                    View in my bookings →
+                  </a>
                 </div>
               )}
               {isWaitlisted && (
@@ -350,23 +364,17 @@ export default function SessionDetailView({
                 </div>
               )}
 
-              {/* Cancel: always visible; active only when booked + spot picked (or no layout) */}
-              {(() => {
-                const needsSpot = isBooked && hasLayout && !hasSpot
-                const inactive = !isBooked || needsSpot
-                const title = !isBooked
-                  ? 'Book a class first'
-                  : needsSpot
-                    ? 'Pick a spot first'
-                    : 'Cancel your booking'
+              {/* Cancel: only shown once booked */}
+              {isBooked && (() => {
+                const needsSpot = hasLayout && !hasSpot
                 return (
                   <button
                     data-testid="cancel-btn"
-                    onClick={inactive ? undefined : handleCancel}
-                    disabled={actionLoading || inactive}
-                    title={title}
+                    onClick={needsSpot ? undefined : handleCancel}
+                    disabled={actionLoading || needsSpot}
+                    title={needsSpot ? 'Pick a spot first' : 'Cancel your booking'}
                     className={`w-full py-3 rounded-xl text-sm font-semibold border transition-colors ${
-                      inactive
+                      needsSpot
                         ? 'border-gray-200 text-gray-300 bg-white cursor-not-allowed'
                         : 'border-red-200 text-red-500 hover:bg-red-50 bg-white disabled:opacity-40'
                     }`}

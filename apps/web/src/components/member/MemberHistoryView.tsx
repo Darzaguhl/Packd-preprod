@@ -156,6 +156,9 @@ interface Props {
   plans?: Omit<MembershipPlan, 'activeSubscriptions'>[]
   /** If provided, cancel button appears on upcoming bookings */
   onCancelBooking?: (bookingId: string) => Promise<void>
+  /** Cancellation policy — used to warn about late-cancel fees */
+  lateCancelWindowHours?: number
+  lateCancelFeeCredits?: number
   /** If provided, self check-in button appears on upcoming bookings within 30 min of start */
   onSelfCheckIn?: (bookingId: string) => Promise<void>
   /** If provided, subscribe button appears on plan cards */
@@ -180,19 +183,32 @@ function UpcomingCard({
   booking,
   onCancel,
   onSelfCheckIn,
+  lateCancelWindowHours,
+  lateCancelFeeCredits,
 }: {
   booking: UpcomingBooking
   onCancel?: (id: string) => Promise<void>
   onSelfCheckIn?: (id: string) => Promise<void>
+  lateCancelWindowHours?: number
+  lateCancelFeeCredits?: number
 }) {
   const timeFormat = useTimeFormat()
   const [cancelling, setCancelling] = useState(false)
   const [checkingIn, setCheckingIn] = useState(false)
+  const [confirmingCancel, setConfirmingCancel] = useState(false)
   const cfg = sportConfig(booking.sport)
+
+  // Determine if this cancellation would be a late cancel
+  const isLateCancel = (() => {
+    if (!lateCancelWindowHours) return false
+    const msUntilClass = new Date(booking.startsAt).getTime() - Date.now()
+    return msUntilClass < lateCancelWindowHours * 60 * 60 * 1000
+  })()
 
   async function handleCancel() {
     if (!onCancel) return
     setCancelling(true)
+    setConfirmingCancel(false)
     try { await onCancel(booking.id) } finally { setCancelling(false) }
   }
 
@@ -239,9 +255,9 @@ function UpcomingCard({
               {checkingIn ? '…' : 'Check in'}
             </button>
           )}
-          {onCancel && (
+          {onCancel && !confirmingCancel && (
             <button
-              onClick={handleCancel}
+              onClick={() => setConfirmingCancel(true)}
               disabled={cancelling || booking.sessionStatus === 'CANCELLED'}
               className="text-xs text-gray-400 hover:text-red-500 transition-colors disabled:opacity-40 px-2 py-1"
             >
@@ -249,6 +265,30 @@ function UpcomingCard({
                 ? <span className="inline-block w-3 h-3 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
                 : 'Cancel'}
             </button>
+          )}
+          {onCancel && confirmingCancel && (
+            <div className="flex flex-col items-end gap-1">
+              {isLateCancel && lateCancelFeeCredits && lateCancelFeeCredits > 0 && (
+                <p className="text-[10px] text-amber-600 font-medium text-right">
+                  {lateCancelFeeCredits} credit fee applies
+                </p>
+              )}
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setConfirmingCancel(false)}
+                  className="text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:bg-gray-50"
+                >
+                  Keep
+                </button>
+                <button
+                  onClick={handleCancel}
+                  disabled={cancelling}
+                  className="text-[10px] px-2 py-0.5 rounded bg-red-500 text-white hover:bg-red-600 disabled:opacity-40"
+                >
+                  {cancelling ? '…' : 'Confirm'}
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -317,6 +357,8 @@ export default function MemberHistoryView({
   birthday,
   emergencyContactName,
   emergencyContactPhone,
+  lateCancelWindowHours,
+  lateCancelFeeCredits,
 }: Props) {
   const [tab, setTab] = useState<Tab>('upcoming')
   const [showPlans, setShowPlans] = useState(false)
@@ -541,10 +583,20 @@ export default function MemberHistoryView({
       {tab === 'upcoming' && (
         <div className="space-y-2">
           {upcoming.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-10">No upcoming bookings</p>
+            <div className="text-center py-10 space-y-1">
+              <p className="text-sm text-gray-500">No upcoming classes</p>
+              <a href="/schedule" className="text-sm text-indigo-600 hover:text-indigo-700">Browse the schedule →</a>
+            </div>
           ) : (
             upcoming.map(b => (
-              <UpcomingCard key={b.id} booking={b} onCancel={onCancelBooking} onSelfCheckIn={onSelfCheckIn} />
+              <UpcomingCard
+                key={b.id}
+                booking={b}
+                onCancel={onCancelBooking}
+                onSelfCheckIn={onSelfCheckIn}
+                lateCancelWindowHours={lateCancelWindowHours}
+                lateCancelFeeCredits={lateCancelFeeCredits}
+              />
             ))
           )}
         </div>

@@ -27,6 +27,8 @@ export default function SessionDetailScreen() {
     userBookingId: string
     userStationId: string
     userWaitlistPosition: string
+    lateCancelWindowHours: string
+    lateCancelFeeCredits: string
   }>()
 
   const creditsRequired = Number(p.creditsRequired ?? 0)
@@ -61,9 +63,12 @@ export default function SessionDetailScreen() {
     api.rooms.spots(p.roomId, p.id)
       .then(data => {
         setSpots(data)
-        // Use server-authoritative booking/station IDs — URL params may be stale on cold start
+        // Use server-authoritative IDs and live booked count — URL params may be stale on cold start
         if (data.myBookingId) setMyBookingId(data.myBookingId)
         if (data.myStationId) setMyStationId(data.myStationId)
+        // assignments array reflects actual bookings at load time
+        const serverBookedCount = data.assignments?.filter((a: unknown) => a !== null).length ?? null
+        if (serverBookedCount !== null) setBookedCount(serverBookedCount)
       })
       .catch(() => {
         // Map unavailable — booking actions still work, just no spot picker
@@ -92,6 +97,7 @@ export default function SessionDetailScreen() {
           if (err.message === 'WAIVER_REQUIRED' && err.waiverId && p.studioId) {
             const wRes = await api.waivers.getActive(p.studioId)
             if (wRes.waiver) {
+              setActionLoading(false)
               setWaiver(wRes.waiver)
               setShowWaiver(true)
             }
@@ -164,9 +170,16 @@ export default function SessionDetailScreen() {
 
   async function handleCancel() {
     if (!myBookingId) return
+    const lateCancelWindowHours = Number(p.lateCancelWindowHours ?? 0)
+    const lateCancelFeeCredits = Number(p.lateCancelFeeCredits ?? 0)
+    const msUntilClass = new Date(p.startsAt).getTime() - Date.now()
+    const isLate = lateCancelWindowHours > 0 && msUntilClass < lateCancelWindowHours * 60 * 60 * 1000
+    const cancelBody = isLate && lateCancelFeeCredits > 0
+      ? `${p.templateName}\n\nThis is within the ${lateCancelWindowHours}h cancellation window — a ${lateCancelFeeCredits} credit fee will apply.`
+      : p.templateName
     Alert.alert(
       'Cancel booking?',
-      undefined,
+      cancelBody,
       [
         { text: 'Keep', style: 'cancel' },
         {

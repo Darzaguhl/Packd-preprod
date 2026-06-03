@@ -18,6 +18,7 @@ export default function SessionPanel({ session, token, onClose, onSessionUpdate,
   const [loading, setLoading] = useState(true)
   const [actionId, setActionId] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false)
   const [showAnnounce, setShowAnnounce] = useState(false)
   const [announceSubject, setAnnounceSubject] = useState('')
   const [announceMessage, setAnnounceMessage] = useState('')
@@ -51,13 +52,13 @@ export default function SessionPanel({ session, token, onClose, onSessionUpdate,
   }
 
   async function cancelSession() {
-    if (!confirm('Cancel this session? This cannot be undone.')) return
     setCancelling(true)
     try {
       await api.admin.updateSession(session.id, 'CANCELLED', token)
       onSessionUpdate({ ...session, status: 'CANCELLED' })
     } finally {
       setCancelling(false)
+      setShowCancelConfirm(false)
     }
   }
 
@@ -146,18 +147,43 @@ export default function SessionPanel({ session, token, onClose, onSessionUpdate,
             >
               Announce
             </button>
-            {canCancel && (
+            {canCancel && !showCancelConfirm && (
               <button
-                onClick={cancelSession}
-                disabled={cancelling}
-                className="text-xs text-red-500 hover:text-red-700 border border-red-200 hover:border-red-300 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40"
+                onClick={() => setShowCancelConfirm(true)}
+                className="text-xs text-red-500 hover:text-red-700 border border-red-200 hover:border-red-300 px-3 py-1.5 rounded-lg transition-colors"
               >
-                {cancelling ? '…' : 'Cancel class'}
+                Cancel class
               </button>
             )}
           </div>
         )}
       </div>
+
+      {/* Cancel confirmation */}
+      {showCancelConfirm && !isCancelled && (
+        <div className="border-b border-red-100 px-4 py-3 bg-red-50 space-y-2">
+          <p className="text-sm font-medium text-red-700">Cancel this class?</p>
+          <p className="text-xs text-red-600">
+            {bookings.length} member{bookings.length !== 1 ? 's' : ''} will be notified and their credits refunded. This cannot be undone.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={cancelSession}
+              disabled={cancelling}
+              className="text-xs font-medium px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 transition-colors"
+            >
+              {cancelling ? '…' : 'Confirm cancel'}
+            </button>
+            <button
+              onClick={() => setShowCancelConfirm(false)}
+              disabled={cancelling}
+              className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-100 transition-colors"
+            >
+              Keep class
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Announce form */}
       {showAnnounce && !isCancelled && (

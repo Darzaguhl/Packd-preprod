@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import {
   View, Text, Pressable, ScrollView, ActivityIndicator,
-  SafeAreaView, StyleSheet, Alert,
+  SafeAreaView, StyleSheet, Alert, RefreshControl,
 } from 'react-native'
 import { useFocusEffect } from 'expo-router'
 import { api } from '@/lib/api'
@@ -12,10 +12,11 @@ import type { MemberProfile } from '@packd/types'
 export default function AccountScreen() {
   const [profile, setProfile] = useState<MemberProfile | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [loadError, setLoadError] = useState(false)
 
-  async function loadProfile() {
-    setLoadError(false)
+  async function loadProfile(silent = false) {
+    if (!silent) setLoadError(false)
     try {
       const data = await api.members.me()
       setProfile(data)
@@ -23,6 +24,7 @@ export default function AccountScreen() {
       setLoadError(true)
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }
 
@@ -36,7 +38,11 @@ export default function AccountScreen() {
     ])
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} color="#111827" />
+  if (loading) return (
+    <SafeAreaView style={styles.safe}>
+      <ActivityIndicator style={{ flex: 1 }} color="#111827" />
+    </SafeAreaView>
+  )
   if (loadError || !profile) return (
     <SafeAreaView style={styles.safe}>
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 }}>
@@ -53,7 +59,10 @@ export default function AccountScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadProfile(true) }} tintColor="#111827" />}
+      >
         <Text style={styles.title}>Account</Text>
 
         {/* Avatar + name */}

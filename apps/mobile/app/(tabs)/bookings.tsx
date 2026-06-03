@@ -3,7 +3,7 @@ import {
   View, Text, FlatList, Pressable, Alert, ActivityIndicator,
   SafeAreaView, StyleSheet, RefreshControl,
 } from 'react-native'
-import { useFocusEffect } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 import { api, type UpcomingBooking } from '@/lib/api'
 import { sportColor } from '@/lib/constants'
 import { useAuthReady } from '@/lib/useAuthReady'
@@ -28,6 +28,8 @@ export default function BookingsScreen() {
       setRefreshing(false)
     }
   }
+
+  const router = useRouter()
 
   useFocusEffect(useCallback(() => { load() }, []))
   // Reload once auth is confirmed on cold start
@@ -61,7 +63,11 @@ export default function BookingsScreen() {
     )
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} color="#111827" />
+  if (loading) return (
+    <SafeAreaView style={styles.safe}>
+      <ActivityIndicator style={{ flex: 1 }} color="#111827" />
+    </SafeAreaView>
+  )
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -80,9 +86,13 @@ export default function BookingsScreen() {
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>{loadError ? 'Could not load bookings' : 'No upcoming classes'}</Text>
-            <Text style={styles.emptyBody}>
-              {loadError ? 'Pull down to retry.' : 'Head to the Schedule tab to book a class.'}
-            </Text>
+            {loadError ? (
+              <Text style={styles.emptyBody}>Pull down to retry.</Text>
+            ) : (
+              <Pressable onPress={() => router.replace('/(tabs)/schedule')}>
+                <Text style={[styles.emptyBody, { color: '#4f46e5' }]}>Head to the Schedule tab to book a class →</Text>
+              </Pressable>
+            )}
           </View>
         }
         renderItem={({ item: b }) => {
