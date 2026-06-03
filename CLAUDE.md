@@ -35,7 +35,7 @@ cd apps/api && npm run dev           # API on :4000
 cd apps/web && npm run dev           # Web on :3000
 cd apps/mobile && npx expo start     # Mobile (Expo Go or simulator)
 
-npm test                             # Vitest unit tests (205 passing | 7 skipped across 23 files)
+npm test                             # Vitest unit tests (205 passing | 14 skipped across 23 files)
 npm run test:e2e                     # Playwright (needs both servers + .auth/ state files)
 
 npm run db:migrate                   # create + apply migration locally (interactive)
@@ -85,7 +85,7 @@ See `apps/api/.env.example` for full documented list.
 ### Stripe
 - Webhook signature verification requires raw body — registered via `addContentTypeParser('application/json', { parseAs: 'buffer' }, ...)` in `server.ts`
 - `StripeEvent` table provides idempotency — duplicate webhook deliveries are deduplicated on `id`
-- Replay endpoint: `POST /stripe/replay/:eventId` (studio_admin+) — deletes idempotency record and re-injects
+- Replay endpoint: `POST /stripe/replay/:eventId` (franchise_admin+ for any event; studio_admin only for events with `metadata.studioId` matching their studio) — deletes idempotency record and re-injects
 
 ### Tailwind CSS v4
 - `@import "tailwindcss"` in `globals.css`; `postcss.config.js` with `@tailwindcss/postcss`; no `tailwind.config.js` needed
@@ -146,7 +146,7 @@ Seed (`packages/db/src/seed.ts`): 1 studio (Packd Demo), Stockholm City location
 
 ## Security model
 
-- **Roles**: `admin=5`, `brand_admin=5`, `franchise_admin=4`, `studio_admin=3`, `instructor=2`, `fronthost=2`, `member=1`
+- **Roles**: `admin=6`, `brand_admin=5`, `franchise_admin=4`, `studio_admin=3`, `instructor=2`, `fronthost=2`, `member=1`
 - `fronthost` and `instructor` share rank 2 — both pass `requireRole('instructor')` but not `requireRole('studio_admin')`
 - **Dual-role**: `app_metadata.roles[]` for all roles, `app_metadata.role` for primary. `DualRoleDashboard` renders for users with both `fronthost` + `instructor`.
 - **Multi-studio**: `app_metadata.studioIds[]` — `assertStudioAccess` (in `routes/admin-shared.ts`) checks JWT `studioIds` first (fast path), then DB `member.studioId` + `member.studioIds` (fallback). Single authoritative copy. Most routes use `config: { studioIdFrom: 'querystring'|'params'|'body' }` so the `studio-access-plugin` enforces it automatically; routes that derive studioId from a DB lookup keep a manual call.
@@ -179,9 +179,8 @@ apps/
                            # win-back emails, first-class followup
     routes/
       admin.ts             # thin barrel — registers 5 sub-plugins
-      admin-shared.ts      # assertStudioAccess + validateSelectQuery (single source)
+      admin-shared.ts      # assertStudioAccess + validateSelectQuery + checkInstructorConflict (single source)
       admin-sessions.ts    # session list, bookings view, check-in, bulk cancel/sub
-                           # checkInstructorConflict() — blocks double-booking on reschedule
       admin-members.ts     # member CRUD, credits, notes, subscriptions, guest passes,
                            # purchases, audit-log read
       admin-analytics.ts   # stats, leaderboard, analytics (capped at 2000 sessions)
@@ -212,7 +211,6 @@ apps/
       rooms.ts             # room + layout + station management
       schedule.ts          # member-facing schedule (includes userWaitlistPosition)
       schedules.ts         # class schedule (recurring) management + month view
-                           # checkInstructorConflict() on substitute assignment
       shifts.ts            # staff shift CRUD (GET/mine, POST, PATCH, DELETE) at /admin/shifts
       shift-patterns.ts    # recurring shift patterns (GET, POST, PATCH, DELETE) at /admin/shift-patterns
                            # POST generates StaffShift instances 12w out; PATCH drops future + regenerates
@@ -225,7 +223,7 @@ apps/
       webhooks.ts          # Mariana Tek inbound webhooks
     schemas.ts             # Shared Zod primitives: Id, StudioIdQuery, CursorQuery,
                            # ISODateTime, DateString, IdParam, StaffRole, BookingStatus …
-    __tests__/             # 197 Vitest unit tests across 22 files
+    __tests__/             # 205 Vitest unit tests across 23 files
   web/src/
     app/
       accept-invite/       # /accept-invite — staff invitation acceptance page (auth + role apply)
@@ -334,7 +332,7 @@ apps/
 - **Email preferences**: `Member.emailPreferences Json` defaults to `{}` (treated as all true). Check with `(prefs.classReminder ?? true)` pattern — explicit `false` opts out, missing key = opted in.
 - **Staff invite flow**: `POST /staff/invite` generates an HMAC-SHA256 signed token (7-day expiry, base64url, signed with `INVITE_SECRET ?? ICAL_SECRET`) and sends it as `&token=<token>` in the invite URL to `/accept-invite?email=&studio=&studioId=&role=&token=`. The `/accept-invite` page reads the token and includes it in the POST body. `POST /staff/accept-invite` verifies the token (constant-time `timingSafeEqual`) before applying `app_metadata` role + studioIds via Supabase admin API.
 - **Referral reward**: fires in `POST /bookings` after first confirmed booking (`prisma.booking.count === 1`). Finds unrewarded `Referral` for the member, grants credits to referrer, marks as rewarded. Non-fatal (wrapped in try/catch).
-- **Staff conflict detection**: `checkInstructorConflict()` defined in both `schedules.ts` and `admin-sessions.ts`. Checks for overlapping sessions (status ≠ CANCELLED). Applied on: substitute assignment (schedules.ts), session reschedule/time-change (admin-sessions.ts). NOT applied on bulk schedule generation (impractical — skip by design).
+- **Staff conflict detection**: `checkInstructorConflict()` defined once in `admin-shared.ts`, imported by both `schedules.ts` and `admin-sessions.ts`. Checks for overlapping sessions (status ≠ CANCELLED). Applied on: substitute assignment (schedules.ts), session reschedule/time-change (admin-sessions.ts). NOT applied on bulk schedule generation (impractical — skip by design).
 - **Tax / VAT**: `Studio.taxRatePct` + `stripeTaxRateId`. On checkout: if `taxRatePct > 0`, creates Stripe TaxRate once and caches ID on Studio. Passed as `default_tax_rates` to checkout session.
 - **Franchise onboarding wizard**: 7 steps: Studio details → Location → Rooms → Policy → Import from existing studio (optional) → Invite studio admin (optional) → Done. Requires `franchise_admin` role — other roles redirected to `/dashboard`. Cancel button: "Cancel" before studio created, "Finish later →" after (with confirm dialog).
 - **Pagination pattern**: cursor-based, `{ items[], nextCursor: string|null, hasMore: bool }`. Params: `?cursor=<id>&take=<n>` (default 50, max 200). Implemented on `GET /admin/members` and `GET /franchise/staff`. Audit log uses same pattern. Apply to all new list endpoints.
@@ -351,7 +349,6 @@ apps/
 - **Ops alerting**: `sendOpsAlert(subject, body)` in `lib/email.ts` — fires to `OPS_EMAIL` via Resend. All pg-boss job handlers wrapped with `work(name, handler)` in `jobs/index.ts` which auto-alerts on failure. Stripe webhook handler also wrapped with try/catch that alerts.
 - **iCal token rotation**: set `ICAL_SECRET_PREVIOUS=<old>` + `ICAL_SECRET=<new>` — tokens signed with either key are accepted. Drop PREVIOUS after ~30 days. Token verification uses `timingSafeEqual` on both keys. See `docs/secret-rotation.md`.
 - **OpenAPI spec + typed client**: `npm run generate:types` runs `apps/api/src/generate-openapi.ts` (builds Fastify app without `listen()`, writes `apps/api/openapi.json`) then `openapi-typescript` (writes `apps/web/src/lib/api-types.generated.ts`). CI checks both files are up to date on every push.
-- **Session revocation**: `revokeUserSessions(userId)` called after every role change — grant (`POST /staff`), accept-invite, and removal (`DELETE /staff/:memberId`). Forces re-auth so the new JWT reflects the updated role immediately.
 
 ## Security and architecture review protocol
 
