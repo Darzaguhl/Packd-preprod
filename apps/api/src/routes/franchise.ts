@@ -14,6 +14,8 @@ import {
 
 export { assertStudioAccess }
 
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
+
 // ── Route validation schemas ──────────────────────────────────────────────────
 const StaffListQuery = z.object({ cursor: z.string().optional(), take: z.string().optional() })
 const PromoBody = z.object({
