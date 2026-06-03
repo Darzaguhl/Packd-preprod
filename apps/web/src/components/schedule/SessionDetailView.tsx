@@ -317,7 +317,9 @@ export default function SessionDetailView({
                     disabled={actionLoading}
                     className="w-full py-3 rounded-xl text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
                   >
-                    {actionLoading ? '…' : 'Book class'}
+                    {actionLoading ? '…' : s.creditsRequired > 0
+                      ? `Book — ${s.creditsRequired} credit${s.creditsRequired !== 1 ? 's' : ''}`
+                      : 'Book class'}
                   </button>
                 </div>
               )}

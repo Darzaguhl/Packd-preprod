@@ -434,6 +434,24 @@ export default function MemberHistoryView({
         <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4 flex flex-col justify-between">
           <p className="text-xs text-gray-400 font-medium mb-1">Credits</p>
           <p data-testid="credit-balance" className={`text-3xl font-bold tabular-nums ${creditBalance === 0 ? 'text-red-500' : 'text-gray-900'}`}>{creditBalance}</p>
+          {/* Explain where credits come from if the member has an active plan */}
+          {(() => {
+            if (!activeSubscription || activeSubscription.status !== 'ACTIVE') return null
+            const matchedPlan = plans?.find(p => p.name === activeSubscription.planName)
+            if (!matchedPlan?.creditsPerCycle) return null
+            const interval = matchedPlan.intervalMonths === 1
+              ? 'monthly'
+              : matchedPlan.intervalMonths === 3 ? 'quarterly' : `every ${matchedPlan.intervalMonths} months`
+            const nextDate = activeSubscription.nextBillingDate
+              ? new Date(activeSubscription.nextBillingDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+              : null
+            return (
+              <p className="mt-1.5 text-[11px] text-gray-400 leading-snug">
+                +{matchedPlan.creditsPerCycle} {interval} from {activeSubscription.planName}
+                {nextDate && <> · next {nextDate}</>}
+              </p>
+            )
+          })()}
           {onBuyCredits && creditBalance <= 2 && (
             <button
               onClick={() => setShowPlans(true)}
