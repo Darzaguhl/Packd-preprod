@@ -264,6 +264,7 @@ model Instructor {
   id                 String  @id @default(cuid())
   userId             String
   studioId           String
+  title              String?  // display title, e.g. "Master Instructor", "Lead Trainer"
   bio                String?
   photoUrl           String?
   permissions        Json    @default("{}")
@@ -425,6 +426,7 @@ model Member {
   staffRoles       String[] @default([])  // [] = regular member; can hold both "fronthost" and "instructor"
   studioIds        String[] @default([])  // all studios this staff member is assigned to (mirrors app_metadata.studioIds)
   staffPermissions Json?                  // fronthost permission overrides (FronthostPermissions)
+  staffTitle       String?                // display title for staff, e.g. "Fronthost Manager", "Head of Training"
 
   // Profile enrichment
   birthday             DateTime?

@@ -5,7 +5,7 @@ import { requireRole, getUser } from '../lib/auth.js'
 import { audit, AUDIT } from '../lib/audit.js'
 import { ROLE_RANK } from '@packd/types'
 import { sendSubstituteNotification } from '../lib/email.js'
-import { assertStudioAccess, checkInstructorConflict } from './admin-shared.js'
+import { assertStudioAccess, checkInstructorConflict, checkPermission } from './admin-shared.js'
 import { IdParam, StudioIdQuery } from '../schemas.js'
 import { CalendarWeekSchema, ClassScheduleSchema, OrphanedPatternSchema } from '../schemas/responses.js'
 
@@ -249,7 +249,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
   }>(
     '/',
     {
-      preHandler: requireStudioAdmin,
+      preHandler: requireInstructor,
       config: { studioIdFrom: 'body' },
       schema: {
         body: z.object({
@@ -278,6 +278,8 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       } = request.body
 
       const user = getUser(request)
+
+      if (!await checkPermission(user.id, user.role, studioId, 'canCreateSchedules')) return reply.forbidden('canCreateSchedules permission required')
 
       if (!daysOfWeek?.length) return reply.badRequest('daysOfWeek must be non-empty')
       if (!/^\d{2}:\d{2}$/.test(startTime)) return reply.badRequest('startTime must be HH:MM')
@@ -334,7 +336,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
   }>(
     '/:id',
     {
-      preHandler: requireStudioAdmin,
+      preHandler: requireInstructor,
       config: { studioIdFrom: 'body' },
       schema: {
         params: IdParam,
@@ -357,6 +359,8 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       const { id } = request.params
       const { studioId, ...fields } = request.body
       const user = getUser(request)
+
+      if (!await checkPermission(user.id, user.role, studioId, 'canCreateSchedules')) return reply.forbidden('canCreateSchedules permission required')
 
       const existing = await prisma.classSchedule.findFirst({ where: { id, studioId } })
       if (!existing) return reply.notFound('Schedule not found')
@@ -414,7 +418,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string }; Querystring: { studioId: string } }>(
     '/:id',
     {
-      preHandler: requireStudioAdmin,
+      preHandler: requireInstructor,
       config: { studioIdFrom: 'querystring' },
       schema: {
         params: IdParam,
@@ -425,6 +429,8 @@ export async function classScheduleRoutes(app: FastifyInstance) {
       const { id } = request.params
       const { studioId } = request.query
       const user = getUser(request)
+
+      if (!await checkPermission(user.id, user.role, studioId, 'canCreateSchedules')) return reply.forbidden('canCreateSchedules permission required')
 
       const existing = await prisma.classSchedule.findFirst({ where: { id, studioId } })
       if (!existing) return reply.notFound('Schedule not found')
@@ -547,7 +553,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
   }>(
     '/orphaned',
     {
-      preHandler: requireStudioAdmin,
+      preHandler: requireInstructor,
       config: { studioIdFrom: 'querystring' },
       schema: {
         querystring: z.object({
@@ -564,6 +570,7 @@ export async function classScheduleRoutes(app: FastifyInstance) {
         return reply.badRequest('studioId, templateId, instructorId and startTime are required')
       }
       const user = getUser(request)
+      if (!await checkPermission(user.id, user.role, studioId, 'canCreateSchedules')) return reply.forbidden('canCreateSchedules permission required')
 
       const [hh, mm] = startTime.split(':').map(Number)
       const now = new Date()

@@ -48,6 +48,7 @@ interface InstructorPermissions {
   canManagePromoCodes: boolean
   canViewPurchaseHistory: boolean
   canOverrideBookingRestrictions: boolean
+  canViewAnalytics: boolean
 }
 
 const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
@@ -63,6 +64,7 @@ const DEFAULT_INSTRUCTOR_PERMISSIONS: InstructorPermissions = {
   canManagePromoCodes: false,
   canViewPurchaseHistory: false,
   canOverrideBookingRestrictions: false,
+  canViewAnalytics: false,
 }
 
 
@@ -78,6 +80,8 @@ interface FronthostPermissions {
   canViewPurchaseHistory: boolean
   canExportData: boolean
   canOverrideBookingRestrictions: boolean
+  canCreateSchedules: boolean
+  canViewAnalytics: boolean
 }
 
 const DEFAULT_FRONTHOST_PERMISSIONS: FronthostPermissions = {
@@ -92,6 +96,8 @@ const DEFAULT_FRONTHOST_PERMISSIONS: FronthostPermissions = {
   canViewPurchaseHistory: true,
   canExportData: false,
   canOverrideBookingRestrictions: true,
+  canCreateSchedules: false,
+  canViewAnalytics: false,
 }
 
 export async function franchiseRoutes(app: FastifyInstance) {
@@ -329,6 +335,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
         id: instructor.id,
         memberId: member?.id ?? null,
         avatarUrl: userRecord?.avatarUrl ?? null,
+        title: instructor.title ?? null,
         permissions,
       })
     },
@@ -359,7 +366,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
         'canCheckInMembers', 'canManageBookings', 'canViewMemberContact',
         'canManageWaitlist', 'canEditSessionDetails', 'canCancelSession', 'canCreateSchedules',
         'canSetSubstitute', 'canGrantCredits', 'canManagePromoCodes',
-        'canViewPurchaseHistory', 'canOverrideBookingRestrictions',
+        'canViewPurchaseHistory', 'canOverrideBookingRestrictions', 'canViewAnalytics',
       ]
       const sanitized = Object.fromEntries(
         Object.entries(request.body).filter(([k, v]) =>
@@ -651,7 +658,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
       const VALID_KEYS: (keyof FronthostPermissions)[] = [
         'canCheckInMembers', 'canAdjustCredits', 'canManageBookings', 'canManageWaitlist', 'canViewMemberContact',
         'canGrantCredits', 'canIssueRefunds', 'canManagePromoCodes', 'canViewPurchaseHistory',
-        'canExportData', 'canOverrideBookingRestrictions',
+        'canExportData', 'canOverrideBookingRestrictions', 'canCreateSchedules', 'canViewAnalytics',
       ]
       const sanitized = Object.fromEntries(
         Object.entries(request.body).filter(([k, v]) =>

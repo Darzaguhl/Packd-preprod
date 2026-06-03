@@ -39,7 +39,8 @@ const ALL_PERMS: PermDef[] = [
   { label: 'Edit session details',    description: 'Change capacity, credits required, or timing',          instructor: 'canEditSessionDetails' },
   { label: 'Cancel a session',        description: 'Mark a session as cancelled',                           instructor: 'canCancelSession' },
   { label: 'Set a substitute',        description: 'Assign a substitute instructor for a session',          instructor: 'canSetSubstitute' },
-  { label: 'Create & edit schedules', description: 'Add recurring schedules and modify existing ones',      instructor: 'canCreateSchedules' },
+  { label: 'Create & edit schedules', description: 'Add recurring schedules and modify existing ones',      instructor: 'canCreateSchedules', fronthost: 'canCreateSchedules' },
+  { label: 'View analytics',          description: 'Access the studio analytics dashboard and reports',      instructor: 'canViewAnalytics',   fronthost: 'canViewAnalytics' },
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -113,6 +114,8 @@ export default function PermissionsTab({ studioId, token }: Props) {
   const [local, setLocal]           = useState<Record<string, LocalPerms>>({})
   const [saving, setSaving]         = useState(false)
   const [toast, setToast]           = useState<{ msg: string; ok: boolean } | null>(null)
+  const [titleDraft, setTitleDraft] = useState('')
+  const [savingTitle, setSavingTitle] = useState(false)
 
   useEffect(() => {
     api.franchise.staffPermissions(studioId, token)
@@ -153,6 +156,24 @@ export default function PermissionsTab({ studioId, token }: Props) {
     })
   }
 
+  async function saveTitle() {
+    if (!selected) return
+    setSavingTitle(true)
+    try {
+      await api.staff.setTitle(selected.id, studioId, titleDraft.trim() || null, token)
+      setStaff(prev => prev.map(s => s.id === selected.id
+        ? { ...s, title: titleDraft.trim() || null } as typeof s
+        : s
+      ))
+      setToast({ msg: 'Title saved', ok: true })
+    } catch (e) {
+      setToast({ msg: (e as Error).message, ok: false })
+    } finally {
+      setSavingTitle(false)
+      setTimeout(() => setToast(null), 3000)
+    }
+  }
+
   async function save() {
     if (!selectedId) return
     const s = staff.find(x => x.id === selectedId)
@@ -191,6 +212,11 @@ export default function PermissionsTab({ studioId, token }: Props) {
   const selected = staff.find(s => s.id === selectedId) ?? null
   const perms    = selectedId ? local[selectedId] : null
   const dirty    = selected && perms ? isDirty(selected, perms) : false
+
+  // Sync title draft when selection changes
+  useEffect(() => {
+    setTitleDraft((selected as (typeof selected & { title?: string | null }) | null)?.title ?? '')
+  }, [selectedId])
 
   // Build the visible permission rows for the selected staff member
   const visiblePerms = useMemo(() => {
@@ -297,6 +323,26 @@ export default function PermissionsTab({ studioId, token }: Props) {
                   </span>
                 ))}
               </div>
+            </div>
+
+            {/* Display title */}
+            <div className="flex items-center gap-2 -mt-1">
+              <input
+                type="text"
+                value={titleDraft}
+                onChange={e => setTitleDraft(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && saveTitle()}
+                placeholder="Display title (e.g. Master Instructor)"
+                maxLength={64}
+                className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
+              />
+              <button
+                onClick={saveTitle}
+                disabled={savingTitle}
+                className="text-xs font-medium px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-40 transition-colors whitespace-nowrap"
+              >
+                {savingTitle ? '…' : 'Save title'}
+              </button>
             </div>
 
             {/* Permission grid — 3 columns */}

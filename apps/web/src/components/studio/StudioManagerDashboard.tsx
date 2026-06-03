@@ -39,7 +39,7 @@ interface Stats {
   waitlistToday: number
 }
 
-const INSTRUCTOR_TABS: Tab[] = ['today', 'calendar', 'room', 'photos']
+const INSTRUCTOR_TABS: Tab[] = ['today', 'calendar', 'analytics', 'room', 'photos']
 
 type TaggedSession = AdminSession & { studioId: string; studioName: string }
 

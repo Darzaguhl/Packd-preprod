@@ -218,16 +218,18 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
   const [data, setData]           = useState<AnalyticsData | null>(null)
   const [loading, setLoading]     = useState(true)
   const [weeks, setWeeks]         = useState(12)
+  const [permissionDenied, setPermissionDenied] = useState(false)
 
   // Sync if parent changes the studioId (e.g. drill-in from franchise)
   useEffect(() => { setSelectedStudio(initialStudioId) }, [initialStudioId])
 
   useEffect(() => {
     setLoading(true)
+    setPermissionDenied(false)
     // Don't blank data — keep stale content visible while refreshing to prevent layout shift
     api.admin.analytics(selectedStudio, token, weeks)
       .then(setData)
-      .catch(() => {})
+      .catch((e: Error) => { if (e.message?.includes('403') || (e as Error & { statusCode?: number }).statusCode === 403) setPermissionDenied(true) })
       .finally(() => setLoading(false))
   }, [selectedStudio, token, weeks])
 
@@ -763,6 +765,15 @@ export default function AnalyticsTab({ studioId: initialStudioId, token, canQuer
             <div className={`h-12 ${card}`} />
           </div>
         </div>
+      </div>
+    )
+  }
+
+  if (permissionDenied) {
+    return (
+      <div className="text-center py-16 space-y-2">
+        <p className="text-sm font-medium text-gray-700">Analytics access required</p>
+        <p className="text-sm text-gray-400">Ask a studio admin to enable the <strong>View analytics</strong> permission for your account.</p>
       </div>
     )
   }

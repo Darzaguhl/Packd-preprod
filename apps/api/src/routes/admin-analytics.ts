@@ -5,9 +5,18 @@ import { requireRole, getUser } from '../lib/auth.js'
 import { ROLE_RANK } from '@packd/types'
 import { StudioIdQuery } from '../schemas.js'
 import { LeaderboardSchema, AnalyticsDataSchema, QueryResultSchema } from '../schemas/responses.js'
+import { checkPermission } from './admin-shared.js'
 
 const requireStudioAdmin = requireRole('studio_admin')
 const requireInstructor  = requireRole('instructor')
+
+/** Resolves to true if the caller may view analytics for this studio. */
+async function canSeeAnalytics(userId: string, role: string, studioId: string): Promise<boolean> {
+  return checkPermission(userId, role, studioId, 'canViewAnalytics')
+}
+
+/** Guard for analytics write/read routes — studio_admin+ OR instructor/fronthost with canViewAnalytics */
+const requireAnalytics = requireInstructor
 
 export async function adminAnalyticsRoutes(app: FastifyInstance) {
   // GET /admin/stats?studioId=
@@ -60,7 +69,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { studioId: string; period?: string } }>(
     '/leaderboard',
     {
-      preHandler: requireStudioAdmin,
+      preHandler: requireAnalytics,
       config: { studioIdFrom: 'querystring' },
       schema: {
         querystring: StudioIdQuery.extend({
@@ -73,6 +82,9 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { studioId, period = 'month' } = request.query
       if (!studioId) return reply.badRequest('studioId is required')
+
+      const user = getUser(request)
+      if (!await canSeeAnalytics(user.id, user.role, studioId)) return reply.forbidden()
 
       const now = new Date()
       let from: Date | undefined
@@ -151,7 +163,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { studioId: string; weeks?: string } }>(
     '/analytics',
     {
-      preHandler: requireStudioAdmin,
+      preHandler: requireAnalytics,
       schema: {
         querystring: StudioIdQuery.extend({
           period: z.string().optional(),
@@ -166,8 +178,13 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
 
       const user = getUser(request)
       const allStudios = studioId === 'all'
-      if (allStudios && ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['franchise_admin']) {
-        return reply.forbidden('franchise_admin role required to view all-studios analytics')
+      // 'all' studios view requires franchise_admin+; per-studio requires canViewAnalytics
+      if (allStudios) {
+        if (ROLE_RANK[user.role as keyof typeof ROLE_RANK] < ROLE_RANK['franchise_admin']) {
+          return reply.forbidden('franchise_admin role required to view all-studios analytics')
+        }
+      } else {
+        if (!await canSeeAnalytics(user.id, user.role, studioId)) return reply.forbidden()
       }
 
       const weeks = Math.min(Math.max(parseInt(request.query.weeks ?? '12', 10) || 12, 4), 52)
@@ -490,8 +507,10 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
     preHandler: requireStudioAdmin,
     config: { studioIdFrom: 'querystring' },
     schema: { querystring: StudioIdQuery.extend({ months: z.coerce.number().min(3).max(24).default(12) }) },
-  }, async (request) => {
+  }, async (request, reply) => {
     const { studioId, months } = request.query as { studioId: string; months: number }
+    const user = getUser(request)
+    if (!await canSeeAnalytics(user.id, user.role, studioId)) return reply.forbidden()
     const cutoff = new Date()
     cutoff.setMonth(cutoff.getMonth() - months)
     cutoff.setDate(1); cutoff.setHours(0, 0, 0, 0)
@@ -555,8 +574,10 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
     preHandler: requireStudioAdmin,
     config: { studioIdFrom: 'querystring' },
     schema: { querystring: StudioIdQuery.extend({ months: z.coerce.number().min(3).max(24).default(12) }) },
-  }, async (request) => {
+  }, async (request, reply) => {
     const { studioId, months } = request.query as { studioId: string; months: number }
+    const user = getUser(request)
+    if (!await canSeeAnalytics(user.id, user.role, studioId)) return reply.forbidden()
     const sf = studioId === 'all' ? Prisma.sql`1=1` : Prisma.sql`"studioId" = ${studioId}`
     const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - months); cutoff.setDate(1); cutoff.setHours(0,0,0,0)
 
@@ -635,8 +656,10 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
     preHandler: requireStudioAdmin,
     config: { studioIdFrom: 'querystring' },
     schema: { querystring: StudioIdQuery.extend({ weeks: z.coerce.number().min(2).max(26).default(8) }) },
-  }, async (request) => {
+  }, async (request, reply) => {
     const { studioId, weeks } = request.query as { studioId: string; weeks: number }
+    const user = getUser(request)
+    if (!await canSeeAnalytics(user.id, user.role, studioId)) return reply.forbidden()
     const sf = studioId === 'all' ? Prisma.sql`1=1` : Prisma.sql`cs."studioId" = ${studioId}`
     const cutoff = new Date()
     cutoff.setDate(cutoff.getDate() - weeks * 7)
@@ -704,8 +727,10 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
     preHandler: requireStudioAdmin,
     config: { studioIdFrom: 'querystring' },
     schema: { querystring: StudioIdQuery.extend({ months: z.coerce.number().min(3).max(24).default(12) }) },
-  }, async (request) => {
+  }, async (request, reply) => {
     const { studioId, months } = request.query as { studioId: string; months: number }
+    const user = getUser(request)
+    if (!await canSeeAnalytics(user.id, user.role, studioId)) return reply.forbidden()
     const sfPlan = studioId === 'all' ? Prisma.sql`1=1` : Prisma.sql`p."studioId" = ${studioId}`
     const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - months); cutoff.setDate(1); cutoff.setHours(0,0,0,0)
 
@@ -761,8 +786,10 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
     preHandler: requireStudioAdmin,
     config: { studioIdFrom: 'querystring' },
     schema: { querystring: StudioIdQuery },
-  }, async (request) => {
+  }, async (request, reply) => {
     const { studioId } = request.query as { studioId: string }
+    const user = getUser(request)
+    if (!await canSeeAnalytics(user.id, user.role, studioId)) return reply.forbidden()
     const sf = studioId === 'all' ? Prisma.sql`1=1` : Prisma.sql`m."studioId" = ${studioId}`
 
     const rows = await prisma.$queryRaw<{

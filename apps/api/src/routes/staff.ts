@@ -112,7 +112,7 @@ export async function staffRoutes(app: FastifyInstance) {
             user: {
               select: {
                 firstName: true, lastName: true, email: true, avatarUrl: true,
-                instructors: { where: { studioId }, select: { id: true, payRatePerHeadCents: true } },
+                instructors: { where: { studioId }, select: { id: true, payRatePerHeadCents: true, title: true } },
               },
             },
           },
@@ -177,6 +177,8 @@ export async function staffRoutes(app: FastifyInstance) {
         payRatePerHeadCents: s.user.instructors[0]?.payRatePerHeadCents ?? null,
         payRateHourlyCents: s.payRateHourlyCents ?? null,
         avatarUrl: s.user.avatarUrl ?? null,
+        // Title: from Instructor record if they're an instructor, else from Member.staffTitle
+        title: s.user.instructors[0]?.title ?? s.staffTitle ?? null,
       }))
 
       // Management users first (sorted by role rank), then staff alphabetically
@@ -503,6 +505,45 @@ export async function staffRoutes(app: FastifyInstance) {
 
       audit({ actorId: user.id, actorRole: user.role, action: AUDIT.STAFF_PAY_UPDATE, targetId: memberId, studioId: member.studioId, meta: { payRateHourlyCents } })
       return reply.send({ success: true })
+    },
+  )
+
+  // PATCH /staff/:memberId/title — set display title for any staff member (studio_admin+)
+  // Sets Instructor.title for instructors, Member.staffTitle for fronthosts.
+  app.patch<{
+    Params: { memberId: string }
+    Body: { title: string | null; studioId: string }
+  }>(
+    '/:memberId/title',
+    {
+      preHandler: requireStudioAdmin,
+      schema: {
+        params: MemberIdParam,
+        body: z.object({ title: z.string().max(64).nullable(), studioId: Id }),
+      },
+    },
+    async (request, reply) => {
+      const { memberId } = request.params
+      const { title, studioId } = request.body
+      const user = getUser(request)
+
+      const member = await prisma.member.findUnique({
+        where: { id: memberId },
+        include: { user: { select: { instructors: { where: { studioId }, select: { id: true } } } } },
+      })
+      if (!member) return reply.notFound()
+      if (!await assertStudioAccess(user.id, user.role, member.studioId, reply, user.studioIds)) return
+
+      const instructorId = member.user.instructors[0]?.id
+      if (instructorId) {
+        // Instructor — set on Instructor record
+        await prisma.instructor.update({ where: { id: instructorId }, data: { title: title ?? null } })
+      } else {
+        // Fronthost — set on Member record
+        await prisma.member.update({ where: { id: memberId }, data: { staffTitle: title ?? null } })
+      }
+
+      return reply.send({ success: true, title })
     },
   )
 

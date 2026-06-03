@@ -389,6 +389,8 @@ export const StaffMemberSchema = z.object({
   /** Set for management-tier users (studio_admin, franchise_admin, admin, brand_admin).
    *  When present, this user is shown read-only in the Management section. */
   primaryRole:         z.string().optional(),
+  /** Display title, e.g. "Master Instructor", "Fronthost Manager" */
+  title:               z.string().nullable().optional(),
 })
 
 export const StaffWithPermissionsSchema = z.object({

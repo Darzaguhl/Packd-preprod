@@ -41,6 +41,42 @@ export async function assertStudioAccess(
 }
 
 /**
+ * Check if a user has a specific named permission.
+ * studio_admin+ always returns true.
+ * instructor: checks Instructor.permissions[key] for this studio.
+ * fronthost:  checks Member.staffPermissions[key] for this studio.
+ * Returns false for any other role or if the permission is not explicitly granted.
+ */
+export async function checkPermission(
+  userId: string,
+  role: string,
+  studioId: string,
+  permission: string,
+): Promise<boolean> {
+  if (ROLE_RANK[role as keyof typeof ROLE_RANK] >= ROLE_RANK['studio_admin']) return true
+
+  if (role === 'instructor') {
+    const instructor = await prisma.instructor.findFirst({
+      where: { studioId, userId },
+      select: { permissions: true },
+    })
+    const perms = (instructor?.permissions ?? {}) as Record<string, unknown>
+    return perms[permission] === true
+  }
+
+  if (role === 'fronthost') {
+    const member = await prisma.member.findFirst({
+      where: { userId, studioIds: { has: studioId } },
+      select: { staffPermissions: true },
+    })
+    const perms = (member?.staffPermissions ?? {}) as Record<string, unknown>
+    return perms[permission] === true
+  }
+
+  return false
+}
+
+/**
  * Returns true if the instructor already has a non-cancelled session overlapping
  * the given time window. Optionally exclude a specific session (e.g. the one being rescheduled).
  */

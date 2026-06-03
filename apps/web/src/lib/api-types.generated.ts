@@ -5693,6 +5693,7 @@ export interface paths {
                             payRateHourlyCents?: number | null;
                             avatarUrl?: string | null;
                             primaryRole?: string;
+                            title?: string | null;
                         }[];
                     };
                 };
@@ -5913,6 +5914,48 @@ export interface paths {
                 content: {
                     "application/json": {
                         payRateHourlyCents: number | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/staff/{memberId}/title": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    memberId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        title: string | null;
+                        studioId: string;
                     };
                 };
             };

@@ -926,6 +926,8 @@ export const api = {
       apiFetch<{ success: boolean; role: string; studioName: string }>('/staff/accept-invite', { method: 'POST', body: JSON.stringify(body), token }),
     uploadAvatar: (memberId: string, body: { base64: string; fileName: string; contentType: string }, token: string) =>
       apiFetch<{ avatarUrl: string }>(`/staff/${memberId}/avatar`, { method: 'POST', body: JSON.stringify(body), token }),
+    setTitle: (memberId: string, studioId: string, title: string | null, token: string) =>
+      apiFetch<{ success: boolean; title: string | null }>(`/staff/${memberId}/title`, { method: 'PATCH', body: JSON.stringify({ title, studioId }), token }),
   },
   studios: {
     list: (token: string) => apiFetch<StudioSummary[]>('/studios', { token }),

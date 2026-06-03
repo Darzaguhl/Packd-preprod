@@ -261,6 +261,9 @@ export default function StaffTab({ studioId, token, currency = 'USD', onOpenPerm
                   <StaffAvatar name={member.name} avatarUrl={member.avatarUrl} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-900 truncate">{member.name}</p>
+                    {(member as typeof member & { title?: string | null }).title && (
+                      <p className="text-xs text-indigo-600 font-medium truncate">{(member as typeof member & { title?: string | null }).title}</p>
+                    )}
                     <p className="text-xs text-gray-400 truncate">{member.email}</p>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">

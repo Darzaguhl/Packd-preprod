@@ -6578,6 +6578,10 @@
                       },
                       "primaryRole": {
                         "type": "string"
+                      },
+                      "title": {
+                        "nullable": true,
+                        "type": "string"
                       }
                     },
                     "required": [
@@ -6775,6 +6779,51 @@
                 },
                 "required": [
                   "payRateHourlyCents"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "memberId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/staff/{memberId}/title": {
+      "patch": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "nullable": true,
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "studioId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "title",
+                  "studioId"
                 ]
               }
             }
