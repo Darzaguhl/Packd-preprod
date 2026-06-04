@@ -2,6 +2,9 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e',
+  // Performance benchmarks produce noisy results in dev-mode CI.
+  // Run them manually via the perf.yml workflow_dispatch instead.
+  testIgnore: ['**/performance.spec.ts'],
   fullyParallel: false,           // serial — tests share real DB state
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

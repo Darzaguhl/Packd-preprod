@@ -206,26 +206,82 @@ export default async function globalSetup() {
   await seedMemberCredits(adminToken, E2E_MEMBER_EMAIL, 20)
 
   // 3b. Clean up test-polluted DB state from previous CI runs.
-  //     Only touches rows OWNED BY THE TEST MEMBER — never touches shared studio data
-  //     (room layouts, sessions, etc.) which would break the live preprod environment.
+  //     Touches: e2e test sessions, shifts, and patterns owned by the test member.
+  //     Never touches real seed data (room layouts, instructor records, etc.).
   try {
     const { prisma } = await import('@packd/db')
+
+    // Remove synthetic sessions created by previous e2e runs
+    const { count: sessionCount } = await prisma.classSession.deleteMany({
+      where: { studioId: STUDIO_ID, source: 'e2e-test' },
+    })
+    if (sessionCount > 0) console.log(`[setup] Removed ${sessionCount} stale e2e session(s)`)
 
     // Find the e2e member record so we can scope the shift cleanup
     const member = await prisma.member.findFirst({ where: { user: { email: E2E_MEMBER_EMAIL } }, select: { id: true } })
     if (member) {
-      // Delete all one-off shifts — shift tests create these and must start clean
-      const { count: shiftCount } = await prisma.staffShift.deleteMany({ where: { memberId: member.id } })
-      // Delete all recurring patterns — same reason
+      const { count: shiftCount }   = await prisma.staffShift.deleteMany({ where: { memberId: member.id } })
       const { count: patternCount } = await prisma.staffShiftPattern.deleteMany({ where: { memberId: member.id } })
       if (shiftCount + patternCount > 0) {
         console.log(`[setup] Removed ${shiftCount} shift(s) + ${patternCount} pattern(s) for e2e member`)
       }
     }
 
+    // 3c. Ensure at least one bookable future session exists in the studio.
+    //     Seed sessions go stale after a few weeks; create a synthetic one so booking
+    //     tests can always run without depending on the seed schedule.
+    const now = new Date()
+    const existingFuture = await prisma.classSession.count({
+      where: {
+        studioId: STUDIO_ID,
+        startsAt: { gte: now },
+        status: { not: 'CANCELLED' },
+      },
+    })
+
+    if (existingFuture === 0) {
+      // Find the minimal required DB records for a valid session
+      const template   = await prisma.classTemplate.findFirst({ where: { studioId: STUDIO_ID } })
+      const instructor = await prisma.instructor.findFirst({ where: { studioId: STUDIO_ID } })
+      const location   = await prisma.location.findFirst({ where: { studioId: STUDIO_ID } })
+      // Prefer a room without active layouts so book-btn renders without a spot-picker
+      const rooms = location ? await prisma.room.findMany({
+        where: { locationId: location.id },
+        include: { layouts: { where: { isActive: true }, select: { id: true } } },
+      }) : []
+      const room = rooms.find(r => r.layouts.length === 0) ?? rooms[0]
+
+      if (template && instructor && room) {
+        const startsAt = new Date(now)
+        startsAt.setDate(startsAt.getDate() + 3)
+        startsAt.setHours(10, 0, 0, 0)
+        const endsAt = new Date(startsAt)
+        endsAt.setHours(11, 0, 0, 0)
+
+        await prisma.classSession.create({
+          data: {
+            studioId:        STUDIO_ID,
+            templateId:      template.id,
+            instructorId:    instructor.id,
+            roomId:          room.id,
+            startsAt,
+            endsAt,
+            capacity:        20,
+            creditsRequired: 1,
+            source:          'e2e-test',
+          },
+        })
+        console.log('[setup] Created synthetic e2e session for booking tests (3 days from now)')
+      } else {
+        console.warn('[setup] ⚠ Could not create e2e session — missing template/instructor/room')
+      }
+    } else {
+      console.log(`[setup] ${existingFuture} future session(s) exist — no synthetic session needed`)
+    }
+
     await prisma.$disconnect()
   } catch (e) {
-    console.warn('[setup] Could not clean DB state (non-fatal):', e)
+    console.warn('[setup] Could not clean/seed DB state (non-fatal):', e)
   }
 
   // 4. Assign fronthost role to the e2e-member so shift tests can target them
@@ -235,23 +291,18 @@ export default async function globalSetup() {
     body: JSON.stringify({ studioId: STUDIO_ID, email: E2E_MEMBER_EMAIL, staffRole: 'fronthost' }),
   }).catch(() => {}) // idempotent — safe to call again if already assigned
 
-  // 5. Verify the studio has at least one bookable future session.
-  //    If the seed sessions are all in the past (happens after a few weeks),
-  //    the booking test would silently skip — fail loudly here instead.
+  // 5. Confirm future sessions are visible via the schedule API
   const scheduleRes = await fetch(
-    `${API_URL}/schedule?studioId=${STUDIO_ID}&date=${new Date(Date.now() + 86400000).toISOString().slice(0, 10)}`,
+    `${API_URL}/schedule?studioId=${STUDIO_ID}&date=${new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10)}`,
     { headers: { Authorization: `Bearer ${memberToken}` } },
   )
   if (scheduleRes.ok) {
     const schedule = await scheduleRes.json().catch(() => ({ sessions: [] }))
     const sessions = schedule?.sessions ?? schedule ?? []
     if (!Array.isArray(sessions) || sessions.length === 0) {
-      console.warn(
-        '[setup] ⚠ No sessions found for tomorrow. Booking tests may skip.\n' +
-        '        Re-run the seed script: npm run db:seed',
-      )
+      console.warn('[setup] ⚠ Schedule API returned 0 sessions for e2e date — booking tests may still skip')
     } else {
-      console.log(`[setup] Found ${sessions.length} session(s) for tomorrow — booking tests will run.`)
+      console.log(`[setup] Schedule API confirmed ${sessions.length} session(s) — booking tests will run`)
     }
   }
 

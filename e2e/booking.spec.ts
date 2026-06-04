@@ -1,61 +1,16 @@
 /**
  * Booking flow — member perspective.
  *
- * Prerequisite: global-setup.ts has run and seeded the test member with credits.
- * Tests run serially (workers: 1) because they share real DB state.
+ * Prerequisites:
+ *  - global-setup.ts has seeded the test member with credits AND created a synthetic
+ *    future session (source='e2e-test') in a room without a layout so book-btn renders.
+ *  - Tests run serially (workers: 1) because they share real DB state.
  *
- * Flow: browse classes → open session detail → book → verify booked → cancel → verify unbooked
+ * Schedule view rendering tests live in schedule.spec.ts; this file covers the
+ * actual book/cancel flows and credit accounting.
  */
 
 import { test, expect } from './fixtures'
-
-test.describe('Schedule', () => {
-  test('shows day tabs and class cards', async ({ authedPage: page }) => {
-    // Seven day tabs
-    await expect(page.locator('[data-testid="day-tab"]')).toHaveCount(7)
-
-    // At least one class card OR an empty-state message — never blank
-    const cards = page.locator('[data-testid="class-card"]')
-    const empty = page.locator('text=/no classes/i')
-    await expect(cards.first().or(empty)).toBeVisible({ timeout: 8000 })
-  })
-
-  test('today tab is selected by default', async ({ authedPage: page }) => {
-    const selected = page.locator('[data-testid="day-tab"][aria-selected="true"]')
-    await expect(selected).toBeVisible()
-  })
-
-  test('switching day tab updates class list without crashing', async ({ authedPage: page }) => {
-    const tabs = page.locator('[data-testid="day-tab"]')
-    await tabs.nth(2).click()
-    await page.waitForTimeout(500)
-    // Page is still functional — either cards or empty state
-    await expect(
-      page.locator('[data-testid="class-card"]').first()
-        .or(page.locator('text=/no classes/i'))
-    ).toBeVisible({ timeout: 5000 })
-  })
-
-  test('clicking a class card opens session detail with capacity info', async ({ authedPage: page }) => {
-    const futureCards = page.locator('[data-testid="class-card"][data-past="false"]')
-    const tabs = page.locator('[data-testid="day-tab"]')
-
-    // Find a day with at least one future (clickable) card
-    let found = false
-    for (let i = 0; i < 7 && !found; i++) {
-      await tabs.nth(i).click()
-      await page.waitForTimeout(400)
-      if (await futureCards.count() > 0) { found = true }
-    }
-    if (!found) { test.skip(); return }
-
-    await futureCards.first().click()
-    const detail = page.locator('[data-testid="session-detail"]')
-    await expect(detail).toBeVisible({ timeout: 5000 })
-    // Must show capacity (e.g. "4/20 booked")
-    await expect(detail).toContainText(/\/\d+ booked/i)
-  })
-})
 
 test.describe('Credit balance', () => {
   test('booking a class decrements credit balance; cancelling restores it', async ({ authedPage: page }) => {

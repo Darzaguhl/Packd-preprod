@@ -1,0 +1,79 @@
+name: Performance benchmarks
+
+# Run manually via the GitHub Actions UI — not on every push.
+# These tests measure LCP/CLS/TTFB and API latency against a live dev server.
+# Results are directional only (dev-mode, no build optimisation).
+on:
+  workflow_dispatch:
+
+jobs:
+  perf:
+    name: Perf benchmarks
+    runs-on: ubuntu-latest
+
+    env:
+      CI: true
+      BASE_URL: http://localhost:3000
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      ICAL_SECRET: ci-e2e-secret
+      STRIPE_SECRET_KEY: sk_test_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_placeholder
+      RESEND_API_KEY: re_placeholder
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate --schema packages/db/prisma/schema.prisma
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Create API env file
+        run: |
+          cat > apps/api/.env <<EOF
+          DATABASE_URL=${{ secrets.DATABASE_URL }}
+          PGBOSS_DATABASE_URL=${{ secrets.PGBOSS_DATABASE_URL }}
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CORS_ORIGIN=http://localhost:3000
+          PORT=4000
+          WEB_URL=http://localhost:3000
+          ICAL_SECRET=ci-e2e-secret
+          STRIPE_SECRET_KEY=sk_test_placeholder
+          STRIPE_WEBHOOK_SECRET=whsec_placeholder
+          RESEND_API_KEY=re_placeholder
+          EOF
+
+      - name: Create web env file
+        run: |
+          cat > apps/web/.env.local <<EOF
+          NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_API_URL=http://localhost:4000
+          NEXT_PUBLIC_STUDIO_ID=${{ secrets.STUDIO_ID }}
+          EOF
+
+      - name: Run performance benchmarks
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_STUDIO_ID: ${{ secrets.STUDIO_ID }}
+        run: npx playwright test e2e/performance.spec.ts --reporter=list
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-report
+          path: playwright-report/
+          retention-days: 7
