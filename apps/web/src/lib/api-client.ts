@@ -823,10 +823,10 @@ export const api = {
     removeAdmin: (studioId: string, userId: string, token: string) =>
       apiFetch<{ success: boolean }>(`/franchise/studios/${studioId}/admins/${userId}`, { method: 'DELETE', token }),
     allStaff: (token: string, cursor?: string) =>
-      apiFetch<{ items: { id: string; userId: string; name: string; email: string; roles: string[]; studioIds: string[]; studios: { id: string; name: string }[]; payRateHourlyCents: number | null; instructorRates: { instructorId: string; studioId: string; studioName: string; payRatePerHeadCents: number | null }[] }[]; nextCursor: string | null; hasMore: boolean }>(
+      apiFetch<{ items: { id: string; userId: string; name: string; email: string; avatarUrl?: string | null; roles: string[]; studioIds: string[]; studios: { id: string; name: string }[]; payRateHourlyCents: number | null; instructorRates: { instructorId: string; studioId: string; studioName: string; payRatePerHeadCents: number | null }[] }[]; nextCursor: string | null; hasMore: boolean }>(
         `/franchise/staff${cursor ? `?cursor=${cursor}` : ''}`, { token }),
     allAdmins: (token: string, cursor?: string) =>
-      apiFetch<{ items: { userId: string; name: string; email: string; studioIds: string[]; studios: { id: string; name: string }[] }[]; nextCursor: string | null; hasMore: boolean }>(
+      apiFetch<{ items: { userId: string; name: string; email: string; avatarUrl?: string | null; studioIds: string[]; studios: { id: string; name: string }[] }[]; nextCursor: string | null; hasMore: boolean }>(
         `/franchise/all-admins${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, { token }),
     listPromos: (token: string, cursor?: string) =>
       apiFetch<{ items: { code: string; description: string | null; type: string; value: number; maxUses: number | null; usageCount: number; studios: string[]; isActive: boolean; validUntil: string | null }[]; nextCursor: string | null; hasMore: boolean }>(

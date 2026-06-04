@@ -9,11 +9,24 @@ type Admin = {
   userId: string
   name: string
   email: string
+  avatarUrl?: string | null
   studios: { id: string; name: string }[]
 }
 
 function initials(name: string) {
   return name.split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()
+}
+
+function Avatar({ name, url }: { name: string; url?: string | null }) {
+  const inits = initials(name)
+  return (
+    <div className="w-9 h-9 rounded-full relative overflow-hidden shrink-0 bg-indigo-100">
+      {url && <img src={url} alt={name} className="absolute inset-0 w-full h-full object-cover" />}
+      <span className={`absolute ${url ? 'bottom-0.5 left-1/2 -translate-x-1/2 text-[9px] text-white font-bold' : 'inset-0 flex items-center justify-center text-xs font-bold text-indigo-700'}`}>
+        {inits}
+      </span>
+    </div>
+  )
 }
 
 interface Props {
@@ -247,9 +260,7 @@ export default function FranchiseAdminsRoster({ studios, token }: Props) {
                   onClick={() => setExpandedId(isExpanded ? null : admin.userId)}
                   className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50 transition-colors text-left cursor-pointer"
                 >
-                  <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold shrink-0">
-                    {initials(admin.name)}
-                  </div>
+                  <Avatar name={admin.name} url={admin.avatarUrl} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900">{admin.name}</p>
                     <p className="text-xs text-gray-400 truncate">{admin.email}</p>

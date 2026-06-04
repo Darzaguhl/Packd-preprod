@@ -767,7 +767,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
         fetchSupabaseUsers(),
         prisma.member.findMany({
           where: { staffRoles: { has: 'studio_admin' } },
-          include: { user: { select: { firstName: true, lastName: true, email: true } } },
+          include: { user: { select: { firstName: true, lastName: true, email: true, avatarUrl: true } } },
         }),
       ])
 
@@ -790,6 +790,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
           userId: su.id,
           name: m ? `${m.user.firstName} ${m.user.lastName}` : fallbackName,
           email: su.email ?? m?.user.email ?? '',
+          avatarUrl: m?.user.avatarUrl ?? null,
           studioIds,
           studios: studioIds.map(id => ({ id, name: studioMap.get(id) ?? id })),
         }
