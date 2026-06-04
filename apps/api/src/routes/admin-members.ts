@@ -213,15 +213,24 @@ export async function adminMembersRoutes(app: FastifyInstance) {
         },
       })
 
-      return members
-        .sort((a, b) => (order.get(a.id) ?? 99) - (order.get(b.id) ?? 99))
-        .map(m => ({
-          id: m.id,
-          name: `${m.user.firstName} ${m.user.lastName}`,
-          email: m.user.email,
-          creditBalance: m.creditBalance?.balance ?? 0,
-          membershipStatus: m.memberships[0]?.status ?? null,
-        }))
+      const sorted = members.sort((a, b) => (order.get(a.id) ?? 99) - (order.get(b.id) ?? 99))
+
+      // If the query is an exact full-name match for any result, show only those.
+      // Prevents "Alex Rivera" returning Alex Richardson alongside Alex Rivera.
+      // Normalise whitespace so "Alex  Rivera" still matches.
+      const normalisedTerm = term.toLowerCase().replace(/\s+/g, ' ')
+      const exactMatches = sorted.filter(
+        m => `${m.user.firstName} ${m.user.lastName}`.toLowerCase().replace(/\s+/g, ' ') === normalisedTerm
+      )
+      const finalResults = exactMatches.length > 0 ? exactMatches : sorted
+
+      return finalResults.map(m => ({
+        id: m.id,
+        name: `${m.user.firstName} ${m.user.lastName}`,
+        email: m.user.email,
+        creditBalance: m.creditBalance?.balance ?? 0,
+        membershipStatus: m.memberships[0]?.status ?? null,
+      }))
     },
   )
 
