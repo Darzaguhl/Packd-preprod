@@ -22,6 +22,9 @@ test.describe('Account page', () => {
     await page.goto('/account')
     await expect(page.locator('.animate-pulse').first()).not.toBeVisible({ timeout: 10_000 })
 
+    // iCal card lives in the Activity tab — click it first
+    await page.getByRole('button', { name: 'Activity' }).click()
+
     const icalCard = page.getByTestId('ical-member-card')
     await expect(icalCard).toBeVisible({ timeout: 8_000 })
     await expect(icalCard.getByRole('button', { name: /copy ical url/i })).toBeVisible()
