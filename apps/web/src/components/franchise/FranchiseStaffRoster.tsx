@@ -50,9 +50,15 @@ function initials(name: string) {
 }
 
 function Avatar({ name, url, size = 9 }: { name: string; url?: string | null; size?: number }) {
-  const cls = `w-${size} h-${size} rounded-full shrink-0 overflow-hidden bg-gray-100 text-gray-600 flex items-center justify-center text-xs font-bold`
-  if (url) return <img src={url} alt={name} className={`${cls} object-cover`} />
-  return <div className={cls}>{initials(name)}</div>
+  const inits = initials(name)
+  return (
+    <div className={`w-${size} h-${size} rounded-full relative overflow-hidden shrink-0 bg-gray-100`}>
+      {url && <img src={url} alt={name} className="absolute inset-0 w-full h-full object-cover" />}
+      <span className={`absolute ${url ? 'bottom-0.5 left-1/2 -translate-x-1/2 text-[9px] text-white font-bold' : 'inset-0 flex items-center justify-center text-xs font-bold text-gray-600'}`}>
+        {inits}
+      </span>
+    </div>
+  )
 }
 
 function roleColor(role: string) {

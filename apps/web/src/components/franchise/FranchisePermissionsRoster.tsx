@@ -73,11 +73,17 @@ function initials(name: string) {
 }
 
 function Avatar({ name, url, size = 8, selected = false }: { name: string; url?: string | null; size?: number; selected?: boolean }) {
-  const cls = `w-${size} h-${size} rounded-full shrink-0 overflow-hidden flex items-center justify-center text-xs font-bold mt-0.5 ${
-    selected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
-  }`
-  if (url) return <img src={url} alt={name} className={`${cls} object-cover`} />
-  return <div className={cls}>{initials(name)}</div>
+  const inits = initials(name)
+  const bg = selected ? 'bg-white/20' : 'bg-gray-100'
+  const textColor = selected ? 'text-white' : 'text-gray-600'
+  return (
+    <div className={`w-${size} h-${size} rounded-full relative overflow-hidden shrink-0 mt-0.5 ${bg}`}>
+      {url && <img src={url} alt={name} className="absolute inset-0 w-full h-full object-cover" />}
+      <span className={`absolute ${url ? 'bottom-0.5 left-1/2 -translate-x-1/2 text-[8px] font-bold text-white' : `inset-0 flex items-center justify-center text-xs font-bold ${textColor}`}`}>
+        {inits}
+      </span>
+    </div>
+  )
 }
 
 function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
