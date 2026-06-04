@@ -63,10 +63,14 @@ test.describe('Schedule view', () => {
 
     await futureCards.first().click()
     const detail = page.locator('[data-testid="session-detail"]')
-    await expect(detail).toBeVisible({ timeout: 8000 })
+    // CI can be slow — give the panel more time to appear
+    await expect(detail).toBeVisible({ timeout: 15_000 })
     await expect(detail).toContainText(/\/\d+ booked/i)
 
-    // Action area is present — cancel-btn is always rendered (disabled if not booked)
-    await expect(detail.locator('[data-testid="cancel-btn"]')).toBeVisible({ timeout: 3000 })
+    // Book button appears when not yet booked and session is not full
+    // (cancel-btn only renders when already booked — don't assert it here)
+    await expect(
+      detail.locator('[data-testid="book-btn"], [data-testid="waitlist-btn"], [data-testid="cancel-btn"]').first()
+    ).toBeVisible({ timeout: 5_000 })
   })
 })

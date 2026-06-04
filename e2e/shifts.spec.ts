@@ -156,7 +156,7 @@ test.describe('Staff shifts — audit trail', () => {
     await expect(page.getByTestId('shift-row').first()).not.toBeVisible({ timeout: 5_000 })
 
     // Navigate to Audit Log tab
-    await page.getByRole('button', { name: /audit log/i }).click()
+    await page.getByRole('button', { name: /^audit$/i }).click()
     await expect(page.locator('.animate-pulse').first()).not.toBeVisible({ timeout: 5_000 })
 
     // Should have at least one shift-related entry
